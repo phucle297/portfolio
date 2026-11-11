@@ -20,9 +20,19 @@
     "eslint/eqeqeq": "error",
     "eslint/no-var": "error",
     "eslint/prefer-const": "error",
-    "eslint/no-console": ["error", { "allow": ["warn", "error"] }],
-    "eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
-
+    "eslint/no-console": [
+      "error",
+      {
+        "allow": ["warn", "error"]
+      }
+    ],
+    "eslint/no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
     "typescript/array-type": "error",
     "typescript/ban-ts-comment": "error",
     "typescript/consistent-indexed-object-style": "error",
@@ -56,19 +66,30 @@
     "typescript/restrict-plus-operands": "error",
     "typescript/return-await": "error",
     "typescript/unified-signatures": "error",
-
-    "import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }],
+    "import/no-unassigned-import": [
+      "error",
+      {
+        "allow": ["**/*.css"]
+      }
+    ],
     "import/no-cycle": "error",
     "import/no-duplicates": "error",
     "import/no-self-import": "error",
-
     "promise/no-return-wrap": "error",
-    "promise/param-names": "error"
+    "promise/param-names": "error",
+    "fsd-imports/layers": "error",
+    "fsd-imports/no-cross-slice": "error",
+    "fsd-imports/public-api": "error",
+    "fsd-imports/relative-in-slice": "error"
   },
   "overrides": [
     {
-      "files": ["*.config.{js,mjs,ts}"],
-      "env": { "node": true, "browser": false }
+      "files": ["*.config.{js,mjs,ts}", "tools/**"],
+      "env": {
+        "node": true,
+        "browser": false
+      }
     }
-  ]
+  ],
+  "jsPlugins": ["./tools/oxlint-plugin-fsd/index.js"]
 }
