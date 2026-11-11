@@ -1,0 +1,73 @@
+---
+import { Section } from "@shared/ui";
+
+const highlights = [
+  { label: "Focus", value: "Web performance & UX" },
+  { label: "Stack", value: "TypeScript, Astro, Node.js" },
+  { label: "Based in", value: "Vietnam" },
+] as const;
+---
+
+<Section id="about" title="About me" eyebrow="About">
+  <div class="about">
+    <div class="about__copy" data-reveal data-reveal-delay="80">
+      <p>
+        Placeholder bio. Write a few sentences about who you are, what you care about, and the kind
+        of problems you enjoy solving.
+      </p>
+      <p>
+        Keep paragraphs short and scannable. This section is static HTML; it fades in on scroll
+        unless you prefer reduced motion.
+      </p>
+    </div>
+    <dl class="about__facts">
+      {highlights.map((item, index) => (
+        <div class="about__fact" data-reveal data-reveal-delay={String(120 + index * 80)}>
+          <dt>{item.label}</dt>
+          <dd>{item.value}</dd>
+        </div>
+      ))}
+    </dl>
+  </div>
+</Section>
+
+<style>
+  .about {
+    display: grid;
+    gap: clamp(2rem, 5vw, 4rem);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  }
+
+  .about__copy p {
+    margin: 0 0 1rem;
+    max-width: 60ch;
+    color: var(--color-text-muted);
+    font-size: 1.1rem;
+  }
+
+  .about__facts {
+    display: grid;
+    gap: 1rem;
+    margin: 0;
+  }
+
+  .about__fact {
+    padding: 1.25rem 1.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+
+  .about__fact dt {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .about__fact dd {
+    margin: 0.25rem 0 0;
+    font-size: 1.15rem;
+    font-weight: 600;
+  }
+</style>

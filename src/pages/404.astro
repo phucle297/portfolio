@@ -1,32 +1,8 @@
 ---
-import BaseLayout from "@/layouts/BaseLayout.astro";
+import { BaseLayout } from "@app/layouts";
+import { NotFoundPage, notFoundMeta } from "@pages/not-found";
 ---
 
-<BaseLayout title="Page not found" description="The page you are looking for does not exist.">
-  <section class="not-found container" aria-labelledby="not-found-title">
-    <h1 id="not-found-title">Page not found</h1>
-    <p>The page you are looking for does not exist or has moved.</p>
-    <a class="button button--primary" href="/">
-      Back to home
-    </a>
-  </section>
+<BaseLayout title={notFoundMeta.title} description={notFoundMeta.description}>
+  <NotFoundPage />
 </BaseLayout>
-
-<style>
-  .not-found {
-    display: grid;
-    justify-items: start;
-    gap: 1rem;
-    padding-block: clamp(6rem, 18vw, 10rem);
-  }
-
-  .not-found h1 {
-    margin: 0;
-    font-size: clamp(2rem, 6vw, 3.5rem);
-  }
-
-  .not-found p {
-    margin: 0;
-    color: var(--color-text-muted);
-  }
-</style>
