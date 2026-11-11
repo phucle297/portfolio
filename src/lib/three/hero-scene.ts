@@ -17,7 +17,7 @@ import {
   Timer,
   WebGLRenderer,
 } from "three";
-import { hasHardwareWebGL } from "./webgl-support";
+import { isSoftwareRenderer } from "./webgl-support";
 
 export interface HeroSceneOptions {
   /** Live media query for `prefers-reduced-motion: reduce`. */
@@ -84,14 +84,13 @@ function createStarfield(count: number): BufferGeometry {
 
 /**
  * Mount the scene inside `host`. Resolves to `null` when hardware WebGL is unavailable so the
- * CSS poster stays visible.
+ * CSS poster stays visible. Callers should run `probeHardwareWebGL()` first so three.js is never
+ * downloaded on devices that would fall back here.
  */
 export async function mountHeroScene(
   host: HTMLElement,
   { reducedMotion, maxPixelRatio = 1.5 }: HeroSceneOptions,
 ): Promise<HeroSceneHandle | null> {
-  if (!hasHardwareWebGL()) return null;
-
   let renderer: WebGLRenderer;
   try {
     renderer = new WebGLRenderer({
@@ -101,6 +100,10 @@ export async function mountHeroScene(
       failIfMajorPerformanceCaveat: true,
     });
   } catch {
+    return null;
+  }
+  if (isSoftwareRenderer(renderer.getContext())) {
+    renderer.dispose();
     return null;
   }
 
@@ -115,11 +118,12 @@ export async function mountHeroScene(
   camera.position.set(0, 0, 6);
 
   const blobGeometry = new IcosahedronGeometry(1.35, 32);
+  const uTime = { value: 0 };
   const blobMaterial = new ShaderMaterial({
     vertexShader,
     fragmentShader,
     uniforms: {
-      uTime: { value: 0 },
+      uTime,
       uColorA: { value: new Color("#3b82f6") },
       uColorB: { value: new Color("#c084fc") },
     },
@@ -161,8 +165,7 @@ export async function mountHeroScene(
     pointer.x += (pointer.tx - pointer.x) * Math.min(delta * 3, 1);
     pointer.y += (pointer.ty - pointer.y) * Math.min(delta * 3, 1);
 
-    const uniforms = blobMaterial.uniforms as { uTime: { value: number } };
-    uniforms.uTime.value = elapsed;
+    uTime.value = elapsed;
     blob.rotation.y = elapsed * 0.12 + pointer.x * 0.4;
     blob.rotation.x = pointer.y * 0.3;
     stars.rotation.y = -elapsed * 0.02 + pointer.x * 0.1;

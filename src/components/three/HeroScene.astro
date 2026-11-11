@@ -16,9 +16,11 @@
 
 <script>
   import { reducedMotionQuery } from "@/lib/motion/preferences";
-  import { hasHardwareWebGL } from "@/lib/three/webgl-support";
+  import { probeHardwareWebGL } from "@/lib/three/webgl-support";
 
-  type NetworkInformationLike = { saveData?: boolean };
+  interface NetworkInformationLike {
+    saveData?: boolean;
+  }
 
   const host = document.querySelector<HTMLElement>("[data-hero-scene]");
 
@@ -45,28 +47,33 @@
     io.observe(el);
   };
 
+  async function mount(el: HTMLElement): Promise<void> {
+    try {
+      const { mountHeroScene } = await import("@/lib/three/hero-scene");
+      const handle = await mountHeroScene(el, { reducedMotion: reducedMotionQuery() });
+      if (!handle) return;
+      window.addEventListener("pagehide", (event) => {
+        if (!event.persisted) handle.dispose();
+      });
+    } catch {
+      // Network or WebGL failure: the CSS poster remains as the fallback.
+    }
+  }
+
+  async function start(el: HTMLElement): Promise<void> {
+    // Probe lazily (after load, when idle, off the main thread where possible).
+    if (!(await probeHardwareWebGL())) return;
+    whenVisible(el, () => {
+      void mount(el);
+    });
+  }
+
   const connection = (navigator as Navigator & { connection?: NetworkInformationLike }).connection;
 
   if (host && connection?.saveData !== true) {
     whenLoaded(() => {
       whenIdle(() => {
-        // Probe lazily (after load, when idle) so context creation never competes with LCP.
-        if (!hasHardwareWebGL()) return;
-        whenVisible(host, () => {
-          void import("@/lib/three/hero-scene")
-            .then(({ mountHeroScene }) =>
-              mountHeroScene(host, { reducedMotion: reducedMotionQuery() }),
-            )
-            .then((handle) => {
-              if (!handle) return;
-              window.addEventListener("pagehide", (event) => {
-                if (!event.persisted) handle.dispose();
-              });
-            })
-            .catch(() => {
-              // Network or WebGL failure: the CSS poster remains as the fallback.
-            });
-        });
+        void start(host);
       });
     });
   }

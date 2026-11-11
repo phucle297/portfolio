@@ -97,7 +97,8 @@ SITE_URL=https://example.dev bun run build
   disposes geometries, materials and the renderer on teardown.
 - **No 3D on software WebGL.** If the GPU probe finds a software rasteriser (SwiftShader,
   llvmpipe, …) or `failIfMajorPerformanceCaveat` fails, or Save-Data is on, three.js is never
-  downloaded and the poster stays.
+  downloaded and the poster stays. The probe runs in a Web Worker on an `OffscreenCanvas`, so
+  creating the test context never blocks the main thread.
 - **Motion, small.** Scroll reveals use `inView` from `motion` and `animate` from `motion/mini`
   (WAAPI-based), ~3.7 kB gzip for the whole layout script.
 - **Fonts.** Inter Variable is self-hosted via `@fontsource-variable/inter` with

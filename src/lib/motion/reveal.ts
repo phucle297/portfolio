@@ -22,8 +22,8 @@ export function initReveal(root: ParentNode = document): void {
 
   inView(
     elements,
-    (element) => {
-      const el = element as HTMLElement;
+    (el) => {
+      if (!(el instanceof HTMLElement)) return;
       const delay = Number(el.dataset.revealDelay ?? 0) / 1000;
       el.dataset.revealed = "";
       animate(
