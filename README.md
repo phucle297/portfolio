@@ -9,37 +9,56 @@ to stay fast (Lighthouse ≥ 95 in every category) and accessible.
 
 ## Requirements
 
-- Node.js `>= 22.23.4` (see `.nvmrc`; required by Astro 7)
-- npm `>= 10`
+- [Bun](https://bun.sh) `>= 1.3` as package manager and script runner (`packageManager` pins
+  `bun@1.4.4`)
+- Node.js `>= 22.23.4` (see `.nvmrc`). Astro 7 runs on Node; `bun run` executes the Astro CLI with
+  Node via its shebang.
 
 ## Scripts
 
-| Command                | What it does                                               |
-| ---------------------- | ---------------------------------------------------------- |
-| `npm ci`               | Install the exact dependency tree from `package-lock.json` |
-| `npm run dev`          | Start the dev server at `http://localhost:4321`            |
-| `npm run build`        | Build the static site into `dist/`                         |
-| `npm run preview`      | Serve the production build from `dist/` locally            |
-| `npm run check`        | Type-check `.astro` and `.ts` files (`astro check`)        |
-| `npm run lint`         | ESLint (flat config, zero warnings allowed)                |
-| `npm run lint:fix`     | ESLint with autofix                                        |
-| `npm run format`       | Format everything with Prettier                            |
-| `npm run format:check` | Verify formatting without writing                          |
+| Command                         | What it does                                                    |
+| ------------------------------- | --------------------------------------------------------------- |
+| `bun install --frozen-lockfile` | Install the exact dependency tree from `bun.lock`               |
+| `bun run dev`                   | Start the dev server at `http://localhost:4321`                 |
+| `bun run build`                 | Build the static site into `dist/`                              |
+| `bun run preview`               | Serve the production build from `dist/` locally                 |
+| `bun run check`                 | `astro check`: type-check `.astro` + `.ts` files (TypeScript 6) |
+| `bun run typecheck`             | TypeScript 7 native compiler, `tsc --noEmit` on `.ts` files     |
+| `bun run lint`                  | Oxlint, type-aware, warnings fail the run                       |
+| `bun run lint:fix`              | Oxlint with autofix                                             |
+| `bun run format`                | Format everything with oxfmt (including `.astro`)               |
+| `bun run format:check`          | Verify formatting without writing                               |
+| `bun run verify`                | check + typecheck + lint + format:check + build                 |
 
 Set `SITE_URL` at build time to control canonical URLs, Open Graph URLs, `robots.txt` and the
 sitemap (defaults to `https://phucle297.github.io`):
 
 ```sh
-SITE_URL=https://example.dev npm run build
+SITE_URL=https://example.dev bun run build
 ```
+
+## Tooling notes
+
+- **TypeScript 7 + TypeScript 6 side by side.** `typescript-7` is an npm alias for the stable
+  native `typescript@7` compiler and powers `bun run typecheck`. TypeScript 7 no longer ships the
+  JavaScript compiler API that `@astrojs/check` / Volar need (they require `typescript` `<7`), so
+  `typescript@6` stays installed for `astro check`, which is the only checker that understands
+  `.astro` files. Both bins are called `tsc`; the `typecheck` script calls the TS 7 launcher by
+  path so there is no ambiguity.
+- **Oxlint** (`.oxlintrc.json`) runs with type information via `oxlint-tsgolint`. In `.astro`
+  files it lints the frontmatter and `<script>` blocks with syntax-only rules; type-aware rules
+  apply to `.ts` files, and template markup/expressions are not linted.
+- **oxfmt** (`.oxfmtrc.json`) formats `.astro` files via its embedded Astro printer, which needs
+  `@astrojs/compiler-rs` (a dev dependency).
 
 ## Project structure
 
 ```text
 .
 ├── astro.config.mjs          # Astro config: static output, sitemap, inlined CSS
-├── eslint.config.js          # ESLint flat config (typescript-eslint strict + eslint-plugin-astro)
-├── .prettierrc.json          # Prettier + prettier-plugin-astro
+├── .oxlintrc.json            # Oxlint config (typescript, import, unicorn, promise, jsx-a11y)
+├── .oxfmtrc.json             # oxfmt config (Astro formatting enabled)
+├── bun.lock                  # Bun text lockfile
 ├── tsconfig.json             # extends astro/tsconfigs/strictest, `@/*` -> `src/*`
 ├── public/                   # Copied as-is: favicons, og.png
 └── src/
