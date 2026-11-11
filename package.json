@@ -10,11 +10,14 @@
     "preview": "astro preview",
     "check": "astro check",
     "typecheck": "node node_modules/typescript-7/bin/tsc --noEmit -p .",
-    "lint": "oxlint",
+    "lint": "bun run lint:oxlint && bun run lint:fsd",
+    "lint:oxlint": "oxlint",
+    "lint:fsd": "steiger ./src --fail-on-warnings",
     "lint:fix": "oxlint --fix",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "verify": "bun run check && bun run typecheck && bun run lint && bun run format:check && bun run build",
+    "prepare": "node tools/install-git-hooks.mjs",
     "astro": "astro"
   },
   "dependencies": {
@@ -27,10 +30,15 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.12",
     "@astrojs/compiler-rs": "0.5.3",
+    "@feature-sliced/steiger-plugin": "0.8.2",
+    "@oxlint/plugins": "1.93.0",
+    "@steiger/toolkit": "0.2.4",
     "@types/three": "^0.187.0",
+    "lefthook": "2.2.2",
     "oxfmt": "0.78.0",
     "oxlint": "1.93.0",
     "oxlint-tsgolint": "7.0.2006",
+    "steiger": "0.10.0",
     "typescript": "^6.0.3",
     "typescript-7": "npm:typescript@7.0.2"
   },
