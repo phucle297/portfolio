@@ -1,0 +1,122 @@
+---
+/**
+ * Decorative WebGL backdrop for the hero.
+ *
+ * - Renders a pure-CSS poster immediately (no JS needed, never the LCP element).
+ * - Loads three.js via dynamic import() only once the page has loaded, the browser is idle and
+ *   the host is on screen, so it never competes with the LCP text.
+ * - The scene pauses when off screen or when the tab is hidden, and paints a single static frame
+ *   under prefers-reduced-motion. Skipped entirely when Save-Data is on.
+ */
+---
+
+<div class="hero-scene" data-hero-scene aria-hidden="true">
+  <div class="hero-scene__poster"></div>
+</div>
+
+<script>
+  import { reducedMotionQuery } from "@/lib/motion/preferences";
+  import { hasHardwareWebGL } from "@/lib/three/webgl-support";
+
+  type NetworkInformationLike = { saveData?: boolean };
+
+  const host = document.querySelector<HTMLElement>("[data-hero-scene]");
+
+  const whenIdle = (cb: () => void): void => {
+    if ("requestIdleCallback" in window) {
+      window.requestIdleCallback(cb, { timeout: 3000 });
+    } else {
+      setTimeout(cb, 1);
+    }
+  };
+
+  const whenLoaded = (cb: () => void): void => {
+    if (document.readyState === "complete") cb();
+    else window.addEventListener("load", cb, { once: true });
+  };
+
+  const whenVisible = (el: Element, cb: () => void): void => {
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        io.disconnect();
+        cb();
+      }
+    });
+    io.observe(el);
+  };
+
+  const connection = (navigator as Navigator & { connection?: NetworkInformationLike }).connection;
+
+  if (host && connection?.saveData !== true) {
+    whenLoaded(() => {
+      whenIdle(() => {
+        // Probe lazily (after load, when idle) so context creation never competes with LCP.
+        if (!hasHardwareWebGL()) return;
+        whenVisible(host, () => {
+          void import("@/lib/three/hero-scene")
+            .then(({ mountHeroScene }) =>
+              mountHeroScene(host, { reducedMotion: reducedMotionQuery() }),
+            )
+            .then((handle) => {
+              if (!handle) return;
+              window.addEventListener("pagehide", (event) => {
+                if (!event.persisted) handle.dispose();
+              });
+            })
+            .catch(() => {
+              // Network or WebGL failure: the CSS poster remains as the fallback.
+            });
+        });
+      });
+    });
+  }
+</script>
+
+<style>
+  .hero-scene {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .hero-scene__poster {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(
+        circle at 70% 45%,
+        rgb(124 92 255 / 0.35) 0,
+        rgb(59 130 246 / 0.18) 22%,
+        transparent 48%
+      ),
+      radial-gradient(circle at 20% 80%, rgb(56 189 248 / 0.12) 0, transparent 40%);
+    transition: opacity 1.2s ease;
+  }
+
+  .hero-scene :global(.hero-scene__canvas) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+  }
+
+  .hero-scene:global(.is-ready) :global(.hero-scene__canvas) {
+    opacity: 1;
+  }
+
+  .hero-scene:global(.is-ready) .hero-scene__poster {
+    opacity: 0.4;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero-scene__poster,
+    .hero-scene :global(.hero-scene__canvas) {
+      transition: none;
+    }
+  }
+</style>

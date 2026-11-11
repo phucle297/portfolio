@@ -1,0 +1,75 @@
+---
+import "@fontsource-variable/inter/wght.css";
+import interLatinWoff2 from "@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url";
+import "@/styles/global.css";
+import Footer from "@/components/Footer.astro";
+import Header from "@/components/Header.astro";
+import SkipLink from "@/components/SkipLink.astro";
+import { site } from "@/lib/site";
+
+interface Props {
+  title?: string;
+  description?: string;
+  /** Path (relative to the site root) or absolute URL of the social preview image. */
+  image?: string;
+}
+
+const { title = site.title, description = site.description, image = "/og.png" } = Astro.props;
+
+const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url).href;
+const imageUrl = new URL(image, Astro.site ?? Astro.url).href;
+---
+
+<!doctype html>
+<html lang={site.locale}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta name="theme-color" content="#0b0d12" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="generator" content={Astro.generator} />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+
+    <link rel="preload" href={interLatinWoff2} as="font" type="font/woff2" crossorigin />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={site.name} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={imageUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={imageUrl} />
+
+    <script is:inline>
+      // Enable motion-dependent styles only when JS runs and motion is allowed.
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        document.documentElement.classList.add("motion-ok");
+      }
+    </script>
+  </head>
+  <body>
+    <SkipLink />
+    <Header />
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+    <Footer />
+
+    <script>
+      import { initReveal } from "@/lib/motion/reveal";
+      initReveal();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,82 @@
+---
+import HeroScene from "@/components/three/HeroScene.astro";
+import { site } from "@/lib/site";
+---
+
+<section class="hero" aria-labelledby="hero-title">
+  <HeroScene />
+  <div class="container hero__content">
+    <p class="hero__eyebrow">{site.role}</p>
+    <h1 id="hero-title" class="hero__title">
+      Hi, I’m {site.name}.<br />
+      <span class="hero__title-accent">I build fast, delightful web experiences.</span>
+    </h1>
+    <p class="hero__lead">
+      This is the foundation of my portfolio: static-first, accessible, and animated with care.
+    </p>
+    <div class="hero__actions">
+      <a class="button button--primary" href="#projects">
+        See my work
+      </a>
+      <a class="button button--ghost" href="#contact">
+        Get in touch
+      </a>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    align-items: center;
+    min-height: min(92svh, 56rem);
+    padding-block: clamp(5rem, 14vw, 9rem) clamp(4rem, 10vw, 6rem);
+    overflow: hidden;
+  }
+
+  .hero__content {
+    position: relative;
+    z-index: 1;
+  }
+
+  .hero__eyebrow {
+    margin: 0 0 1rem;
+    color: var(--color-accent);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+  }
+
+  .hero__title {
+    max-width: 18ch;
+    margin: 0;
+    font-size: clamp(2.5rem, 7vw, 5rem);
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    font-weight: 750;
+  }
+
+  .hero__title-accent {
+    background: linear-gradient(90deg, #9ec5ff, #d8b4fe);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  .hero__lead {
+    max-width: 52ch;
+    margin: 1.5rem 0 0;
+    color: var(--color-text-muted);
+    font-size: clamp(1.05rem, 2vw, 1.25rem);
+  }
+
+  .hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 2.25rem;
+  }
+</style>

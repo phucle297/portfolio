@@ -1,0 +1,48 @@
+---
+interface Props {
+  id: string;
+  title: string;
+  eyebrow?: string;
+}
+const { id, title, eyebrow } = Astro.props;
+const headingId = `${id}-title`;
+---
+
+<section id={id} class="section" aria-labelledby={headingId}>
+  <div class="container">
+    <header class="section__header" data-reveal>
+      {eyebrow && <p class="section__eyebrow">{eyebrow}</p>}
+      <h2 id={headingId} class="section__title">
+        {title}
+      </h2>
+    </header>
+    <slot />
+  </div>
+</section>
+
+<style>
+  .section {
+    padding-block: clamp(4rem, 12vw, 8rem);
+    scroll-margin-top: 4rem;
+  }
+
+  .section__header {
+    margin-bottom: clamp(2rem, 5vw, 3rem);
+  }
+
+  .section__eyebrow {
+    margin: 0 0 0.5rem;
+    color: var(--color-accent);
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .section__title {
+    margin: 0;
+    font-size: clamp(1.875rem, 4vw, 2.75rem);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+</style>

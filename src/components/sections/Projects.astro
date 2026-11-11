@@ -1,0 +1,21 @@
+---
+import ProjectCard from "@/components/ProjectCard.astro";
+import Section from "@/components/Section.astro";
+import { projects } from "@/lib/projects";
+---
+
+<Section id="projects" title="Selected projects" eyebrow="Work">
+  <div class="projects">
+    {projects.map((project, index) => (
+      <ProjectCard project={project} delay={index * 100} />
+    ))}
+  </div>
+</Section>
+
+<style>
+  .projects {
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+  }
+</style>
