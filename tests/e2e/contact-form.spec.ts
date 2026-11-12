@@ -219,8 +219,6 @@ test.describe("PF-13 contact form", () => {
   test("Start a project and Get a quote work by mouse and keyboard on the full tier", async ({
     page,
   }) => {
-    // Eight scene scrolls + settles; the 60s default is tight on a software renderer.
-    test.setTimeout(180_000);
     await openScene(page);
     await expect(page.locator("html")).toHaveAttribute("data-tier", "full");
 
