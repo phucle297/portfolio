@@ -1,5 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { SECTION_IDS, scrollThrough, spoofHardwareGpu } from "./helpers";
+import { layoutShifts, recordLayoutShifts, type ShiftRecord, shiftScore } from "./layout-shift";
 
 for (const viewport of [
   { name: "D", width: 1440, height: 900 },
@@ -292,4 +293,111 @@ test("B-8: a reload while scrolled keeps the header opaque before its script run
   await page.unroute(/\/_astro\/[^/]+\.js(\?.*)?$/u);
   await expect(header).not.toHaveAttribute("data-at-top", "");
   expect(await header.evaluate((el) => getComputedStyle(el).backgroundImage)).toBe("none");
+});
+
+/** Loaded font faces as "family weight". */
+const families = async (page: Page): Promise<string[]> =>
+  page.evaluate(async () => {
+    await document.fonts.ready;
+    return [...document.fonts]
+      .filter((face) => face.status === "loaded")
+      .map((face) => `${face.family.replaceAll('"', "")} ${face.weight}`);
+  });
+
+/** Whether a layout shift moved something in the header or the Hello view. */
+const inView = (shift: ShiftRecord): boolean =>
+  shift.sources.some((source) => /site-header|section#hello/u.test(source.node));
+
+// TASK-20261112-14: the two layout shifts behind the CI regression of M1-AC15 at D (0.02065).
+// Both are pinned to the element that moved, so they fail on the cause, not on a total that load
+// or font timing can hide.
+test.describe("TASK-14 layout stability at 1440x900", () => {
+  const HELLO = [
+    "#hello .home-section__body",
+    "#hello .hello__title",
+    "#hello .hello__subtitle",
+    "#hello .hello__lede",
+    "#hello .hello__actions",
+    ".site-header__nav ul",
+    ".site-header__actions",
+  ];
+  const boxes = async (page: Page): Promise<Record<string, number[]>> =>
+    page.evaluate(
+      (selectors) =>
+        Object.fromEntries(
+          selectors.map((selector) => {
+            const r = document.querySelector(selector)?.getBoundingClientRect();
+            return [selector, r ? [r.x, r.y, r.width, r.height].map(Math.round) : []];
+          }),
+        ),
+      HELLO,
+    );
+
+  test("Hello copy and header keep their layout while the web fonts are still missing", async ({
+    browser,
+  }) => {
+    // Shift 1 (0.017): before Be Vietnam Pro arrived, the Hello subtitle and lede set in a
+    // narrower system face took one more line each and the centred Hello block moved 32 px when
+    // the font swapped in. The metric-matched fallback must give the same lines and boxes.
+    const viewport = { width: 1440, height: 900 };
+    const withheld = await browser.newContext({ viewport });
+    const loaded = await browser.newContext({ viewport });
+    const fallbackPage = await withheld.newPage();
+    const webPage = await loaded.newPage();
+    await fallbackPage.route(/be-vietnam-pro|instrument-serif/u, async (route) => route.abort());
+    await Promise.all([fallbackPage.goto("/"), webPage.goto("/")]);
+    const fallbackFaces = await families(fallbackPage);
+    const webFaces = await families(webPage);
+    // The fallback faces must resolve on this machine (Arial or its Liberation / Arimo clone),
+    // otherwise the comparison below measures some system face instead.
+    expect(fallbackFaces).toEqual(
+      expect.arrayContaining(["Be Vietnam Pro Fallback 400", "Be Vietnam Pro Fallback 600"]),
+    );
+    expect(fallbackFaces.some((f) => /^Be Vietnam Pro \d/u.test(f))).toBe(false);
+    expect(webFaces).toEqual(expect.arrayContaining(["Be Vietnam Pro 400", "Be Vietnam Pro 600"]));
+    const before = await boxes(fallbackPage);
+    const after = await boxes(webPage);
+    for (const selector of HELLO) {
+      const [x0 = 0, y0 = 0, w0 = 0, h0 = 0] = before[selector] ?? [];
+      const [x1 = 0, y1 = 0, w1 = 0, h1 = 0] = after[selector] ?? [];
+      expect(Math.abs(y1 - y0), `${selector} top`).toBeLessThanOrEqual(3);
+      expect(Math.abs(h1 - h0), `${selector} height`).toBeLessThanOrEqual(3);
+      expect(Math.abs(x1 - x0), `${selector} left`).toBeLessThanOrEqual(6);
+      expect(Math.abs(w1 - w0), `${selector} width`).toBeLessThanOrEqual(12);
+    }
+    await withheld.close();
+    await loaded.close();
+  });
+
+  test("the full tier mounts without moving the header or the Hello copy", async ({ browser }) => {
+    // Shift 2 (0.0035): the Safelight button took its slot only when the full tier mounted, so
+    // the Motion toggle and the centred nav jumped 66-133 px sideways after load.
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    await spoofHardwareGpu(page);
+    await recordLayoutShifts(page);
+    await page.goto("/");
+    const toggle = page.locator("[data-motion-toggle]");
+    await expect(toggle).toBeVisible();
+    const toggleBefore = await toggle.boundingBox();
+    await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 20_000 });
+    await expect(page.locator("[data-safelight-toggle]")).toBeVisible();
+    // Was 132 px to the left once mounted; a late font swap may still nudge it a few px.
+    const toggleAfter = await toggle.boundingBox();
+    expect(Math.abs((toggleAfter?.x ?? 0) - (toggleBefore?.x ?? 0))).toBeLessThanOrEqual(6);
+    expect(toggleAfter?.y).toBe(toggleBefore?.y);
+    await page.waitForTimeout(1000);
+    const shifts = (await layoutShifts(page)).filter((shift) => !shift.hadRecentInput);
+    const log = JSON.stringify(shifts);
+    // Nothing in the header or the Hello view moves once the full tier is on (its mount) ...
+    expect(
+      shifts.filter((shift) => shift.tier === "full" && inView(shift)),
+      log,
+    ).toEqual([]);
+    // ... and before it, the metric-matched fallback leaves only a sub-pixel-scale residue of the
+    // font swap (was 0.017 on the CI runner; a few px of nav / button width remain).
+    expect(shiftScore(shifts.filter(inView)), log).toBeLessThan(0.002);
+    expect(shiftScore(shifts)).toBeLessThanOrEqual(0.02);
+    await context.close();
+  });
 });
