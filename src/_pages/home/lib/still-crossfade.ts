@@ -6,8 +6,10 @@
  * Never black (M2-AC7 intent):
  * - a still only takes over once its image is decoded; until then the current one stays;
  * - only one of the two stills animates. The later one in DOM order (which paints on top) fades
- *   over the earlier one, which stays fully opaque underneath until the fade ends, so every pixel
- *   is a mix of the two stills and never darker than the darker of them.
+ *   over the earlier one, which stays fully opaque underneath until the fade has really finished
+ *   (the Web Animation's `finished`, not a wall-clock timer, so a busy main thread or a stalled
+ *   frame can delay the fade but never uncover the page background). Every pixel is a mix of the
+ *   two stills and never darker than the darker of them.
  * Under reduced motion (OS setting or the site's Motion toggle) the change is instant.
  *
  * Only the shown still and its neighbours are displayed (so lazy images load ahead of the scroll
@@ -58,12 +60,14 @@ export function initStillCrossfade(): void {
   let shown: HTMLElement | null = null;
   /** The still of the section under the scroll position. */
   let target: HTMLElement | null = null;
-  let settleTimer = 0;
+  let running: Animation | null = null;
   let queued = false;
 
   /** End any running fade at once: only the shown still stays visible. */
   const settle = (): void => {
-    window.clearTimeout(settleTimer);
+    const animation = running;
+    running = null;
+    animation?.cancel();
     for (const still of stills) {
       still.classList.remove(FADING);
       still.classList.toggle(SHOWN, still === shown);
@@ -73,21 +77,30 @@ export function initStillCrossfade(): void {
   const fade = (previous: HTMLElement, next: HTMLElement): void => {
     const nextIsLater =
       (previous.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    // Scrolling down the next still fades in over the previous one; scrolling back the previous
+    // (on top) fades out over the next one. Both stay shown (opacity 1) underneath the animation.
+    const fader = nextIsLater ? next : previous;
+    const picture = fader.querySelector("picture");
     previous.classList.add(SHOWN);
-    if (nextIsLater) {
-      // Scrolling down: the next still fades in (0 → 1) over the previous one.
-      next.classList.add(FADING);
-      // Commit the start value so the transition runs (reading style flushes it).
-      void getComputedStyle(next).opacity;
-      next.classList.add(SHOWN);
-    } else {
-      // Scrolling back: the next still is underneath at full opacity; the previous fades out.
-      next.classList.add(SHOWN);
-      previous.classList.add(FADING);
-      void getComputedStyle(previous).opacity;
-      previous.classList.remove(SHOWN);
+    next.classList.add(SHOWN);
+    if (!picture) {
+      settle();
+      return;
     }
-    settleTimer = window.setTimeout(settle, CROSSFADE_MS + 40);
+    fader.classList.add(FADING);
+    const animation = picture.animate(
+      nextIsLater ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }],
+      { duration: CROSSFADE_MS, easing: "linear" },
+    );
+    running = animation;
+    animation.finished.then(
+      () => {
+        if (running === animation) settle();
+        return animation;
+      },
+      // Cancelled by settle() (a newer section won): it has already cleaned up.
+      () => animation,
+    );
   };
 
   const go = async (next: HTMLElement): Promise<void> => {

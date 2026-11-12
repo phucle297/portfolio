@@ -140,8 +140,10 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
       opacity: 1;
     }
 
-    :global(html.js.motion-ok) .still.is-fading picture {
-      transition: opacity 320ms linear;
+    /* The cross-fade is a Web Animation (lib/still-crossfade.ts); no CSS transition may delay an
+       opacity change, not even the global reduced-motion 0.01ms one. */
+    :global(html.js) .still picture {
+      transition: none !important;
     }
 
     /* The section-edge fade only hides the seam of sticky stills; fixed stills have no seam. */
@@ -154,12 +156,6 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
       position: absolute;
       inset: 0;
       background: radial-gradient(ellipse at center, rgb(14 10 8 / 0.35), rgb(14 10 8 / 0.7) 75%);
-    }
-  }
-
-  @media (min-width: 768px) and (prefers-reduced-motion: reduce) {
-    :global(html.js) .still.is-fading picture {
-      transition: none;
     }
   }
 

@@ -178,12 +178,62 @@ test.describe("PF-02 static tier: phones", () => {
   }
 });
 
+declare global {
+  interface Window {
+    /** Set by the spec: each still fade's Web Animation, with its start and finish times. */
+    stillFades?: { animation: Animation; start: number; end?: number }[];
+    /** When true, the spec pauses each still fade as soon as it starts. */
+    pauseStillFades?: boolean;
+  }
+}
+
+/** Record (and optionally pause) the stills' Web Animations, via Element.prototype.animate. */
+async function recordFades(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const original: unknown = Object.getOwnPropertyDescriptor(Element.prototype, "animate")?.value;
+    if (typeof original !== "function") return;
+    window.stillFades = [];
+    Element.prototype.animate = function animate(
+      this: Element,
+      ...args: Parameters<Element["animate"]>
+    ): Animation {
+      const result: unknown = Reflect.apply(original, this, args);
+      if (!(result instanceof Animation))
+        throw new TypeError("Element.animate returned no Animation");
+      const animation = result;
+      if (this.tagName === "PICTURE" && this.closest(".still")) {
+        const entry: { animation: Animation; start: number; end?: number } = {
+          animation,
+          start: performance.now(),
+        };
+        window.stillFades?.push(entry);
+        if (window.pauseStillFades === true) animation.pause();
+        void animation.finished.then(
+          () => {
+            entry.end = performance.now();
+            return entry.end;
+          },
+          () => undefined,
+        );
+      }
+      return animation;
+    };
+  });
+}
+
 test.describe("PF-02 cross-fade", () => {
   test("320 ms (±40), and no frame is darker than the darker of the two stills, both ways", async ({
     browser,
   }) => {
     test.setTimeout(180_000);
-    const page = await staticPage(browser);
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    await recordFades(page);
+    await page.route(/probe\.worker/u, (route) =>
+      route.fulfill({ contentType: "text/javascript", body: "postMessage(false);" }),
+    );
+    await page.goto("/");
+    await page.waitForLoadState("load");
     await expect(page.locator("html")).toHaveClass(/motion-ok/u);
     await page.addStyleTag({ content: COPY_HIDDEN });
     const steady = async (index: number): Promise<Buffer> => {
@@ -193,35 +243,34 @@ test.describe("PF-02 cross-fade", () => {
     };
     const a = await steady(1);
     const b = await steady(2);
+    const darker = Buffer.from(a.map((v, k) => Math.min(v, b[k] ?? 0)));
 
     for (const [from, to, label] of [
       [1, 2, "down (1 → 2)"],
       [2, 1, "up (2 → 1)"],
     ] as const) {
+      // Real time: one fade, from its start to its finish.
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
       await steady(from);
-      // Real time: from the transition starting to it ending.
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
       await page.evaluate(() => {
-        const w = window as Window & { fadeTimes?: number[] };
-        w.fadeTimes = [];
-        const on = (event: Event): void => {
-          if (event.target instanceof HTMLElement && event.target.tagName === "PICTURE")
-            w.fadeTimes?.push(event.timeStamp);
-        };
-        document.addEventListener("transitionrun", on);
-        document.addEventListener("transitionend", on);
+        window.stillFades = [];
+        window.pauseStillFades = false;
       });
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
       await scrollToSection(page, to);
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
       await settledOn(page, to);
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
-      const times = await page.evaluate(
-        () => (window as Window & { fadeTimes?: number[] }).fadeTimes ?? [],
+      const fades = await page.evaluate(() =>
+        (window.stillFades ?? []).map((f) => ({
+          ms: (f.end ?? Number.NaN) - f.start,
+          duration: Number(f.animation.effect?.getComputedTiming().duration ?? 0),
+        })),
       );
-      expect(times, `${label}: one transition run + end`).toHaveLength(2);
-      const real = (times[1] ?? 0) - (times[0] ?? 0);
+      expect(fades, `${label}: exactly one fade`).toHaveLength(1);
+      expect(fades[0]?.duration).toBe(320);
+      const real = fades[0]?.ms ?? Number.NaN;
       expect(Math.abs(real - 320), `${label}: ${real.toFixed(0)} ms`).toBeLessThanOrEqual(40);
 
       // Frames: pause the same fade as it starts and step through it.
@@ -229,35 +278,18 @@ test.describe("PF-02 cross-fade", () => {
       await steady(from);
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
       await page.evaluate(() => {
-        const w = window as Window & { pausedFade?: Animation };
-        delete w.pausedFade;
-        // Only the still's own fade (the header has transitions of its own while scrolling).
-        const onRun = (event: Event): void => {
-          if (!(event.target instanceof HTMLElement) || event.target.tagName !== "PICTURE") return;
-          const animation = event.target.getAnimations()[0];
-          if (!animation) return;
-          animation.pause();
-          w.pausedFade = animation;
-          document.removeEventListener("transitionrun", onRun);
-        };
-        document.addEventListener("transitionrun", onRun);
+        window.stillFades = [];
+        window.pauseStillFades = true;
       });
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
       await scrollToSection(page, to);
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
-      await page.waitForFunction(() => "pausedFade" in window);
-      // oxlint-disable-next-line no-await-in-loop -- sequential by design
-      const duration = await page.evaluate(() => {
-        const w = window as Window & { pausedFade?: Animation };
-        return Number(w.pausedFade?.effect?.getComputedTiming().duration ?? 0);
-      });
-      expect(duration).toBe(320);
-      const darker = Buffer.from(a.map((v, k) => Math.min(v, b[k] ?? 0)));
-      for (const t of [0, 64, 128, 160, 192, 256, 320]) {
+      await page.waitForFunction(() => (window.stillFades ?? []).length === 1);
+      for (const t of [0, 64, 128, 160, 192, 256, 319]) {
         // oxlint-disable-next-line no-await-in-loop -- one frame at a time
         await page.evaluate((time) => {
-          const w = window as Window & { pausedFade?: Animation };
-          if (w.pausedFade) w.pausedFade.currentTime = time;
+          const fade = window.stillFades?.[0];
+          if (fade) fade.animation.currentTime = time;
         }, t);
         // oxlint-disable-next-line no-await-in-loop -- one frame at a time
         const frame = await grey(await page.screenshot());
@@ -275,43 +307,39 @@ test.describe("PF-02 cross-fade", () => {
       }
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
       await page.evaluate(() => {
-        (window as Window & { pausedFade?: Animation }).pausedFade?.finish();
+        window.pauseStillFades = false;
+        window.stillFades?.[0]?.animation.finish();
       });
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
       await settledOn(page, to);
     }
-    await page.context().close();
+    await context.close();
   });
 
-  test("reduced motion: the still changes instantly, no transition runs", async ({ browser }) => {
-    const page = await staticPage(browser, { reducedMotion: "reduce" });
-    await settledOn(page, 0);
-    await page.evaluate(() => {
-      const w = window as Window & { runs?: number };
-      w.runs = 0;
-      document.addEventListener("transitionrun", (event) => {
-        if (event.target instanceof HTMLElement && event.target.tagName === "PICTURE")
-          w.runs = (w.runs ?? 0) + 1;
-      });
+  test("reduced motion: the still changes instantly, no fade runs", async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      reducedMotion: "reduce",
     });
+    const page = await context.newPage();
+    await recordFades(page);
+    await page.route(/probe\.worker/u, (route) =>
+      route.fulfill({ contentType: "text/javascript", body: "postMessage(false);" }),
+    );
+    await page.goto("/");
+    await settledOn(page, 0);
     for (const index of [1, 2, 1]) {
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
       await scrollToSection(page, index);
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
       await settledOn(page, index);
+      // Same task as the class change: no transition or animation in between.
       // oxlint-disable-next-line no-await-in-loop -- sequential by design
       const shown = await shownStill(page);
-      // oxlint-disable-next-line no-await-in-loop -- sequential by design
-      const classes = await page.evaluate(() =>
-        Array.from(document.querySelectorAll(".still"), (still) => still.className).join(" | "),
-      );
-      expect(
-        shown.map((s) => s.index),
-        classes,
-      ).toEqual([String(index)]);
+      expect(shown.map((s) => s.index)).toEqual([String(index)]);
     }
-    expect(await page.evaluate(() => (window as Window & { runs?: number }).runs)).toBe(0);
-    await page.context().close();
+    expect(await page.evaluate(() => (window.stillFades ?? []).length)).toBe(0);
+    await context.close();
   });
 });
 
