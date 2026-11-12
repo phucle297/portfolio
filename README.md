@@ -284,4 +284,5 @@ is enforced). `?scene-test&tier=lite` forces the lite tier for measurement.
 
 ## Deployment
 
-No CI/CD is configured yet. `dist/` is a plain static site that can be hosted on any static host.
+Cloudflare Workers static assets via `.github/workflows/deploy.yml`: push to `main` deploys
+production, each PR gets a `pr-<N>` preview. Previews and rollback: [docs/deploy.md](docs/deploy.md).
