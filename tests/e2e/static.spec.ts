@@ -256,3 +256,40 @@ test("QA-8: the header's at-top state is in the HTML, and without JS the scrolle
   expect(alpha).toBeGreaterThanOrEqual(0.95);
   await off.close();
 });
+
+test("B-8: a reload while scrolled keeps the header opaque before its script runs", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    window.scrollTo(0, innerHeight * 3);
+  });
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(100);
+  // Hold every bundled module script, so the header's own script (and everything else that
+  // hydrates) has not run while the browser restores the scrolled position.
+  const held: { continue: () => Promise<void> }[] = [];
+  await page.route(/\/_astro\/[^/]+\.js(\?.*)?$/u, (route) => {
+    held.push(route);
+  });
+  await page.reload({ waitUntil: "commit" });
+  await expect.poll(() => page.evaluate(() => scrollY), { timeout: 10_000 }).toBeGreaterThan(100);
+  await expect.poll(() => held.length).toBeGreaterThan(0);
+  const header = page.locator(".site-header");
+  // Not hydrated: the module script still has not cleared the server-rendered at-top state, and
+  // the JS-only Safelight button is still hidden.
+  await expect(header).toHaveAttribute("data-at-top", "");
+  await expect(page.locator("[data-safelight-toggle]")).toBeHidden();
+  const before = await header.evaluate((el) => [
+    getComputedStyle(el).backgroundImage,
+    getComputedStyle(el).backgroundColor,
+    `html[data-scrolled]=${document.documentElement.hasAttribute("data-scrolled")} scrollY=${scrollY}`,
+  ]);
+  expect(before[0], `no see-through gradient over the copy (${before[2]})`).toBe("none");
+  const alpha = Number(/rgba?\(([^)]+)\)/u.exec(before[1] ?? "")?.[1]?.split(",")[3] ?? "1");
+  expect(alpha).toBeGreaterThanOrEqual(0.95);
+  // Once the scripts run, the bar stays opaque (at-top cleared by the header's script).
+  await Promise.all(held.map(async (route) => route.continue()));
+  await page.unroute(/\/_astro\/[^/]+\.js(\?.*)?$/u);
+  await expect(header).not.toHaveAttribute("data-at-top", "");
+  expect(await header.evaluate((el) => getComputedStyle(el).backgroundImage)).toBe("none");
+});
