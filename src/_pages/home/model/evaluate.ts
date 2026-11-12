@@ -161,18 +161,18 @@ export function evaluate(p: number, options: EvaluateOptions = {}): SceneState {
     const stagger = k === 1 ? (i >> 1) * 0.15 : pick(SLOT, i) * 0.05;
     const e = k === 3 ? tt : clamp(tt * 1.15 - stagger);
     const pos = [...lerp3(a.pos, b.pos, e)] as [number, number, number];
+    // Process → Contact: the prints open out into the 2×2 cluster (depth and size lead the
+    // slide) with a small gap that closes as each print arrives, so the column pairs never
+    // overlap on the way in (M2-AC5); they reach the cluster by t .65 and settle as one print.
+    const ez = k === 4 ? clamp(e * 2.5) : e;
+    if (k === 4) pos[2] = lerp(a.pos[2], b.pos[2] * (1 + 0.15 * (1 - e)), ez);
     // Arc heights and swings follow the prototype that rendered the mockups (its morph indices
     // sit one later than the prose in design.md §3; the mockups and smoothness run used these).
     const lift = k === 1 ? 0.5 + 0.25 * (i >> 1) : k === 2 ? 1.4 : k === 3 ? 1 : 0;
     pos[1] += Math.sin(PI * e) * lift;
-    // Prints hover above the walls until the trays have merged. They leave only once the bath
-    // has drained (liq window ends at .12), rise over a quarter of the morph (as gently as the
-    // prototype's 0–.25), and hover on separate layers, so the outer prints slide over the
-    // inner ones instead of through them (M2-AC5, M2-AC6).
-    if (k === 4) {
-      const hover = 0.55 + 0.08 * pick(SLOT, i);
-      pos[1] += hover * windowed(t, [0.12, 0.36]) * (1 - windowed(t, [0.6, 1]));
-    }
+    // Prints rise, slide together and hover above the walls until the trays have merged, then
+    // settle as one print (design §1/§3: tiles 0–.65, hover +.55 until merged, settle .60–1).
+    if (k === 4) pos[1] += 0.55 * windowed(t, [0, 0.25]) * (1 - windowed(t, [0.6, 1]));
     // Prints swing toward the camera so they never pass through a jug.
     // Into the Process trays the swing settles as (1 − e)^1.5, ahead of the arc height, so each
     // print is back over its tray before it dips below the rim (M2-AC5).
@@ -182,7 +182,7 @@ export function evaluate(p: number, options: EvaluateOptions = {}): SceneState {
     return {
       pos,
       rot: lerp3(a.rot, b.rot, e),
-      scale: lerp(a.s, b.s, e),
+      scale: lerp(a.s, b.s, ez),
       atlasA: a.tex,
       atlasB: b.tex,
       mix: t > 0 ? tx * 1.4 - 0.2 : -0.3,

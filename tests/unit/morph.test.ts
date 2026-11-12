@@ -3,7 +3,7 @@
  * (AC5), no cuts (AC7 unit part) and the safelight modifier.
  */
 import { describe, expect, it } from "vitest";
-import { HOLDS, KEY_PROGRESS, locate } from "@shared/lib/timeline";
+import { HOLDS, KEY_PROGRESS, locate, TIMING } from "@shared/lib/timeline";
 import {
   applySafelight,
   evaluate,
@@ -359,6 +359,12 @@ describe("M2-AC5 paths never intersect", () => {
     expect(hits.slice(0, 10)).toEqual([]);
   });
 
+  // Process → Contact is the one morph where design §1/§3 drain the bath *with* the rise (liq
+  // 0–.30, tiles 0–.65 leading): the prints must clear the tray walls by t ≈ .18, before the
+  // drain can finish, so there the rule is "the drain is under way and leads", checked below.
+  // Every other morph keeps the strict rule. (QA B-2 restored the design windows; see B-3.)
+  const DRAIN_WITH_RISE = 4;
+
   it("the bath is empty whenever a print crosses the bath surface during a morph", () => {
     const hits: string[] = [];
     const STEP = 1e-4;
@@ -378,7 +384,7 @@ describe("M2-AC5 paths never intersect", () => {
               tile.pos[0] < box.max[0] &&
               tile.pos[2] > box.min[2] &&
               tile.pos[2] < box.max[2];
-            if (crossed && over && v.liquidOpacity > 1e-3)
+            if (crossed && over && v.liquidOpacity > 1e-3 && s.k !== DRAIN_WITH_RISE)
               hits.push(`p=${s.p.toFixed(4)} tile ${ti} vessel ${vi} liquid ${v.liquidOpacity}`);
           });
         });
@@ -386,6 +392,41 @@ describe("M2-AC5 paths never intersect", () => {
       prev = s;
     }
     expect(hits.slice(0, 10)).toEqual([]);
+  });
+});
+
+describe("M2-AC5 / design §3: Process → Contact drain and rise", () => {
+  it("uses the design windows (tiles 0–.65, liq 0–.30)", () => {
+    expect(TIMING.tiles[4]).toEqual([0, 0.65]);
+    expect(TIMING.liq[4]).toEqual([0, 0.3]);
+  });
+
+  it("the bath is already draining when a print crosses its surface, and empty by t .30", () => {
+    const [h0, h1] = [HOLDS[4]?.[1] ?? 0, HOLDS[5]?.[0] ?? 1];
+    const full = evaluate(h0).vessels.map((v) => v.liquidOpacity);
+    const bad: string[] = [];
+    let prev = evaluate(h0);
+    for (let i = 1; i <= 2000; i += 1) {
+      const s = evaluate(h0 + ((h1 - h0) * i) / 2000);
+      s.tiles.forEach((tile, ti) => {
+        const before = prev.tiles[ti];
+        if (!before) return;
+        s.vessels.forEach((v, vi) => {
+          const surface = v.pos[1] + 0.05 * v.scl[1];
+          const crossed = (before.pos[1] - surface) * (tile.pos[1] - surface) < 0;
+          const startLevel = full[vi] ?? 0;
+          if (crossed && v.liquidOpacity > 1e-3 && v.liquidOpacity >= startLevel * 0.95)
+            bad.push(`t=${s.t.toFixed(3)} tile ${ti} vessel ${vi} not draining yet`);
+        });
+      });
+      if (s.t >= 0.3)
+        s.vessels.forEach((v, vi) => {
+          if (v.liquidOpacity > 1e-3) bad.push(`t=${s.t.toFixed(3)} vessel ${vi} not empty`);
+        });
+      prev = s;
+    }
+    expect(full.every((o) => o > 0.1)).toBe(true);
+    expect(bad.slice(0, 10)).toEqual([]);
   });
 });
 

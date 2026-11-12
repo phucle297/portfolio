@@ -58,8 +58,7 @@ export const TIMING: Readonly<Record<Track, readonly Window[]>> = {
     [0.18, 0.9],
     [0.15, 1],
     [0, 1],
-    // Prints start sliding only once they have risen clear of the tray walls (M2-AC5).
-    [0.28, 0.8],
+    [0, 0.65],
   ],
   ves: [
     [0, 1],
@@ -95,7 +94,7 @@ export const TIMING: Readonly<Record<Track, readonly Window[]>> = {
     [0, 0.2],
     [0, 1],
     [0.85, 1],
-    [0, 0.12],
+    [0, 0.3],
   ],
 };
 
