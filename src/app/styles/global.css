@@ -7,23 +7,51 @@
 @import "./fonts-plex-mono.css";
 @import "@fontsource/anton/400.css";
 
-/* Metric-matched local fallbacks keep layout stable while the web fonts swap in. */
+/* Metric-matched local fallbacks keep layout stable while the web fonts swap in.
+   local() matches an installed face by its own name, not by fontconfig alias, so each face lists
+   the metric-compatible clones too: Liberation (Arial / Times New Roman metrics, shipped with
+   Google Chrome on Linux, and on the CI runner) and Arimo / Tinos (ChromeOS). Without them a
+   Linux machine with no "Arial" skipped the sans fallback entirely and set the Hello copy in a
+   much narrower system face, so the subtitle and lede took one more line each until Be Vietnam
+   Pro arrived and the whole Hello block moved 32 px (layout shift 0.017 at 1440x900,
+   TASK-20261112-14). size-adjust = web-font width / fallback width, measured in Chrome on the
+   Hello copy (lede 400, subtitle 600, title); the overrides are the web font's hhea ascent /
+   descent / line gap divided by that size-adjust. Bold text gets its own face: a single regular
+   face would be synthesised to 600 with the regular widths. */
 @font-face {
   font-family: "Be Vietnam Pro Fallback";
-  src: local("Arial"), local("Helvetica Neue"), local("Helvetica");
-  ascent-override: 94%;
-  descent-override: 24%;
+  font-weight: 400;
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"), local("LiberationSans"),
+    local("Arimo"), local("Helvetica Neue"), local("Helvetica");
+  ascent-override: 91.66%;
+  descent-override: 24.29%;
   line-gap-override: 0%;
-  size-adjust: 104%;
+  size-adjust: 109.1%;
+}
+
+@font-face {
+  font-family: "Be Vietnam Pro Fallback";
+  font-weight: 600;
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold"),
+    local("Helvetica Neue Bold"), local("Helvetica Bold");
+  ascent-override: 98%;
+  descent-override: 25.97%;
+  line-gap-override: 0%;
+  size-adjust: 102.04%;
 }
 
 @font-face {
   font-family: "Instrument Serif Fallback";
-  src: local("Times New Roman"), local("Times"), local("Liberation Serif");
-  ascent-override: 98%;
-  descent-override: 26%;
+  src:
+    local("Times New Roman"), local("TimesNewRomanPSMT"), local("Liberation Serif"),
+    local("LiberationSerif"), local("Tinos"), local("Times");
+  ascent-override: 120.44%;
+  descent-override: 37.71%;
   line-gap-override: 0%;
-  size-adjust: 88%;
+  size-adjust: 82.2%;
 }
 
 /* ---------- Design tokens (design.md "Tokens") ---------- */
