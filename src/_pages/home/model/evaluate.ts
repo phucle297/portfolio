@@ -165,10 +165,18 @@ export function evaluate(p: number, options: EvaluateOptions = {}): SceneState {
     // sit one later than the prose in design.md §3; the mockups and smoothness run used these).
     const lift = k === 1 ? 0.5 + 0.25 * (i >> 1) : k === 2 ? 1.4 : k === 3 ? 1 : 0;
     pos[1] += Math.sin(PI * e) * lift;
-    // Prints hover above the walls until the trays have merged.
-    if (k === 4) pos[1] += 0.55 * windowed(t, [0, 0.25]) * (1 - windowed(t, [0.6, 1]));
+    // Prints hover above the walls until the trays have merged. They leave only once the bath
+    // has drained (liq window ends at .12) and hover on separate layers, so the outer prints
+    // slide over the inner ones instead of through them (M2-AC5).
+    if (k === 4) {
+      const hover = 0.55 + 0.1 * pick(SLOT, i);
+      pos[1] += hover * windowed(t, [0.12, 0.3]) * (1 - windowed(t, [0.6, 1]));
+    }
     // Prints swing toward the camera so they never pass through a jug.
-    if (k === 2 || k === 3) pos[2] += Math.sin(PI * e) * (k === 2 ? 1.6 : 1.5);
+    // Into the Process trays the swing settles as (1 − e)^1.5, ahead of the arc height, so each
+    // print is back over its tray before it dips below the rim (M2-AC5).
+    if (k === 2) pos[2] += Math.sin(PI * e) * 1.6;
+    if (k === 3) pos[2] += Math.sin(PI * e) * Math.sqrt(1 - e) * 1.9;
     const developing = k === 0 && t === 0 && options.developed !== true;
     return {
       pos,
@@ -225,5 +233,32 @@ export function evaluate(p: number, options: EvaluateOptions = {}): SceneState {
     fill: lerp(A.fill, B.fill, tg),
     exposure: lerp(A.exp, B.exp, tg),
     background: lerpColor(A.bg, B.bg, tg),
+  };
+}
+
+/** How much of the safelight stays when the visitor switches it off (face, glow, red light). */
+export const SAFELIGHT_OFF_LEVEL = 0.12;
+
+/**
+ * The header's Safelight toggle as a pure modifier on top of `evaluate(p)`: switched off, the
+ * lamp's face, glow sprite and red point light drop to `SAFELIGHT_OFF_LEVEL`. Nothing else in
+ * the scene changes, and `evaluate(p)` itself stays a function of p only.
+ */
+export function applySafelight(state: SceneState, on: boolean): SceneState {
+  if (on) return state;
+  const f = SAFELIGHT_OFF_LEVEL;
+  const face = 0.3 + 0.7 * f;
+  return {
+    ...state,
+    lamp: {
+      ...state.lamp,
+      glowOpacity: state.lamp.glowOpacity * f,
+      safeColor: [
+        state.lamp.safeColor[0] * face,
+        state.lamp.safeColor[1] * face,
+        state.lamp.safeColor[2] * face,
+      ],
+    },
+    safe: { ...state.safe, intensity: state.safe.intensity * f },
   };
 }

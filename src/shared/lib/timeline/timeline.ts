@@ -58,7 +58,8 @@ export const TIMING: Readonly<Record<Track, readonly Window[]>> = {
     [0.18, 0.9],
     [0.15, 1],
     [0, 1],
-    [0, 0.65],
+    // Prints start sliding only once they have risen clear of the tray walls (M2-AC5).
+    [0.2, 0.75],
   ],
   ves: [
     [0, 1],
@@ -94,7 +95,7 @@ export const TIMING: Readonly<Record<Track, readonly Window[]>> = {
     [0, 0.2],
     [0, 1],
     [0.85, 1],
-    [0, 0.3],
+    [0, 0.12],
   ],
 };
 
@@ -134,3 +135,65 @@ export function sectionAt(p: number): number {
 
 /** The scroll progress at which each key frame is shown in the mockups (kf-01…kf-06). */
 export const KEY_PROGRESS: readonly number[] = [0.03, 0.21, 0.41, 0.6, 0.76, 0.96];
+
+/* ---------- Copy layer (design.md §5) ---------- */
+
+/** Fractions of a morph's local time: outgoing copy exits over [0, .35], incoming enters over [.65, 1]. */
+export const COPY_EXIT_END = 0.35;
+export const COPY_ENTER_START = 0.65;
+/** Vertical travel of the copy while it exits (up) or enters (from below), in CSS px. */
+export const COPY_TRAVEL_PX = 24;
+
+export interface CopyState {
+  /** Opacity 0 → 1. */
+  opacity: number;
+  /** translateY in px (negative = up). */
+  y: number;
+}
+
+/**
+ * Opacity and offset of section `index`'s copy at progress `p`: at rest during its hold, exits
+ * over the first 35 % of the next morph, enters over the last 35 % of the previous one, and is
+ * absent otherwise. At most one section has opacity > 0 at any p.
+ */
+export function copyState(p: number, index: number): CopyState {
+  const { k, t } = locate(clamp(p));
+  if (t === 0) return k === index ? { opacity: 1, y: 0 } : { opacity: 0, y: 0 };
+  if (k === index && t <= COPY_EXIT_END) {
+    const opacity = 1 - ease(t / COPY_EXIT_END);
+    return { opacity, y: -COPY_TRAVEL_PX * (1 - opacity) };
+  }
+  if (k + 1 === index && t >= COPY_ENTER_START) {
+    const opacity = ease((t - COPY_ENTER_START) / (1 - COPY_ENTER_START));
+    return { opacity, y: COPY_TRAVEL_PX * (1 - opacity) };
+  }
+  return { opacity: 0, y: 0 };
+}
+
+/** `[from, to]` in p over which section `index`'s copy is at least partly visible. */
+export function copyWindow(index: number): readonly [number, number] {
+  const hold = HOLDS[index];
+  if (!hold) throw new Error(`No hold ${index}`);
+  const prev = HOLDS[index - 1];
+  const next = HOLDS[index + 1];
+  const from = prev ? prev[1] + (hold[0] - prev[1]) * COPY_ENTER_START : 0;
+  const to = next ? hold[1] + (next[0] - hold[1]) * COPY_EXIT_END : 1;
+  return [from, to];
+}
+
+/**
+ * Which of `count` beats (cards stepped through while a section is pinned) is active at `p`:
+ * the section's copy window split into equal parts.
+ */
+export function beatAt(p: number, index: number, count: number): number {
+  if (count <= 1) return 0;
+  const [from, to] = copyWindow(index);
+  return Math.min(count - 1, Math.max(0, Math.floor(((p - from) / (to - from)) * count)));
+}
+
+/** The p at the middle of beat `beat` of section `index` (where focus scrolls to). */
+export function beatProgress(index: number, beat: number, count: number): number {
+  if (count <= 1) return KEY_PROGRESS[index] ?? 0;
+  const [from, to] = copyWindow(index);
+  return from + ((beat + 0.5) / count) * (to - from);
+}
