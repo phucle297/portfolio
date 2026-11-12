@@ -46,28 +46,29 @@ SITE_URL=https://example.dev bun run build
 `test:e2e` builds the site and serves it on port 4322. On a machine without Playwright's own
 browser download, point it at an installed Chrome: `CHROME_PATH=/usr/bin/google-chrome bun run
 test:e2e`. Tests that need the full 3D tier stub the hardware-WebGL probe and render on
-SwiftShader, so they check behaviour, not GPU performance.
+SwiftShader, so they check behaviour, not GPU performance. Astro allows one `preview` server at a
+time, so stop any other `bun run preview` before running `test:e2e`.
 
 ## Owner content and the email switch
 
 All copy lives in one content module, `src/entities/profile/model/content.ts` (plus
-`profile.ts`), sourced from the owner's CV. Launch defaults from the build plan:
+`profile.ts`), sourced from the owner's CV. Launch defaults (build plan, updated by Owner decisions):
 
 | Question                      | Shipped default                                                          |
 | ----------------------------- | ------------------------------------------------------------------------ |
 | Photo                         | none: the Journey slot shows the name / city / time zone meta only       |
-| Public email                  | **off**: `[Owner: email]` placeholder, see below                         |
-| Reply window                  | "within 2 business days" (`REPLY_WINDOW`)                                |
+| Public email                  | **on** (Owner decision): `phucle.2971.dd@gmail.com`, see below           |
+| Reply time                    | "I reply within 4 hours" (Owner decision; `REPLY_WINDOW`)                |
 | Case screenshots / case pages | no screenshots; "Read the case" links hidden until `href` is set         |
 | Mobile                        | static stills (`LITE_MORPH_ENABLED = false`)                             |
 | Contact form                  | client-side validation, then a prefilled `mailto:` (needs the email)     |
 | CV PDF                        | not published (it has a phone number): the button reads "CV on LinkedIn" |
 
-**The email is behind one switch:** `PUBLIC_EMAIL` in `src/shared/config/contact.ts`. While it
-is `null` (the default, because the owner has not confirmed showing an address publicly) the
-page shows `[Owner: email]`, and submitting the contact form explains that sending is not
-switched on yet. Set it to an address and the contact link, the form's `mailto:` and the no-JS
-form action all use it; nothing else changes.
+**The email is behind one switch:** `PUBLIC_EMAIL` in `src/shared/config/contact.ts`. It is set to
+`phucle.2971.dd@gmail.com` by the Owner's decision, so the Contact section shows it as a
+`mailto:` link, the contact form opens a prefilled `mailto:` to it and the no-JS form action uses
+it. Set it to `null` to hide it again: the page then shows a visible `[Owner: email]` placeholder
+and submitting the form explains that sending is not switched on. Nothing else changes.
 
 After changing anything drawn in the scene (or to refresh the poster stills), re-render the stills
 from the shipped scene: `bun run build && bun run preview -- --port 4321 &` then

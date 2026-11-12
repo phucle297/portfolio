@@ -38,8 +38,8 @@ export interface ProcessStep {
   copy: string;
 }
 
-/** Reply-window promise (build plan Q3 default). */
-export const REPLY_WINDOW = "within 2 business days";
+/** Reply-time promise (Owner decision, replaces the plan's Q3 default). Used verbatim. */
+export const REPLY_WINDOW = "I reply within 4 hours";
 
 export const hello = {
   eyebrow: "Frame 01 · Hello",
@@ -200,7 +200,7 @@ export const process = {
     {
       eyebrow: "Develop",
       title: "Brief",
-      copy: `Tell me what you want to build and by when. I reply ${REPLY_WINDOW}.`,
+      copy: `Tell me what you want to build and by when. ${REPLY_WINDOW}.`,
     },
     {
       eyebrow: "Stop",
@@ -241,7 +241,7 @@ export const contact = {
     },
     brief: { label: "Short brief", placeholder: "What are you building, and by when?" },
     submit: "Send brief",
-    note: `I reply ${REPLY_WINDOW}, Asia/Saigon (UTC+7).`,
+    note: `${REPLY_WINDOW}, Asia/Saigon (UTC+7).`,
     errors: {
       name: "Please add your name.",
       email: "Please enter a valid email, like you@company.com.",
@@ -251,7 +251,7 @@ export const contact = {
      * Build plan Q8: the form opens a prefilled mailto:, so design.md's "Thanks — your brief is
      * in." would overclaim. The success line says what actually happened.
      */
-    success: `Your email app is open with your brief. I'll reply ${REPLY_WINDOW}.`,
+    success: `Your email app is open with your brief. ${REPLY_WINDOW}.`,
     /** Shown on submit while `PUBLIC_EMAIL` is null. */
     noEmail: `Email sending isn't switched on yet ${ownerPlaceholder("email")}. Please reach me on LinkedIn for now.`,
     copyEmail: "Copy email",

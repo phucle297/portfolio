@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { PUBLIC_EMAIL } from "../../src/shared/config/contact";
 import { SECTION_IDS } from "./helpers";
 
 test.describe("structure and copy", () => {
@@ -93,7 +94,7 @@ test.describe("structure and copy", () => {
       "typical delivery, depending on complexity",
       "Get a quote",
       "Frame 05 · Process",
-      "Tell me what you want to build and by when. I reply within 2 business days.",
+      "Tell me what you want to build and by when. I reply within 4 hours.",
       "A written scope, price and timeline before any work starts.",
       "Work in small steps with a staging link and a demo every week.",
       "Deploy, docs and a code walkthrough, so your team owns it.",
@@ -107,12 +108,12 @@ test.describe("structure and copy", () => {
       "you@company.com",
       "What are you building, and by when?",
       "Send brief",
-      "I reply within 2 business days, Asia/Saigon (UTC+7).",
+      "I reply within 4 hours, Asia/Saigon (UTC+7).",
       "Please add your name.",
       "Please enter a valid email, like you@company.com.",
       "A sentence or two is enough.",
       "© 2026 Phúc Lê · Ho Chi Minh City",
-      "[Owner: email]",
+      PUBLIC_EMAIL ?? "[Owner: email]",
     ];
     const missing = strings.filter((s) => !html.includes(s));
     expect(missing).toEqual([]);
@@ -125,5 +126,39 @@ test.describe("structure and copy", () => {
     ]) {
       expect(html).not.toContain(stale);
     }
+  });
+
+  test("email switch: PUBLIC_EMAIL drives the contact link, the form action and the mailto", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const contact = page.locator("#contact");
+    if (PUBLIC_EMAIL === null) {
+      await expect(contact.locator("[data-email]")).toHaveText("[Owner: email]");
+      await expect(contact.locator('a[href^="mailto:"]')).toHaveCount(0);
+      return;
+    }
+    const link = contact.locator(`[data-email] a[href="mailto:${PUBLIC_EMAIL}"]`);
+    await expect(link).toHaveText(PUBLIC_EMAIL);
+    await expect(contact.locator("form[data-contact-form]")).toHaveAttribute(
+      "action",
+      `mailto:${PUBLIC_EMAIL}`,
+    );
+    // Submitting a valid brief sends the browser to a prefilled mailto: for that address.
+    const mailto = new Promise<string>((resolve) => {
+      page.on("framenavigated", (frame) => {
+        if (frame.url().startsWith("mailto:")) resolve(frame.url());
+      });
+      page.on("request", (request) => {
+        if (request.url().startsWith("mailto:")) resolve(request.url());
+      });
+    });
+    await page.fill("#contact-name", "Test Person");
+    await page.fill("#contact-email", "test@example.com");
+    await page.fill("#contact-brief", "A small marketing site by next month.");
+    await contact.getByRole("button", { name: "Send brief" }).click();
+    const url = await Promise.race([mailto, page.waitForTimeout(3000).then(() => "timeout")]);
+    expect(url.startsWith(`mailto:${PUBLIC_EMAIL}?`)).toBe(true);
+    expect(decodeURIComponent(url)).toContain("A small marketing site by next month.");
   });
 });
