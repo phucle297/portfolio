@@ -16,7 +16,15 @@
  * (`spoofHardwareGpu`), which is exactly the "GPU-capable browser" case for the probe and the
  * loader. A real-GPU run of the same checks is PF-08's `reduced-motion` item.
  */
-import { expect, test, type Page } from "@playwright/test";
+import {
+  chromium,
+  expect,
+  firefox,
+  test,
+  webkit,
+  type BrowserType,
+  type Page,
+} from "@playwright/test";
 import { isProbe, isSceneChunk, recordRequests, scrollThrough, spoofHardwareGpu } from "./helpers";
 
 interface Probe {
@@ -420,4 +428,70 @@ test.describe("PF-09 no layout shift (M1-AC15)", () => {
     expect(after.cls - before, "CLS added by the switches").toBeLessThanOrEqual(0.02);
     expect(after.cls, "CLS of the whole visit").toBeLessThanOrEqual(0.02);
   });
+});
+
+/**
+ * QA gate on PR #29 (Medium, Firefox and WebKit): at Services (p = 0.6) a mid-visit switch to
+ * reduced motion left the Hello still on screen. On the full tier the stills are `display: none`,
+ * so the cross-fade's decode of the Services still failed while the scene was live and nothing
+ * retried it when the tier became static. This test launches each engine itself (the suite's
+ * runner config is Chromium-only), so the regression is covered in all three.
+ */
+const ENGINES: readonly BrowserType[] = [chromium, firefox, webkit];
+
+test.describe("PF-09 the current section's still after a mid-visit switch, every engine", () => {
+  for (const engine of ENGINES) {
+    test(`${engine.name()}: at p = 0.6 the Services still is picked, decoded and shown`, async ({
+      baseURL,
+    }) => {
+      const browser = await engine.launch(
+        engine === chromium
+          ? {
+              ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
+              args: [
+                "--enable-unsafe-swiftshader",
+                "--use-angle=swiftshader",
+                "--ignore-gpu-blocklist",
+              ],
+            }
+          : {},
+      );
+      try {
+        const context = await browser.newContext({
+          ...(baseURL === undefined ? {} : { baseURL }),
+          viewport: { width: 1440, height: 900 },
+        });
+        const page = await context.newPage();
+        await instrument(page);
+        await spoofHardwareGpu(page);
+        await page.goto("/");
+        await fullTier(page);
+        await scrollToP(page, 0.6);
+        const services = await page.evaluate(
+          () => document.querySelector<HTMLElement>("#services [data-still]")?.dataset.still ?? "",
+        );
+        expect(services, "the Services section has a still").not.toBe("");
+
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
+        // No scroll after the switch: the still must follow the tier change by itself.
+        await expect(page.locator("html")).toHaveAttribute("data-still-active", services, {
+          timeout: 5000,
+        });
+        await expect
+          .poll(async () => currentStill(page), { timeout: 5000 })
+          .toEqual({ section: "services", shown: true, loaded: true });
+        // And only that still is shown (not the Hello still over or under it).
+        const shown = await page.evaluate(() =>
+          Array.from(document.querySelectorAll<HTMLElement>("[data-still].is-shown")).map(
+            (el) => el.dataset.still,
+          ),
+        );
+        expect(shown).toEqual([services]);
+        await context.close();
+      } finally {
+        await browser.close();
+      }
+    });
+  }
 });
