@@ -40,7 +40,8 @@ async function countFramesForOneSecond(): Promise<number> {
   return frames;
 }
 
-test.describe.configure({ mode: "serial" });
+// Not serial: every test loads its own fresh browser contexts and shares nothing but the report
+// table, which survives a worker restart (ProbeCostTable). One failure no longer skips the rest.
 
 test.describe("PF-01 probe cost per branch (SwiftShader box)", () => {
   test.setTimeout(300_000);
@@ -64,7 +65,7 @@ test.describe("PF-01 probe cost per branch (SwiftShader box)", () => {
     browser,
   }) => {
     const hang = await repeat(RUNS, () =>
-      load(browser, fulfil("// never answers"), { tbtEndMs: 6000 }),
+      load(browser, fulfil("// never answers"), { tbtEndMs: 6000, heartbeat: true }),
     );
     // Probe disabled: same page with the probe skipped by a cheap gate (Save-Data), same window.
     const disabled = await repeat(RUNS, () =>
@@ -75,9 +76,21 @@ test.describe("PF-01 probe cost per branch (SwiftShader box)", () => {
             Object.defineProperty(navigator, "connection", { value: { saveData: true } });
           });
         },
-        { waitMs: 6000, tbtEndMs: 6000 },
+        { waitMs: 6000, tbtEndMs: 6000, heartbeat: true },
       ),
     );
+    // Diagnostic only (not asserted): how late the page's own 10 ms timers ran at the 3000 ms
+    // deadline, next to each decision time, so a miss can be told apart from a late timer.
+    const diagnostic = hang.map((r) => ({
+      probeMs: Math.round(r.probeMs * 10) / 10,
+      heartbeatAtDeadlineMs: r.heartbeat?.atDeadlineMs,
+      heartbeatMaxGapMs: r.heartbeat?.maxGapMs,
+    }));
+    test.info().annotations.push({
+      type: "hang heartbeat (diagnostic)",
+      description: JSON.stringify(diagnostic),
+    });
+    process.stdout.write(`worker hangs, heartbeat diagnostic: ${JSON.stringify(diagnostic)}\n`);
     table.record("worker hangs (timeout)", hang);
     table.record("probe disabled (baseline for TBT)", disabled);
     expectBranch(hang, ["worker-timeout"], false);
