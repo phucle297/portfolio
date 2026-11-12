@@ -72,6 +72,27 @@ const CEILING = 12;
 const LAMP_HANG = 0.62;
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+/** Extra height (world units) that lifts the prints clear of the tray rims in Journey → Work. */
+const JOURNEY_CLEAR_LIFT = 0.2;
+
+/** sin² bump: 0 outside (from, to), 1 in the middle, smooth at both ends. */
+const bump = (x: number, from: number, to: number): number =>
+  x > from && x < to ? Math.sin((PI * (x - from)) / (to - from)) ** 2 : 0;
+
+/**
+ * Progress that follows `e` up to `from`, then reaches 1 at `to` (cubic Hermite: slope 1 at
+ * `from`, 0 at `to`, monotonic) and stays there.
+ */
+function settleBy(e: number, from: number, to: number): number {
+  if (e <= from) return e;
+  if (e >= to) return 1;
+  const h = to - from;
+  const s = (e - from) / h;
+  const s2 = s * s;
+  const s3 = s2 * s;
+  return from * (2 * s3 - 3 * s2 + 1) + h * (s3 - 2 * s2 + s) + (3 * s2 - 2 * s3);
+}
 const lerp3 = (a: Vec3, b: Vec3, t: number): Vec3 => [
   lerp(a[0], b[0], t),
   lerp(a[1], b[1], t),
@@ -160,12 +181,10 @@ export function evaluate(p: number, options: EvaluateOptions = {}): SceneState {
     const b = pick(B.tiles, i);
     const stagger = k === 1 ? (i >> 1) * 0.15 : pick(SLOT, i) * 0.05;
     const e = k === 3 ? tt : clamp(tt * 1.15 - stagger);
-    // Horizontal progress (x, z) and, into the Process trays, the flattening (rot, scale):
-    // - Journey → Work: the prints rise clear of the tray rims before they move out sideways
-    //   (eh = e²(2 − e): starts slower, same end), so no edge cuts a rim (M2-AC5).
-    // - Services → Process: each print is flat, centred and full size over its tray by e = .85,
-    //   before the arc brings it below the rim (and after the lid has faded out) (M2-AC5).
-    const eh = k === 1 ? e * e * (2 - e) : k === 3 ? clamp(e / 0.85) : e;
+    // Services → Process: each print is flat, centred and full size over its tray by e = .85,
+    // before the arc brings it below the rim and after the lid has faded out (M2-AC5). The lead
+    // only starts past the middle of the morph (eh = e up to .5, then a cubic to 1 at .85).
+    const eh = k === 3 ? settleBy(e, 0.5, 0.85) : e;
     const pos: [number, number, number] = [
       lerp(a.pos[0], b.pos[0], eh),
       lerp(a.pos[1], b.pos[1], e),
@@ -180,6 +199,10 @@ export function evaluate(p: number, options: EvaluateOptions = {}): SceneState {
     // sit one later than the prose in design.md §3; the mockups and smoothness run used these).
     const lift = k === 1 ? 0.5 + 0.25 * (i >> 1) : k === 2 ? 1.4 : k === 3 ? 1 : 0;
     pos[1] += Math.sin(PI * e) * lift;
+    // Journey → Work: the prints leave the nested trays at rim height while they slide out; an
+    // extra lift over t .30–.48 (back on the design path by t .5) keeps every edge clear of the
+    // rims (M2-AC5).
+    if (k === 1) pos[1] += JOURNEY_CLEAR_LIFT * bump(t, 0.3, 0.48);
     // Prints rise, slide together and hover above the walls until the trays have merged, then
     // settle as one print (design §1/§3: tiles 0–.65, hover +.55 until merged, settle .60–1).
     if (k === 4) pos[1] += 0.55 * windowed(t, [0, 0.25]) * (1 - windowed(t, [0.6, 1]));
