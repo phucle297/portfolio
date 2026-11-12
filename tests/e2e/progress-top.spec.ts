@@ -49,6 +49,75 @@ const forceStatic = async (page: Page): Promise<void> => {
   );
 };
 
+/**
+ * Force the JS fallback driver: hide scroll timelines from CSS.supports and switch off the
+ * CSS timeline animation, as on an engine without scroll-driven animations.
+ */
+const forceFallback = async (page: Page): Promise<void> => {
+  await page.addInitScript(() => {
+    const native = CSS.supports.bind(CSS);
+    Object.defineProperty(CSS, "supports", {
+      configurable: true,
+      value: (property: string, value?: string): boolean => {
+        if (`${property} ${value ?? ""}`.includes("timeline")) return false;
+        return value === undefined ? native(property) : native(property, value);
+      },
+    });
+    document.addEventListener("DOMContentLoaded", () => {
+      const style = document.createElement("style");
+      style.textContent = ".home-progress span{animation:none!important}";
+      document.head.append(style);
+    });
+  });
+};
+
+/** Two animation frames: a scroll or resize has been painted by the rAF-throttled driver. */
+const settle = async (page: Page): Promise<void> => {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve();
+          });
+        });
+      }),
+  );
+};
+
+/** Scroll to `fromEnd` px above the bottom and return the fill and the exact ratio there. */
+const sampleAt = async (
+  page: Page,
+  fromEnd: number,
+): Promise<{ fill: number; expected: number; fromEnd: number }> => {
+  await page.evaluate((offset) => {
+    const max = document.documentElement.scrollHeight - innerHeight;
+    window.scrollTo({ top: Math.max(0, max - offset), behavior: "instant" });
+  }, fromEnd);
+  await settle(page);
+  await settle(page);
+  const fillNow = await scaleX(page);
+  const state = await page.evaluate(() => {
+    const max = document.documentElement.scrollHeight - innerHeight;
+    return { expected: max > 0 ? scrollY / max : 0, fromEnd: max - scrollY };
+  });
+  return { fill: fillNow, ...state };
+};
+
+const checkEnd = async (page: Page, label: string): Promise<void> => {
+  const near = await sampleAt(page, 100);
+  expect(near.fromEnd, `${label}: really 100 px from the end`).toBeGreaterThan(99);
+  expect(near.fill, `${label}: under 100 % at 100 px from the end (${near.fill})`).toBeLessThan(1);
+  expect(
+    Math.abs(near.fill - near.expected),
+    `${label}: fill ${near.fill} vs scrollY/max ${near.expected} at 100 px from the end`,
+  ).toBeLessThanOrEqual(0.005);
+
+  const bottom = await sampleAt(page, 0);
+  expect(bottom.fromEnd, `${label}: at the very bottom`).toBeLessThanOrEqual(1);
+  expect(bottom.fill, `${label}: 100 % at the very bottom (${bottom.fill})`).toBeGreaterThan(0.995);
+};
+
 test.describe("PF-27 progress bar under the header", () => {
   for (const viewport of VIEWPORTS) {
     test.describe(viewport.name, () => {
@@ -193,6 +262,47 @@ test.describe("PF-27 progress bar under the header", () => {
         expect(mid).toBeLessThan(0.7);
         const scrolled = await geometry(page);
         expect(Math.abs(scrolled.barTop - scrolled.headerBottom)).toBeLessThanOrEqual(1);
+      });
+    }
+  });
+
+  /**
+   * QA M1 (attempt 2): engines without CSS scroll timelines use the inline JS driver. It must
+   * hit 100 % exactly at the bottom, not early, including after the page grows late (fonts,
+   * late content). Forces the fallback by hiding the timeline from CSS.supports and killing
+   * the CSS animation, and forces the static tier so the fill follows scrollY, not the scene.
+   */
+  test.describe("JS fallback without scroll timelines", () => {
+    for (const viewport of VIEWPORTS) {
+      test(`${viewport.name}: reaches 100 % exactly at the bottom, also after the page grows`, async ({
+        page,
+      }) => {
+        await forceStatic(page);
+        await forceFallback(page);
+        await openAt(page, viewport.width, viewport.height);
+        await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
+        await page.evaluate(async () => {
+          if (document.readyState !== "complete") {
+            await new Promise((resolve) => {
+              addEventListener("load", resolve, { once: true });
+            });
+          }
+          await document.fonts.ready;
+        });
+        const animation = await fill(page).evaluate((el) => getComputedStyle(el).animationName);
+        expect(animation, "CSS timeline animation is off, so the JS driver paints").toBe("none");
+
+        await checkEnd(page, `${viewport.name} after load`);
+
+        // Late content (an embed, a lazy block, a font swap) makes the page 600 px taller.
+        await page.evaluate(() => {
+          const late = document.createElement("div");
+          late.dataset.lateContent = "";
+          late.style.height = "600px";
+          document.querySelector("main")?.append(late);
+        });
+        await settle(page);
+        await checkEnd(page, `${viewport.name} after late content`);
       });
     }
   });

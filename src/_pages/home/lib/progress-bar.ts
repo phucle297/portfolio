@@ -8,8 +8,16 @@
  */
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
-const rootEl = (): HTMLElement | null => document.querySelector(".home-progress");
-const fillEl = (): HTMLElement | null => document.querySelector("[data-progress]");
+let cachedRoot: HTMLElement | null = null;
+let cachedFill: HTMLElement | null = null;
+const rootEl = (): HTMLElement | null =>
+  cachedRoot?.isConnected === true
+    ? cachedRoot
+    : (cachedRoot = document.querySelector(".home-progress"));
+const fillEl = (): HTMLElement | null =>
+  cachedFill?.isConnected === true
+    ? cachedFill
+    : (cachedFill = document.querySelector("[data-progress]"));
 
 function paint(p: number): void {
   const fill = fillEl();
@@ -21,7 +29,8 @@ const supportsScrollTimeline = (): boolean =>
 
 /** Full-tier copy layer: disable the CSS timeline and follow the scene's smoothed progress. */
 export function driveProgress(p: number): void {
-  rootEl()?.setAttribute("data-progress-js", "");
+  const root = rootEl();
+  if (root && !root.hasAttribute("data-progress-js")) root.setAttribute("data-progress-js", "");
   paint(p);
 }
 

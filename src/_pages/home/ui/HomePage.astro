@@ -23,11 +23,15 @@ import WorkSection from "./WorkSection.astro";
 <ContactSection />
 
 <!--
-  Progress fill: a tiny inline driver (rAF-throttled, transform: scaleX only, scrollHeight
-  cached on resize, no layout reads on scroll) always runs when JS is present, on every
-  tier. CSS animation-timeline: scroll() is a progressive enhancement; some engines
-  advertise the property but treat animation-duration: auto as 0s, so a no-JS CSS-only
-  fill cannot be trusted. Without JS the bar is hidden, never stuck empty or full.
+  Progress fill: a tiny inline driver (rAF-throttled, transform: scaleX only) always runs when
+  JS is present, on every tier. CSS animation-timeline: scroll() is a progressive enhancement;
+  some engines advertise the property but treat animation-duration: auto as 0s, so a no-JS
+  CSS-only fill cannot be trusted. Without JS the bar is hidden, never stuck empty or full.
+  The scrollable height (scrollHeight - innerHeight) is never read during HTML parse (no
+  forced layout before first paint, PF-27 QA L1). It is measured in a ResizeObserver on
+  <html> and <body> (whose first callback runs after layout, before first paint), and again
+  on load, fonts ready and resize, so late content or a font swap can't leave it stale and
+  the fill is 100 % exactly at the bottom (QA M1). Scroll handlers do no layout reads.
   No module import, so this does not add to the initial JS budget.
 -->
 <script is:inline>
@@ -37,9 +41,6 @@ import WorkSection from "./WorkSection.astro";
     if (!fill || !root) return;
     let max = 0;
     let queued = false;
-    const measure = function () {
-      max = document.documentElement.scrollHeight - window.innerHeight;
-    };
     const paint = function () {
       queued = false;
       if (root.hasAttribute("data-progress-js")) return;
@@ -51,13 +52,24 @@ import WorkSection from "./WorkSection.astro";
       queued = true;
       requestAnimationFrame(paint);
     };
-    measure();
-    paint();
+    const measure = function () {
+      max = document.documentElement.scrollHeight - window.innerHeight;
+      paint();
+    };
+    const remeasure = function () {
+      requestAnimationFrame(measure);
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", function () {
-      measure();
-      onScroll();
-    });
+    window.addEventListener("resize", remeasure);
+    window.addEventListener("load", remeasure);
+    if (document.fonts) document.fonts.ready.then(remeasure);
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver(measure);
+      observer.observe(document.documentElement);
+      if (document.body) observer.observe(document.body);
+    } else {
+      remeasure();
+    }
   })();
 </script>
 

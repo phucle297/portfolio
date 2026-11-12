@@ -119,21 +119,25 @@ const jsonLdJson = JSON.stringify(jsonLd).replaceAll("<", "\\u003c");
     <SkipLink />
     <SiteHeader anchorBase={anchorBase} />
     <script is:inline>
-      // Measure the header's real bottom before first paint so the progress bar (and anything
-      // else that uses --header-bottom) is flush under it, including a restored scroll position
-      // where html[data-scrolled] has already been set in the head script (QA B-8).
+      // Measure the header's real bottom so the progress bar (and anything else that uses
+      // --header-bottom) is flush under it, including a restored scroll position where
+      // html[data-scrolled] has already been set in the head script (QA B-8). Never measured
+      // during HTML parse (no forced layout, PF-27 QA L1): the ResizeObserver's first callback
+      // runs after layout and before first paint, so the bar is placed in the first frame with
+      // no shift; requestAnimationFrame (also before first paint) covers engines without it.
       (function () {
         const header = document.querySelector(".site-header");
         if (!header) return;
+        let last = "";
         const sync = function () {
-          document.documentElement.style.setProperty(
-            "--header-bottom",
-            Math.round(header.getBoundingClientRect().bottom) + "px",
-          );
+          const value = Math.round(header.getBoundingClientRect().bottom) + "px";
+          if (value === last) return;
+          last = value;
+          document.documentElement.style.setProperty("--header-bottom", value);
         };
-        sync();
         window.addEventListener("resize", sync);
         if (typeof ResizeObserver === "function") new ResizeObserver(sync).observe(header);
+        else requestAnimationFrame(sync);
       })();
     </script>
     <main id="main" tabindex="-1">
