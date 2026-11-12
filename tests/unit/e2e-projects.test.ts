@@ -6,6 +6,7 @@ import {
   CHROMIUM_ONLY_SPECS,
   CHROMIUM_ONLY_TESTS,
   FIREFOX_ONLY_SKIP,
+  WEBKIT_ONLY_SKIP,
 } from "../../tests/e2e/projects.ts";
 
 /**
@@ -101,7 +102,10 @@ describe("e2e projects: specs are cross-browser by default (PF-05)", () => {
     const chromium = listed.filter((t) => t.project === "chromium" && !optedOut(t.file));
     for (const engine of ["firefox", "webkit"] as const) {
       const present = keys(engine);
-      const allowed = [...CHROMIUM_ONLY_TESTS, ...(engine === "firefox" ? FIREFOX_ONLY_SKIP : [])];
+      const allowed = [
+        ...CHROMIUM_ONLY_TESTS,
+        ...(engine === "firefox" ? FIREFOX_ONLY_SKIP : WEBKIT_ONLY_SKIP),
+      ];
       const undocumented = chromium
         .filter((t) => !present.has(`${t.file}\0${t.title}`))
         .filter(
@@ -115,13 +119,18 @@ describe("e2e projects: specs are cross-browser by default (PF-05)", () => {
   });
 
   it("gives every opt-out a reason, and drops stale ones", () => {
-    const all = [...CHROMIUM_ONLY_SPECS, ...CHROMIUM_ONLY_TESTS, ...FIREFOX_ONLY_SKIP];
+    const all = [
+      ...CHROMIUM_ONLY_SPECS,
+      ...CHROMIUM_ONLY_TESTS,
+      ...FIREFOX_ONLY_SKIP,
+      ...WEBKIT_ONLY_SKIP,
+    ];
     expect(all.filter((o) => o.reason.trim().length < 10).map((o) => String(o.pattern))).toEqual(
       [],
     );
     const stale = [
       ...CHROMIUM_ONLY_SPECS.filter((o) => !o.pending && !specs.some((f) => o.pattern.test(f))),
-      ...[...CHROMIUM_ONLY_TESTS, ...FIREFOX_ONLY_SKIP].filter(
+      ...[...CHROMIUM_ONLY_TESTS, ...FIREFOX_ONLY_SKIP, ...WEBKIT_ONLY_SKIP].filter(
         (o) =>
           !o.pending &&
           !listed.some(

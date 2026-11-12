@@ -65,6 +65,19 @@ export const FIREFOX_ONLY_SKIP: readonly OptOut[] = [
   },
 ];
 
+/**
+ * Playwright's WebKit restores the scroll position of a reload only once the page has loaded, so a
+ * test that holds the module scripts never sees the restored scroll it sets up. Real Safari is
+ * part of the manual matrix (AC2).
+ */
+export const WEBKIT_ONLY_SKIP: readonly OptOut[] = [
+  {
+    pattern: /B-8: a reload while scrolled keeps the header opaque before its script runs/,
+    reason:
+      "Playwright WebKit restores the scroll of a reload only after load; with the scripts held, scrollY stays 0 (deterministic, 3/3 runs)",
+  },
+];
+
 const tagPattern = new RegExp(CHROMIUM_ONLY_TAG);
 /** testIgnore for the Firefox and WebKit projects. */
 export const crossBrowserIgnore: RegExp[] = CHROMIUM_ONLY_SPECS.map((o) => o.pattern);
@@ -72,5 +85,5 @@ export const crossBrowserIgnore: RegExp[] = CHROMIUM_ONLY_SPECS.map((o) => o.pat
 export const crossBrowserGrepInvert = (engine: "firefox" | "webkit"): RegExp[] => [
   tagPattern,
   ...CHROMIUM_ONLY_TESTS.map((o) => o.pattern),
-  ...(engine === "firefox" ? FIREFOX_ONLY_SKIP.map((o) => o.pattern) : []),
+  ...(engine === "firefox" ? FIREFOX_ONLY_SKIP : WEBKIT_ONLY_SKIP).map((o) => o.pattern),
 ];
