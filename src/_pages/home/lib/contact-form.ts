@@ -1,11 +1,20 @@
 /**
- * Contact form behaviour (build plan Q8 default): client-side validation with the design.md
+ * Contact form behaviour (build plan Q8 / M3-AC8): client-side validation with the design.md §5
  * error strings, then a prefilled `mailto:` to the public address. While `PUBLIC_EMAIL` is null
  * the form explains that sending is not switched on yet instead of pretending to send.
  */
-type FieldName = "name" | "email" | "brief";
+export type FieldName = "name" | "email" | "brief";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const FIELDS = ["name", "email", "brief"] as const;
+
+export interface ContactValues {
+  mode: string;
+  name: string;
+  email: string;
+  projectType: string;
+  brief: string;
+}
 
 const message = (form: HTMLFormElement, key: string): string =>
   form
@@ -25,41 +34,65 @@ const value = (form: HTMLFormElement, name: string): string => {
 const selectedMode = (form: HTMLFormElement): string =>
   form.querySelector<HTMLInputElement>('input[name="mode"]:checked')?.value ?? "";
 
+export const fieldValid = {
+  name: (text: string): boolean => text.trim().length > 0,
+  email: (text: string): boolean => EMAIL_PATTERN.test(text.trim()),
+  brief: (text: string): boolean => text.trim().length > 0,
+} as const;
+
+export function valuesFromForm(form: HTMLFormElement): ContactValues {
+  return {
+    mode: selectedMode(form),
+    name: value(form, "name"),
+    email: value(form, "email"),
+    projectType: value(form, "project-type"),
+    brief: value(form, "brief"),
+  };
+}
+
+/** Subject and body follow build plan Q8: "Freelance project / Full-time role: {name}". */
+export function buildMailtoHref(to: string, values: ContactValues): string {
+  const lines = [`Name: ${values.name}`, `Email: ${values.email}`];
+  if (values.mode !== "Full-time role") lines.push(`Project type: ${values.projectType}`);
+  lines.push("", values.brief);
+  const subject = `${values.mode}: ${values.name}`;
+  return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join("\n"))}`;
+}
+
+export function buildMailto(email: string, form: HTMLFormElement): string {
+  return buildMailtoHref(email, valuesFromForm(form));
+}
+
 function setError(form: HTMLFormElement, name: FieldName, invalid: boolean): void {
   const field = form.querySelector<HTMLElement>(`[name="${name}"]`);
   const error = form.querySelector<HTMLElement>(`[data-error-for="${name}"]`);
   field?.setAttribute("aria-invalid", String(invalid));
+  if (invalid && error?.id) field?.setAttribute("aria-describedby", error.id);
+  else field?.removeAttribute("aria-describedby");
   if (error) error.hidden = !invalid;
 }
 
 function validate(form: HTMLFormElement): FieldName | null {
-  const checks: [FieldName, boolean][] = [
-    ["name", value(form, "name").length > 0],
-    ["email", EMAIL_PATTERN.test(value(form, "email"))],
-    ["brief", value(form, "brief").length > 0],
-  ];
+  const values = valuesFromForm(form);
   let firstInvalid: FieldName | null = null;
-  for (const [name, ok] of checks) {
+  for (const name of FIELDS) {
+    const ok = fieldValid[name](values[name]);
     setError(form, name, !ok);
     if (!ok && firstInvalid === null) firstInvalid = name;
   }
   return firstInvalid;
 }
 
-function syncMode(form: HTMLFormElement): void {
-  const projectType = form.querySelector<HTMLElement>("[data-project-type]");
-  const fullTime = form.querySelector<HTMLInputElement>('input[data-mode="1"]')?.checked === true;
-  if (projectType) projectType.hidden = fullTime;
+function clearIfValid(form: HTMLFormElement, name: FieldName): void {
+  if (fieldValid[name](value(form, name))) setError(form, name, false);
 }
 
-export function buildMailto(email: string, form: HTMLFormElement): string {
-  const mode = selectedMode(form);
-  const name = value(form, "name");
-  const lines = [`Name: ${name}`, `Email: ${value(form, "email")}`];
-  if (mode !== "Full-time role") lines.push(`Project type: ${value(form, "project-type")}`);
-  lines.push("", value(form, "brief"));
-  const subject = `${mode}: ${name}`;
-  return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join("\n"))}`;
+function syncMode(form: HTMLFormElement): void {
+  const projectType = form.querySelector<HTMLElement>("[data-project-type]");
+  const select = form.querySelector<HTMLSelectElement>("[name='project-type']");
+  const fullTime = form.querySelector<HTMLInputElement>('input[data-mode="1"]')?.checked === true;
+  if (projectType) projectType.hidden = fullTime;
+  if (select) select.disabled = fullTime;
 }
 
 export function initContactForm(form: HTMLFormElement): void {
@@ -72,6 +105,12 @@ export function initContactForm(form: HTMLFormElement): void {
     });
   }
   syncMode(form);
+
+  for (const name of FIELDS) {
+    form.querySelector<HTMLElement>(`[name="${name}"]`)?.addEventListener("input", () => {
+      clearIfValid(form, name);
+    });
+  }
 
   // "Start a project" / "Get a quote": preselect Freelance and move focus to the form.
   for (const link of document.querySelectorAll<HTMLAnchorElement>("[data-start-project]")) {

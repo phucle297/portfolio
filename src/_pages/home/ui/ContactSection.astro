@@ -89,9 +89,15 @@ const email = profile.email;
             autocomplete="name"
             placeholder={form.name.placeholder}
             required
-            aria-describedby="contact-name-error"
           />
-          <p class="field__error" id="contact-name-error" data-error-for="name" hidden>
+          <p
+            class="field__error"
+            id="contact-name-error"
+            data-error-for="name"
+            role="status"
+            aria-live="polite"
+            hidden
+          >
             <span aria-hidden="true">!</span>
             {form.errors.name}
           </p>
@@ -105,9 +111,15 @@ const email = profile.email;
             autocomplete="email"
             placeholder={form.email.placeholder}
             required
-            aria-describedby="contact-email-error"
           />
-          <p class="field__error" id="contact-email-error" data-error-for="email" hidden>
+          <p
+            class="field__error"
+            id="contact-email-error"
+            data-error-for="email"
+            role="status"
+            aria-live="polite"
+            hidden
+          >
             <span aria-hidden="true">!</span>
             {form.errors.email}
           </p>
@@ -131,9 +143,15 @@ const email = profile.email;
           rows="3"
           placeholder={form.brief.placeholder}
           required
-          aria-describedby="contact-brief-error"
         ></textarea>
-        <p class="field__error" id="contact-brief-error" data-error-for="brief" hidden>
+        <p
+          class="field__error"
+          id="contact-brief-error"
+          data-error-for="brief"
+          role="status"
+          aria-live="polite"
+          hidden
+        >
           <span aria-hidden="true">!</span>
           {form.errors.brief}
         </p>
