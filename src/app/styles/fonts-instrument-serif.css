@@ -1,0 +1,21 @@
+/* Instrument Serif 400 + italic, one self-hosted woff2 per style (latin + latin-ext merged).
+   No unicode-range: WebKit will not reuse a preloaded file for a unicode-range @font-face, and
+   used to download the same ~43 KB again. Preload is also omitted: the faces live in the inlined
+   <style> of the first HTML document, and a crossorigin preload plus the stylesheet made WebKit
+   issue a second no-cors GET for each file. Recipe: tools/build-instrument-serif.py from
+   @fontsource/instrument-serif. font-display: swap matches M1-AC13. */
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("../fonts/instrument-serif-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url("../fonts/instrument-serif-400-italic.woff2") format("woff2");
+}
