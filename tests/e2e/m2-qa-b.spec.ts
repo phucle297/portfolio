@@ -5,7 +5,7 @@
  * (B-7), and every control is shown and takes the click in its hold. Full tier (`?scene-test`, SwiftShader standing in for the GPU), pinned layout.
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { beatProgress, HOLDS, KEY_PROGRESS, SECTIONS } from "../../src/shared/lib/timeline";
+import { beatAt, beatProgress, HOLDS, KEY_PROGRESS, SECTIONS } from "../../src/shared/lib/timeline";
 import { inSequence, openScene, scrollToP, settle } from "./helpers";
 
 interface B4Watch {
@@ -262,21 +262,24 @@ interface SweepCard {
  * run as separate tests (TASK-20261113-16: one 6-section test took 3-5 min on SwiftShader and
  * hit its 300 s cap).
  */
-async function sweepSection(page: Page, index: number): Promise<SweepCard[]> {
+async function sweepSection(
+  page: Page,
+  index: number,
+  positions: readonly number[],
+): Promise<SweepCard[]> {
   const section = SECTIONS[index];
   if (!section) throw new Error(`no section ${index}`);
   const hold = HOLDS[index] ?? [0, 0];
-  const stepped = (await page.locator(`#${section.id} [data-copy-body] [data-beat]`).count()) > 0;
-  await scrollToP(page, Math.max(0, hold[0] - 0.006));
+  await scrollToP(page, positions[0] ?? Math.max(0, hold[0] - 0.006));
   return page.evaluate(
-    async ({ id, from, to, holdFrom, holdTo, dp }) => {
+    async ({ id, ps, holdFrom, holdTo }) => {
       const body = document.querySelector(`#${id} [data-copy-body]`);
       if (!body) return [];
       const beatEls = Array.from(body.querySelectorAll<HTMLElement>("[data-beat]"));
       const els: Element[] = beatEls.length ? beatEls : [body];
       const best = els.map(() => ({ inHold: 0, outside: 0, at: -1 }));
       const max = document.documentElement.scrollHeight - innerHeight;
-      for (let p = from; p <= to; p += dp) {
+      for (const p of ps) {
         window.scrollTo({ top: p * max, behavior: "instant" });
         // oxlint-disable-next-line no-await-in-loop -- one sample per frame, in order
         await new Promise<void>((resolve) => {
@@ -307,26 +310,48 @@ async function sweepSection(page: Page, index: number): Promise<SweepCard[]> {
         at: best[i]?.at ?? -1,
       }));
     },
-    {
-      id: section.id,
-      from: Math.max(0, hold[0] - 0.006),
-      to: Math.min(1, hold[1] + 0.006),
-      holdFrom: hold[0],
-      holdTo: hold[1],
-      dp: stepped ? 4e-4 : 2e-3,
-    },
+    { id: section.id, ps: positions, holdFrom: hold[0], holdTo: hold[1] },
   );
 }
 
-/** Cards B-7 samples in each section: every [data-beat] element, or the copy body when it has none. */
-async function cardInventory(page: Page): Promise<number[]> {
+/**
+ * The scroll positions of section `index`'s sweep, computed exactly as the original single loop
+ * did (`for (let p = from; p <= to; p += dp)`, same float accumulation): from just before the
+ * hold to just after, Δp 4e-4 where cards step (≥ 10 samples per card's fully-shown stretch),
+ * 2e-3 elsewhere.
+ */
+function sweepPositions(index: number, stepped: boolean): number[] {
+  const hold = HOLDS[index] ?? [0, 0];
+  const from = Math.max(0, hold[0] - 0.006);
+  const to = Math.min(1, hold[1] + 0.006);
+  const dp = stepped ? 4e-4 : 2e-3;
+  const ps: number[] = [];
+  for (let p = from; p <= to; p += dp) ps.push(p);
+  return ps;
+}
+
+/**
+ * Sections whose sweep is split into one test per beat. Journey is 230 frames and took 105-211 s
+ * alone on ubuntu-24.04 + SwiftShader at 1600×1000 (TASK-20261113-16 diag run 43274462813),
+ * too close to the 300 s cap. A chunk is every sweep position where `beatAt` is that beat, so the
+ * chunks partition the positions exactly, and each beat's fully-shown stretch (which ends half a
+ * crossfade before the handover) lies inside its own chunk.
+ */
+const SPLIT_BY_BEAT: ReadonlyMap<string, number> = new Map([["journey", 3]]);
+
+/**
+ * Cards B-7 samples in each section, in sweep order: every [data-beat] element (with its first
+ * beat), or the copy body (beat 0) when it has none.
+ */
+async function cardInventory(page: Page): Promise<number[][]> {
   return page.evaluate(
     (ids) =>
       ids.map((id) => {
         const body = document.querySelector(`#${id} [data-copy-body]`);
-        if (!body) return 0;
-        const beats = body.querySelectorAll("[data-beat]").length;
-        return beats || 1;
+        if (!body) return [];
+        const beats = Array.from(body.querySelectorAll<HTMLElement>("[data-beat]"));
+        if (!beats.length) return [0];
+        return beats.map((el) => Number((el.dataset.beat ?? "0").split(/\s+/u)[0]));
       }),
     SECTIONS.map((s) => s.id),
   );
@@ -341,30 +366,47 @@ test.describe("B-7 every copy card is fully shown inside its section's hold whil
       await page.setViewportSize(size);
       await openScene(page);
       await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
-      const counts = await cardInventory(page);
+      const cards = (await cardInventory(page)).reduce((n, section) => n + section.length, 0);
       // 6 sections; Journey and Services step through their cards.
-      expect(counts.reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(13);
+      expect(cards).toBeGreaterThanOrEqual(13);
     });
 
     SECTIONS.forEach((section, index) => {
-      test(`scroll sweep at ${at}: ${section.id}`, async ({ page }) => {
-        test.setTimeout(300_000);
-        await page.setViewportSize(size);
-        await openScene(page);
-        await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
-        const expected = (await cardInventory(page))[index] ?? 0;
-        const result = await sweepSection(page, index);
-        // Every card of the section was sampled (the 6-section total is the inventory test's).
-        expect(result).toHaveLength(expected);
-        expect(result.length).toBeGreaterThanOrEqual(1);
-        const failures = result
-          .filter((card) => (card.inHold ?? 0) < 0.999)
-          .map(
-            (card) =>
-              `${section.id} ${card.label}: max opacity in hold ${card.inHold?.toFixed(3)} (outside ${card.outside?.toFixed(3)})`,
-          );
-        expect(failures).toEqual([]);
-      });
+      const beats = SPLIT_BY_BEAT.get(section.id);
+      const chunks: (number | undefined)[] = beats
+        ? Array.from({ length: beats }, (_, b) => b)
+        : [undefined];
+      for (const chunk of chunks) {
+        const name = chunk === undefined ? section.id : `${section.id} beat ${chunk}`;
+        test(`scroll sweep at ${at}: ${name}`, async ({ page }) => {
+          test.setTimeout(300_000);
+          await page.setViewportSize(size);
+          await openScene(page);
+          await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
+          const cardBeats = (await cardInventory(page))[index] ?? [];
+          const stepped =
+            (await page.locator(`#${section.id} [data-copy-body] [data-beat]`).count()) > 0;
+          const all = sweepPositions(index, stepped);
+          const count = Math.max(...cardBeats) + 1;
+          const positions =
+            chunk === undefined ? all : all.filter((p) => beatAt(p, index, count) === chunk);
+          expect(positions.length).toBeGreaterThan(0);
+          const result = await sweepSection(page, index, positions);
+          // Every card of the section was sampled.
+          expect(result).toHaveLength(cardBeats.length);
+          expect(result.length).toBeGreaterThanOrEqual(1);
+          // A split section asserts each card in the chunk of its own (first) beat; together the
+          // chunks assert every card once, over exactly the positions of the unsplit sweep.
+          const failures = result
+            .filter((_, i) => chunk === undefined || cardBeats[i] === chunk)
+            .filter((card) => (card.inHold ?? 0) < 0.999)
+            .map(
+              (card) =>
+                `${section.id} ${card.label}: max opacity in hold ${card.inHold?.toFixed(3)} (outside ${card.outside?.toFixed(3)})`,
+            );
+          expect(failures).toEqual([]);
+        });
+      }
     });
   }
 });
