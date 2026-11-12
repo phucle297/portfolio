@@ -1,0 +1,18 @@
+// Cloudflare Workers (static assets only, no Worker script) for the portfolio.
+// Deployed by .github/workflows/deploy.yml: `wrangler deploy` on push to main (prod) and
+// `wrangler versions upload --preview-alias pr-<N>` on pull requests (preview URLs).
+// The account comes from the CLOUDFLARE_ACCOUNT_ID secret, never from this file.
+{
+  "name": "portfolio",
+  "compatibility_date": "2026-11-12",
+  "workers_dev": true,
+  "preview_urls": true,
+  "assets": {
+    // Astro's static build output (`bun run build`).
+    "directory": "./dist",
+    // Unknown paths get dist/404.html (src/pages/404.astro) with a real 404 status.
+    "not_found_handling": "404-page",
+    // Astro builds /path/index.html; serve it at /path/ (Astro trailingSlash is "ignore").
+    "html_handling": "auto-trailing-slash",
+  },
+}

@@ -165,19 +165,18 @@ test.describe("full tier", () => {
     await page.evaluate(() => {
       window.scrollTo(0, document.documentElement.scrollHeight * 0.3);
     });
-    // Wait until the catch-up easing has settled (SwiftShader renders slowly), then expect
-    // zero frames for 2 s.
-    await expect
-      .poll(
-        async () => {
-          const a = await page.evaluate(() => window.darkroomTest?.frames() ?? -1);
-          await page.waitForTimeout(400);
-          const b = await page.evaluate(() => window.darkroomTest?.frames() ?? -1);
-          return b - a;
-        },
-        { timeout: 15_000 },
-      )
-      .toBe(0);
+    // Wait until the catch-up easing has settled on the scroll target (a SwiftShader frame can
+    // take ~0.8 s with the pinned copy composited on top, so a short "no new frame" window is
+    // not proof of idle), then expect zero frames for 2 s.
+    await page.waitForFunction(
+      () => {
+        const max = document.documentElement.scrollHeight - innerHeight;
+        return window.darkroomTest?.shown() === Math.min(1, Math.max(0, scrollY / max));
+      },
+      null,
+      { timeout: 15_000 },
+    );
+    await page.waitForTimeout(300);
     const idleStart = await page.evaluate(() => window.darkroomTest?.frames() ?? -1);
     await page.waitForTimeout(2000);
     const idleEnd = await page.evaluate(() => window.darkroomTest?.frames() ?? -1);

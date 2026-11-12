@@ -1,0 +1,217 @@
+# Deploy to Cloudflare Workers (static assets) — TASK-20261112-13.
+#   push to main  -> build -> production  (wrangler deploy)  https://portfolio.dppermees.workers.dev
+#   pull request  -> build -> preview     (wrangler versions upload --preview-alias pr-<N>)
+#                                          https://pr-<N>-portfolio.dppermees.workers.dev, one sticky PR comment
+# Secrets (GitHub Actions only): CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID. When the token is
+# missing (not added yet, or a fork PR) the deploy jobs skip with a notice instead of failing.
+# The deploy jobs only consume the `site-dist` artifact, so the `build` job can later be replaced
+# by CI's (PR #4) build artifact without touching them.
+# Rollback: `wrangler rollback` (previous version) or revert the commit on main (redeploys).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+env:
+  LEFTHOOK: "0"
+  ASTRO_TELEMETRY_DISABLED: "1"
+  WRANGLER_VERSION: "4.160.1"
+  PROD_URL: https://portfolio.dppermees.workers.dev
+  SITE_URL: https://portfolio.dppermees.workers.dev # canonical / OG / sitemap origin, also on previews
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-build-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site-dist
+          path: dist
+          retention-days: 7
+          if-no-files-found: error
+
+  preview:
+    if: github.event_name == 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: deploy-preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    env:
+      PR: ${{ github.event.pull_request.number }}
+      ALIAS: pr-${{ github.event.pull_request.number }}
+    steps:
+      - id: gate
+        env:
+          HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          if [ "$IS_FORK" = "true" ]; then
+            echo "::notice title=Preview skipped::Fork pull request: repository secrets are not available, so no preview is deployed."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_TOKEN" != "true" ]; then
+            echo "::notice title=Preview skipped::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set as Actions secrets yet, so no preview is deployed."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.ok == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: steps.gate.outputs.ok == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - if: steps.gate.outputs.ok == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site-dist
+          path: dist
+      - id: upload
+        if: steps.gate.outputs.ok == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set +e
+          bun x "wrangler@${WRANGLER_VERSION}" versions upload \
+            --preview-alias "$ALIAS" --tag "$ALIAS" --message "PR #${PR} ${SHA::7}" 2>&1 | tee wrangler.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            if grep -qiE "10007|does not (yet )?exist" wrangler.log; then
+              echo "::notice title=Preview skipped::The portfolio Worker does not exist yet. Previews start after the first production deploy (merge to main)."
+              echo "state=no-worker" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            exit "$status"
+          fi
+          alias_url=$(grep -oE "https://${ALIAS}-portfolio\.[a-z0-9-]+\.workers\.dev" wrangler.log | head -1)
+          version_url=$(grep -oE "https://[0-9a-f]{8}-portfolio\.[a-z0-9-]+\.workers\.dev" wrangler.log | head -1)
+          if [ -z "$alias_url" ]; then
+            echo "::error::wrangler did not print a preview alias URL. Is preview_urls enabled for the Worker?"
+            exit 1
+          fi
+          {
+            echo "state=ok"
+            echo "alias_url=$alias_url"
+            echo "version_url=$version_url"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice title=Preview::$alias_url"
+      - if: steps.upload.outputs.state == 'ok'
+        run: |
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "${{ steps.upload.outputs.alias_url }}/") || true
+            echo "attempt $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::warning::Preview URL did not return 200 yet."
+      - if: steps.upload.outputs.state != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE: ${{ steps.upload.outputs.state }}
+          ALIAS_URL: ${{ steps.upload.outputs.alias_url }}
+          VERSION_URL: ${{ steps.upload.outputs.version_url }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          marker='<!-- portfolio-preview -->'
+          if [ "$STATE" = "ok" ]; then
+            body="${marker}
+          **Preview:** ${ALIAS_URL}
+
+          | | |
+          |---|---|
+          | Commit | \`${SHA::7}\` |
+          | This version | ${VERSION_URL:-n/a} |
+          | Workflow run | ${RUN_URL} |
+
+          The alias \`${ALIAS}\` is updated on every push to this PR. Production (${PROD_URL}) is not touched."
+          else
+            body="${marker}
+          **Preview:** not available yet. The \`portfolio\` Worker does not exist until the first production deploy (merge to main). Previews start after that. ([run](${RUN_URL}))"
+          fi
+          id=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"${marker}\")) | .id" | head -1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${id}" -f body="$body" >/dev/null
+            echo "Updated preview comment ${id}"
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" -f body="$body" >/dev/null
+            echo "Created preview comment"
+          fi
+
+  production:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false # never cancel a prod deploy mid-flight; runs queue instead
+    steps:
+      - id: gate
+        env:
+          HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+        run: |
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::notice title=Production deploy skipped::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set as Actions secrets yet."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.ok == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: steps.gate.outputs.ok == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - if: steps.gate.outputs.ok == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site-dist
+          path: dist
+      - if: steps.gate.outputs.ok == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bun x "wrangler@${WRANGLER_VERSION}" deploy --message "main ${GITHUB_SHA::7}"
+      - if: steps.gate.outputs.ok == 'true'
+        run: |
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "${PROD_URL}/") || true
+            echo "attempt $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error::${PROD_URL} did not return 200 after deploy. Roll back with: wrangler rollback"
+          exit 1
