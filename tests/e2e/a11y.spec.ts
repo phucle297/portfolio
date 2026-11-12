@@ -64,14 +64,15 @@ async function settle(page: Page): Promise<void> {
   await page.evaluate(() => {
     Reflect.set(window, "a11ySettledFrames", 0);
   });
-  await page.waitForFunction(
+  const settled = page.waitForFunction(
     () => {
-      const moving = document.getAnimations().some((animation) => {
+      const movingList = document.getAnimations().filter((animation) => {
         const iterations = animation.effect?.getComputedTiming().iterations ?? 1;
         if (iterations === Number.POSITIVE_INFINITY) return false;
         return animation.pending || animation.playState === "running";
       });
-      const unrevealed = Array.from(document.querySelectorAll("[data-reveal]")).some((el) => {
+      const moving = movingList.length > 0;
+      const unrevealedList = Array.from(document.querySelectorAll("[data-reveal]")).filter((el) => {
         const rect = el.getBoundingClientRect();
         const visible =
           Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0)) /
@@ -82,6 +83,22 @@ async function settle(page: Page): Promise<void> {
           opacity *= Number(getComputedStyle(node).opacity);
         return opacity < 1;
       });
+      const unrevealed = unrevealedList.length > 0;
+      Reflect.set(
+        window,
+        "a11ySettleWhy",
+        JSON.stringify({
+          moving: movingList.map((a) => {
+            const t = a.effect instanceof KeyframeEffect ? a.effect.target : null;
+            return `${a.constructor.name} ${a.playState}${a.pending ? " pending" : ""} on ${t?.tagName ?? "?"}.${t?.className ?? ""} t=${String(a.currentTime)}`;
+          }),
+          unrevealed: unrevealedList.map((el) => {
+            const r = el.getBoundingClientRect();
+            return `${el.className} revealed=${String(el.hasAttribute("data-revealed"))} rect=${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}x${Math.round(r.height)} op=${getComputedStyle(el).opacity}`;
+          }),
+          scrollY: window.scrollY,
+        }),
+      );
       const frames =
         moving || unrevealed ? 0 : Number(Reflect.get(window, "a11ySettledFrames")) + 1;
       Reflect.set(window, "a11ySettledFrames", frames);
@@ -90,6 +107,15 @@ async function settle(page: Page): Promise<void> {
     null,
     { polling: "raf", timeout: 20_000 },
   );
+  try {
+    await settled;
+  } catch (error) {
+    // Say what was still moving or hidden, so a timeout is diagnosable from the log alone.
+    const why = await page
+      .evaluate(() => String(Reflect.get(window, "a11ySettleWhy")))
+      .catch(() => "unknown");
+    throw new Error(`page never settled: ${why}`, { cause: error });
+  }
 }
 
 async function open(
