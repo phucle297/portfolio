@@ -70,6 +70,25 @@ const { anchorBase = "" } = Astro.props;
     document.documentElement.classList.toggle("motion-ok", on);
   };
 
+  const header = document.querySelector<HTMLElement>(".site-header");
+  if (header) {
+    let queued = false;
+    const syncTop = (): void => {
+      queued = false;
+      header.toggleAttribute("data-at-top", window.scrollY < 8);
+    };
+    window.addEventListener(
+      "scroll",
+      () => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(syncTop);
+      },
+      { passive: true },
+    );
+    syncTop();
+  }
+
   if (toggle) {
     toggle.hidden = false;
     toggle.addEventListener("click", () => {
@@ -85,7 +104,17 @@ const { anchorBase = "" } = Astro.props;
     position: fixed;
     inset: 0 0 auto;
     z-index: 20;
-    /* Solid behind the nav row so copy scrolling underneath never meets the links. */
+    /* Opaque bar so copy scrolling underneath never shows through (QA-7); only at the very top
+       of the page, where nothing sits under it, it softens into the design's gradient. */
+    border-bottom: 1px solid var(--line);
+    background: rgb(14 10 8 / 0.97);
+    transition:
+      background-color var(--t-ui) var(--ease-inout),
+      border-color var(--t-ui) var(--ease-inout);
+  }
+
+  .site-header[data-at-top] {
+    border-bottom-color: transparent;
     background: linear-gradient(180deg, rgb(14 10 8 / 0.94) 0 72%, rgb(14 10 8 / 0));
   }
 
