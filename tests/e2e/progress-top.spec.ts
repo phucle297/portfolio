@@ -320,6 +320,38 @@ test.describe("PF-27 progress bar under the header", () => {
     }
   });
 
+  /**
+   * QA L1 (attempt 3): document.fonts.ready flushes layout. The fill driver must not
+   * read it while the HTML is still parsing (readyState === "loading"). First-paint
+   * flushness of the bar stays on the --header-bottom ResizeObserver path.
+   */
+  test("the fill driver does not read document.fonts.ready during HTML parse", async ({ page }) => {
+    await page.addInitScript({
+      content: `document.documentElement.dataset.pf27FontsParse = "0";
+        (function () {
+          var fonts = document.fonts;
+          if (!fonts) return;
+          var desc =
+            Object.getOwnPropertyDescriptor(Object.getPrototypeOf(fonts), "ready") ||
+            Object.getOwnPropertyDescriptor(fonts, "ready");
+          var getReady = desc && desc.get;
+          Object.defineProperty(fonts, "ready", {
+            configurable: true,
+            get: function () {
+              if (document.readyState === "loading") {
+                document.documentElement.dataset.pf27FontsParse = "1";
+              }
+              return getReady ? getReady.call(fonts) : Promise.resolve(fonts);
+            },
+          });
+        })();`,
+    });
+    await page.goto("/");
+    await expect(bar(page)).toBeVisible();
+    const accessed = await page.evaluate(() => document.documentElement.dataset.pf27FontsParse);
+    expect(accessed, "document.fonts.ready was not read while readyState was loading").toBe("0");
+  });
+
   test.describe("no JS", () => {
     for (const viewport of VIEWPORTS) {
       test(`${viewport.name}: the bar is CSS-driven or hidden, never stuck, with no errors`, async ({

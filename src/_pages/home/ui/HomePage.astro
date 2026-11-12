@@ -27,11 +27,14 @@ import WorkSection from "./WorkSection.astro";
   JS is present, on every tier. CSS animation-timeline: scroll() is a progressive enhancement;
   some engines advertise the property but treat animation-duration: auto as 0s, so a no-JS
   CSS-only fill cannot be trusted. Without JS the bar is hidden, never stuck empty or full.
-  The scrollable height (scrollHeight - innerHeight) is never read during HTML parse (no
-  forced layout before first paint, PF-27 QA L1). It is measured in a ResizeObserver on
-  <html> and <body> (whose first callback runs after layout, before first paint), and again
-  on load, fonts ready and resize, so late content or a font swap can't leave it stale and
-  the fill is 100 % exactly at the bottom (QA M1). Scroll handlers do no layout reads.
+  The scrollable height (scrollHeight - innerHeight) is never read during HTML parse, and
+  document.fonts.ready is not touched during parse either (accessing it flushes layout;
+  PF-27 QA L1). Height is measured in a ResizeObserver on <html> and <body> (whose first
+  callback runs after layout, before first paint), and again on load, fonts ready
+  (registered from a rAF, not at parse) and resize, so late content or a font swap can't
+  leave it stale and the fill is 100 % exactly at the bottom (QA M1). Scroll handlers do
+  no layout reads. First-paint flushness of the bar under the header comes from the
+  --header-bottom ResizeObserver path in BaseLayout.
   No module import, so this does not add to the initial JS budget.
 -->
 <script is:inline>
@@ -62,7 +65,12 @@ import WorkSection from "./WorkSection.astro";
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", remeasure);
     window.addEventListener("load", remeasure);
-    if (document.fonts) document.fonts.ready.then(remeasure);
+    // fonts.ready flushes layout. Register it after the first frame, never during parse
+    // (PF-27 QA L1). ResizeObserver + load already remasure; first-paint bar placement
+    // comes from the --header-bottom path in BaseLayout.
+    requestAnimationFrame(function () {
+      if (document.fonts) document.fonts.ready.then(remeasure);
+    });
     if (typeof ResizeObserver === "function") {
       const observer = new ResizeObserver(measure);
       observer.observe(document.documentElement);
