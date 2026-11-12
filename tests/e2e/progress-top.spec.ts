@@ -111,7 +111,16 @@ test.describe("PF-27 progress bar under the header", () => {
     expect(Math.abs(atTop.barTop - atTop.headerBottom)).toBeLessThanOrEqual(1);
 
     const duration = await fill(page).evaluate((el) => getComputedStyle(el).transitionDuration);
-    expect(duration === "0s" || duration === "0.01ms" || duration === "0.00001s").toBe(true);
+    const seconds = duration.split(",").map((part) => {
+      const token = part.trim();
+      const value = Number.parseFloat(token);
+      if (Number.isNaN(value)) return Number.POSITIVE_INFINITY;
+      return token.endsWith("ms") ? value / 1000 : value;
+    });
+    expect(
+      Math.max(0, ...seconds),
+      `transition-duration should be instant under reduced motion, got ${duration}`,
+    ).toBeLessThanOrEqual(0.00002);
 
     await scrollToRatio(page, 0.5);
     const mid = await scaleX(page);

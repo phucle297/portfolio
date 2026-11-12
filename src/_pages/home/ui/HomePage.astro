@@ -23,9 +23,12 @@ import WorkSection from "./WorkSection.astro";
 <ContactSection />
 
 <!--
-  Progress fill: CSS scroll timeline is the default (works with and without JS). With JS, a tiny inline fallback (rAF-throttled, transform only, no header layout reads
-  on scroll) always drives the fill so it works even if the timeline API is missing or
-  inert. No module import, so this does not add to the initial JS budget.
+  Progress fill: a tiny inline driver (rAF-throttled, transform: scaleX only, scrollHeight
+  cached on resize, no layout reads on scroll) always runs when JS is present, on every
+  tier. CSS animation-timeline: scroll() is a progressive enhancement; some engines
+  advertise the property but treat animation-duration: auto as 0s, so a no-JS CSS-only
+  fill cannot be trusted. Without JS the bar is hidden, never stuck empty or full.
+  No module import, so this does not add to the initial JS budget.
 -->
 <script is:inline>
   (function () {
@@ -105,6 +108,7 @@ import WorkSection from "./WorkSection.astro";
     background: var(--accent);
     transform: scaleX(0);
     transform-origin: 0 50%;
+    transition: none;
   }
 
   /* CSS scroll timeline drives the fill without JS. Longhands (not the animation shorthand)
@@ -133,15 +137,10 @@ import WorkSection from "./WorkSection.astro";
     animation: none;
   }
 
-  /* No JS and no scroll-timeline: hide the track so it never sits stuck empty or full. */
+  /* No JS: hide the track. CSS scroll timelines are not reliable enough across engines
+     (supports() can be true while duration: auto is a no-op) to guarantee the fill moves. */
   :global(html:not(.js)) .home-progress {
     display: none;
-  }
-
-  @supports (animation-timeline: scroll()) {
-    :global(html:not(.js)) .home-progress {
-      display: block;
-    }
   }
 
   /* The global reduced-motion rule would force animation-duration: 0.01ms and freeze a
@@ -149,13 +148,10 @@ import WorkSection from "./WorkSection.astro";
   @media (prefers-reduced-motion: reduce) {
     .home-progress span {
       transition: none;
-      animation-duration: unset;
-    }
-
-    @supports (animation-timeline: scroll()) {
-      .home-progress span {
-        animation-duration: unset !important;
-      }
+      transition-duration: 0s !important;
+      /* Override the global 0.01ms animation freeze so a working scroll timeline, if any,
+         can still track position. The JS driver already paints instantly. */
+      animation-duration: unset !important;
     }
   }
 </style>
