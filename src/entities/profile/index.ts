@@ -18,4 +18,5 @@ export {
   type Service,
   type WorkCase,
 } from "./model/content";
+export { personJsonLd, type PersonJsonLd } from "./model/jsonld";
 export { ownerPlaceholder, profile, type Profile, type SocialLink } from "./model/profile";
