@@ -22,6 +22,7 @@ const ENGINES = ["chromium", "firefox", "webkit"] as const;
 
 /** Pinned inventory of tests/e2e/*.spec.ts. Deleting a spec must fail this list. */
 const EXPECTED_SPECS: readonly string[] = [
+  "contact-form.spec.ts",
   "cross-browser.spec.ts",
   "m2-keys.spec.ts",
   "m2-qa-b.spec.ts",
@@ -46,7 +47,9 @@ const EXPECTED_PATTERNS = {
     "/QA-5: copy-email button copies the address and announces it$/",
     "/M1-AC13 fonts: design faces, no fallback in the names/",
   ],
-  firefoxOnlySkip: ["/email switch: PUBLIC_EMAIL drives the contact link/"],
+  firefoxOnlySkip: [
+    "/email switch: PUBLIC_EMAIL drives the contact link and the JS mailto submit$/",
+  ],
   webkitOnlySkip: [
     "/B-8: a reload while scrolled keeps the header opaque before its script runs/",
     "/WebGL disabled: the worker finds no context and the page keeps its stills/",

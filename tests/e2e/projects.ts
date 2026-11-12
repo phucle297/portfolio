@@ -46,7 +46,8 @@ export const CHROMIUM_ONLY_TESTS: readonly OptOut[] = [
 /** Playwright's Firefox does not report a `mailto:` navigation; the success status is checked instead. */
 export const FIREFOX_ONLY_SKIP: readonly OptOut[] = [
   {
-    pattern: /email switch: PUBLIC_EMAIL drives the contact link/,
+    // Exact title after PF-13 (#22): the form no longer uses a mailto action.
+    pattern: /email switch: PUBLIC_EMAIL drives the contact link and the JS mailto submit$/,
     reason: "Playwright's Firefox does not report a mailto: navigation",
   },
 ];
