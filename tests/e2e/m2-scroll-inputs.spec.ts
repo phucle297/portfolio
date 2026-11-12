@@ -8,8 +8,13 @@
  *   stop (the last `scroll` event), not from "caught up": at normal speed, with every frame slow
  *   (CPU throttled), and with one long frame in the middle of the catch-up. The rAF loop is also
  *   quiet for the 2 s after that (0 callbacks).
- * - AC3: while the tab is hidden, 0 frames render and 0 rAF callbacks run, even when it is
- *   scrolled or resized; it catches up once visible again.
+ * - AC3: while the tab is hidden, 0 frames render and 0 rAF callbacks run, even when it is hidden
+ *   in the middle of a catch-up, then scrolled, resized and its Safelight toggled; once visible
+ *   again it catches up and idles. Headless Chrome never hides a page (a minimized window or a
+ *   tab in the background both stay "visible" with rAF at 60 Hz, checked on this box), so the
+ *   hidden state is emulated with `document.hidden` / `visibilityState` plus `visibilitychange`,
+ *   while rAF keeps running: the stage's own guards are what keep it at 0. The real-browser
+ *   hidden-tab run is PF-08's hardware kit.
  *
  * Frames are timed exactly: an init script wraps requestAnimationFrame and stamps every callback
  * in which the scene's frame counter (`darkroomTest.frames()`) or rAF counter (`rafs()`) moved.
@@ -119,6 +124,7 @@ test.describe("PF-15 AC1 wheel and scrollbar match keyboard scrolling", () => {
     page,
   }) => {
     await openFocused(page);
+    const top = await snapshot(page);
     const bar = await page.evaluate(() => {
       const doc = document.documentElement;
       return {
@@ -142,6 +148,7 @@ test.describe("PF-15 AC1 wheel and scrollbar match keyboard scrolling", () => {
     await page.mouse.move(bar.x, grabY + (track - thumb) * 0.4, { steps: 12 });
     await page.mouse.up();
     const drag = await snapshot(page);
+    expect(drag.state, "the drag moved the scene").not.toBe(top.state);
     expect(drag.y).toBeGreaterThan(bar.max * 0.3);
     expect(drag.y).toBeLessThan(bar.max * 0.5);
 
@@ -262,5 +269,89 @@ test.describe("PF-15 AC2 no frames 1.5 s after the scroll stops", () => {
 
   test("when one frame near the budget takes 500 ms", async ({ page }) => {
     expectIdleWithin1500(await wheelAndWatch(page, { longFrameAt: 1000, longFrameMs: 500 }));
+  });
+});
+
+/** Emulate a hidden (or visible again) tab: what the page sees when the user switches tabs. */
+async function setHidden(page: Page, hidden: boolean): Promise<void> {
+  await page.evaluate((h) => {
+    if (h) {
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "hidden",
+      });
+    } else {
+      // Drop the instance overrides: the real (visible) Document getters apply again.
+      Reflect.deleteProperty(document, "hidden");
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, hidden);
+}
+
+test.describe("PF-15 AC3 a hidden tab renders nothing", () => {
+  test("0 frames and 0 rAF callbacks while hidden; catches up and idles once visible", async ({
+    page,
+  }) => {
+    await withFrameClock(page);
+    await openScene(page);
+    await page.mouse.move(800, 500);
+    // Hide in the middle of a catch-up: the loop is running when the tab goes away.
+    await page.mouse.wheel(0, 2400);
+    await setHidden(page, true);
+    const hiddenAt = await page.evaluate(() => {
+      const log = window.pf15;
+      if (!log) throw new Error("no frame clock");
+      log.frames = [];
+      log.ticks = [];
+      return performance.now();
+    });
+    expect(await page.evaluate(() => document.visibilityState)).toBe("hidden");
+    // Things that would normally request frames, all while hidden.
+    await page.evaluate(() => {
+      window.scrollBy(0, 900);
+    });
+    await page.setViewportSize({ width: 1500, height: 950 });
+    await page.locator("[data-safelight-toggle]").evaluate((el) => {
+      if (el instanceof HTMLElement) el.click();
+    });
+    await page.waitForTimeout(2500);
+    const hidden = await page.evaluate(() => ({
+      frames: window.pf15?.frames.length ?? -1,
+      ticks: window.pf15?.ticks.length ?? -1,
+    }));
+    expect(hidden, `hidden at ${hiddenAt}`).toEqual({ frames: 0, ticks: 0 });
+    // rAF itself still runs here (headless never pauses it): the stage's guards kept it at 0.
+    const rafAlive = await page.evaluate(
+      () =>
+        new Promise<boolean>((resolve) => {
+          requestAnimationFrame(() => {
+            resolve(true);
+          });
+          setTimeout(() => {
+            resolve(false);
+          }, 1000);
+        }),
+    );
+    expect(rafAlive).toBe(true);
+
+    // Visible again: it catches up to where the page now is, then goes idle.
+    await setHidden(page, false);
+    await page.waitForTimeout(4000);
+    const back = await page.evaluate(() => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      const now = performance.now();
+      const log = window.pf15;
+      return {
+        frames: log?.frames.length ?? -1,
+        lastTickAgo: log?.ticks.length ? now - (log.ticks.at(-1) ?? 0) : -1,
+        scrolled: window.scrollY / max,
+        drawn: window.darkroomTest?.state().p ?? -1,
+      };
+    });
+    expect(back.frames, JSON.stringify(back)).toBeGreaterThan(0);
+    expect(Math.abs(back.drawn - back.scrolled), JSON.stringify(back)).toBeLessThan(2e-4);
+    expect(back.lastTickAgo, JSON.stringify(back)).toBeGreaterThan(2000);
   });
 });
