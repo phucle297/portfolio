@@ -359,4 +359,106 @@ const email = profile.email;
       grid-template-columns: 1fr;
     }
   }
+
+  /* ---------- Pinned (full tier): one compact column on the left, clear of the lit print
+     (design.md kf-06). ---------- */
+  :global(html[data-pin="on"]) .contact {
+    grid-template-columns: minmax(0, 36rem);
+    gap: 0.7rem;
+    align-items: start;
+    padding-bottom: 0;
+  }
+
+  :global(html[data-pin="on"]) .contact__intro {
+    gap: 0.7rem;
+  }
+
+  :global(html[data-pin="on"]) .contact__intro .section-title {
+    font-size: min(6.5rem, 6.5vw, 10.4vh);
+  }
+
+  /* Contact links go under the form, as in the mockup. */
+  :global(html[data-pin="on"]) .contact__intro {
+    display: contents;
+  }
+
+  :global(html[data-pin="on"]) .contact__links {
+    order: 2;
+  }
+
+  :global(html[data-pin="on"]) .contact__form {
+    order: 1;
+  }
+
+  :global(html[data-pin="on"]) .contact__copy {
+    font-size: 0.9375rem;
+    line-height: 1.55;
+  }
+
+  :global(html[data-pin="on"]) .contact__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1rem;
+    font-size: 0.75rem;
+  }
+
+  :global(html[data-pin="on"]) .contact__links div {
+    gap: 0.5rem;
+  }
+
+  :global(html[data-pin="on"]) .contact__links dt {
+    min-width: 0;
+  }
+
+  :global(html[data-pin="on"]) .contact__links a {
+    min-height: 2rem;
+  }
+
+  :global(html[data-pin="on"]) .contact {
+    width: min(34rem, 40vw);
+  }
+
+  :global(html[data-pin="on"]) .contact__form {
+    gap: 0.5rem;
+    padding: 0.9rem 1.1rem;
+  }
+
+  :global(html[data-pin="on"]) .contact__form .field {
+    gap: 0.25rem;
+  }
+
+  :global(html[data-pin="on"]) .contact__form textarea {
+    min-height: 2.75rem;
+    height: 2.75rem;
+  }
+
+  :global(html[data-pin="on"]) .contact__note {
+    font-size: 0.8125rem;
+  }
+
+  /* Short pinned viewports (760–899 px tall): tighten the stack so the links under the form end
+     above the sticky footer and stay clickable (QA B-1; checked at 1200×760 and 1280×800). */
+  @media (max-height: 899px) {
+    :global(html[data-pin="on"]) .contact {
+      gap: 0.5rem;
+    }
+
+    :global(html[data-pin="on"]) .contact__intro .section-title {
+      font-size: min(6.5rem, 6.5vw, 6.5vh);
+    }
+
+    :global(html[data-pin="on"]) .contact__links a {
+      min-height: 1.75rem;
+    }
+
+    :global(html[data-pin="on"]) .contact__copy {
+      font-size: 0.875rem;
+      line-height: 1.45;
+    }
+
+    :global(html[data-pin="on"]) .contact__form {
+      gap: 0.4rem;
+      padding: 0.75rem 1rem;
+    }
+  }
 </style>

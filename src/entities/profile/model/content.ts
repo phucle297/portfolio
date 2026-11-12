@@ -1,9 +1,9 @@
 /**
  * Page copy for the home page: the round-7 Darkroom Morph copy deck (design.md §5), all sourced
- * from the owner's CV. Nothing here is invented; owner-supplied values that are still missing are
- * rendered as `[Owner: …]` placeholders (see `ownerPlaceholder`).
+ * from the owner's CV. Nothing here is invented. Every owner question is answered or ships its
+ * build plan §4 default, so no `[Owner: …]` placeholder text ships (M4-AC1).
  */
-import { ownerPlaceholder } from "./profile";
+import { profile } from "./profile";
 
 export interface Role {
   years: string;
@@ -40,6 +40,12 @@ export interface ProcessStep {
 
 /** Reply-time promise (Owner decision, replaces the plan's Q3 default). Used verbatim. */
 export const REPLY_WINDOW = "I reply within 4 hours";
+
+/**
+ * The reply promise with its time zone, worded the same everywhere it is made: Process step 1,
+ * the form note and the success text (build plan Q3, M4-AC1).
+ */
+export const REPLY_PROMISE = `${REPLY_WINDOW}, ${profile.timezone}`;
 
 export const hello = {
   eyebrow: "Frame 01 · Hello",
@@ -200,7 +206,7 @@ export const process = {
     {
       eyebrow: "Develop",
       title: "Brief",
-      copy: `Tell me what you want to build and by when. ${REPLY_WINDOW}.`,
+      copy: `Tell me what you want to build and by when. ${REPLY_PROMISE}.`,
     },
     {
       eyebrow: "Stop",
@@ -241,7 +247,7 @@ export const contact = {
     },
     brief: { label: "Short brief", placeholder: "What are you building, and by when?" },
     submit: "Send brief",
-    note: `${REPLY_WINDOW}, Asia/Saigon (UTC+7).`,
+    note: `${REPLY_PROMISE}.`,
     errors: {
       name: "Please add your name.",
       email: "Please enter a valid email, like you@company.com.",
@@ -251,9 +257,12 @@ export const contact = {
      * Build plan Q8: the form opens a prefilled mailto:, so design.md's "Thanks — your brief is
      * in." would overclaim. The success line says what actually happened.
      */
-    success: `Your email app is open with your brief. ${REPLY_WINDOW}.`,
-    /** Shown on submit while `PUBLIC_EMAIL` is null. */
-    noEmail: `Email sending isn't switched on yet ${ownerPlaceholder("email")}. Please reach me on LinkedIn for now.`,
+    success: `Your email app is open with your brief. ${REPLY_PROMISE}.`,
+    /**
+     * Shown on submit only while `PUBLIC_EMAIL` is null (the address is public, so not at
+     * launch). Plain copy: no `[Owner: …]` token ships in the HTML even in this unused message.
+     */
+    noEmail: "Email sending isn't switched on yet. Please reach me on LinkedIn for now.",
     copyEmail: "Copy email",
     copied: "Email copied.",
     copyFailed: "Couldn't copy. The address is selected, press Ctrl+C or ⌘C.",

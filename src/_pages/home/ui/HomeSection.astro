@@ -23,7 +23,7 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
   data-section={id}
 >
   <SectionStill index={index} eager={index === 0} />
-  <div class="home-section__body container">
+  <div class="home-section__body container" data-copy-body>
     <slot />
   </div>
 </section>
@@ -80,5 +80,153 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
     .home-section--align-end {
       justify-content: flex-end;
     }
+  }
+
+  /* ---------- Pinned copy (full tier on large viewports, see lib/copy-layer.ts) ----------
+     Each section's copy is pinned over the scene and scrubbed by the shared timeline: the
+     copy layer writes --copy-o / --copy-y. Copy is never display:none / visibility:hidden, and
+     focus inside it forces it visible. */
+  :global(html[data-pin="on"]) .home-section__body {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    padding: calc(var(--header-h) + 1.5rem) var(--gutter) 4.5rem;
+    opacity: var(--copy-o, 0);
+    transform: translate3d(0, var(--copy-y, 0), 0);
+    pointer-events: none;
+  }
+
+  /* Only the copy itself takes the pointer; empty space falls through to the page, so a click
+     there leaves keyboard scrolling (arrows) on the document instead of a fixed layer (M2-AC9).
+     The copy is slotted from the section components (their own scope), so the descendant part
+     must be :global or it never matches (QA B-1). */
+  :global(html[data-pin="on"])
+    .home-section__body[data-copy-active]
+    :global(
+      :where(a, button, input, select, textarea, label, summary, p, h1, h2, h3, li, dl, .card)
+    ) {
+    pointer-events: auto;
+  }
+
+  :global(html[data-pin="on"]) .home-section__body:focus-within {
+    z-index: 3;
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Each section's own scrim, fading with its copy (design.md §5 / the round-7 prototype). */
+  :global(html[data-pin="on"]) .home-section__body::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--pin-scrim, none);
+    pointer-events: none;
+  }
+
+  :global(html[data-pin="on"]) .home-section {
+    --scrim-a: rgb(14 10 8 / 0.95);
+    --scrim-b: rgb(14 10 8 / 0.82);
+  }
+
+  :global(html[data-pin="on"]) .home-section--hello .home-section__body {
+    --pin-scrim: radial-gradient(
+      31.25vw 43vh at 23.25% 50%,
+      rgb(14 10 8 / 0.93),
+      rgb(14 10 8 / 0.75) 60%,
+      rgb(14 10 8 / 0)
+    );
+    justify-content: center;
+  }
+
+  :global(html[data-pin="on"]) .home-section--journey .home-section__body {
+    --pin-scrim: radial-gradient(
+      37.5vw 48vh at 18.75% 76%,
+      var(--scrim-a),
+      var(--scrim-b) 60%,
+      rgb(14 10 8 / 0)
+    );
+    justify-content: flex-end;
+  }
+
+  :global(html[data-pin="on"]) .home-section--work .home-section__body {
+    --pin-scrim: radial-gradient(
+      48vw 26vh at 50% calc(100% - 15vh),
+      var(--scrim-a),
+      var(--scrim-b) 60%,
+      rgb(14 10 8 / 0)
+    );
+  }
+
+  :global(html[data-pin="on"]) .home-section--services .home-section__body {
+    --pin-scrim: radial-gradient(
+      34.4vw 28vh at 50% 14%,
+      var(--scrim-a),
+      var(--scrim-b) 60%,
+      rgb(14 10 8 / 0)
+    );
+  }
+
+  :global(html[data-pin="on"]) .home-section--process .home-section__body {
+    --pin-scrim: radial-gradient(
+      44vw 34vh at 50% 26%,
+      var(--scrim-a),
+      var(--scrim-b) 60%,
+      rgb(14 10 8 / 0)
+    );
+  }
+
+  :global(html[data-pin="on"]) .home-section--contact .home-section__body {
+    --pin-scrim: radial-gradient(
+      32.5vw 50vh at 13.75% 56%,
+      var(--scrim-a),
+      var(--scrim-b) 60%,
+      rgb(14 10 8 / 0)
+    );
+    padding-bottom: calc(var(--footer-h) + 1rem);
+  }
+
+  /* Anchor links land on the section's key state, not on the copy-free boundary. */
+  :global(html[data-pin="on"]) .home-section--journey {
+    scroll-margin-top: calc(var(--scroll) * -0.09);
+  }
+
+  :global(html[data-pin="on"]) .home-section--work {
+    scroll-margin-top: calc(var(--scroll) * -0.11);
+  }
+
+  :global(html[data-pin="on"]) .home-section--services,
+  :global(html[data-pin="on"]) .home-section--process {
+    scroll-margin-top: calc(var(--scroll) * -0.08);
+  }
+
+  :global(html[data-pin="on"]) .home-section--contact {
+    scroll-margin-top: calc(var(--scroll) * -0.12);
+  }
+
+  /* Beats: cards a section steps through while pinned (one shown at a time). */
+  /* Opacity is scrubbed by scroll (--beat-o from the copy layer), like the rest of the copy. */
+  :global(html[data-pin="on"]) .home-section__body :global([data-beat]) {
+    opacity: var(--beat-o, 0);
+  }
+
+  :global(html[data-pin="on"]) .home-section__body :global([data-beat]:focus-within) {
+    opacity: 1;
+  }
+
+  /* A beat that is not shown never catches the pointer meant for the one that is. */
+  :global(html[data-pin="on"])
+    .home-section__body
+    :global([data-beat]:not([data-beat-active], :focus-within)),
+  :global(html[data-pin="on"])
+    .home-section__body
+    :global([data-beat]:not([data-beat-active], :focus-within) *) {
+    pointer-events: none;
   }
 </style>
