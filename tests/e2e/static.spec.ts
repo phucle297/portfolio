@@ -203,11 +203,14 @@ test("QA-7: the header is opaque once scrolled, so copy never shows through it",
     window.scrollTo(0, innerHeight * 2);
   });
   await expect(header).not.toHaveAttribute("data-at-top", "");
-  // The background has a short colour transition (--t-ui), so poll until it settles.
+  // The bar fades in over --t-ui (background-color transition), so wait for the settled value.
   await expect
-    .poll(async () => {
-      const bg = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
-      return Number(/rgba?\(([^)]+)\)/u.exec(bg)?.[1]?.split(",")[3] ?? "1");
-    })
+    .poll(
+      async () => {
+        const bg = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
+        return Number(/rgba?\(([^)]+)\)/u.exec(bg)?.[1]?.split(",")[3] ?? "1");
+      },
+      { timeout: 2000 },
+    )
     .toBeGreaterThanOrEqual(0.95);
 });
