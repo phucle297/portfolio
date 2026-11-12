@@ -1,7 +1,7 @@
 /**
  * Shared measurement code for the PF-01 probe-cost specs (M3-AC6). Not a spec itself.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
 
@@ -32,6 +32,41 @@ export interface Run {
   tier: string;
   /** WebGL contexts created on the main thread (HTMLCanvasElement.getContext) during the load. */
   mainThreadWebGL: number;
+  /** Main-thread delay diagnostic (`heartbeat` loads only); logged, never asserted. */
+  heartbeat?: Heartbeat;
+}
+
+/** Heartbeat period: a 10 ms `setTimeout` chain in the page. */
+export const HEARTBEAT_MS = 10;
+/** The hang branch's deadline per M3-AC6, for the heartbeat diagnostic. */
+const HANG_DEADLINE_MS = 3000;
+
+/**
+ * How late the page's own timers ran around the probe, from a {@link HEARTBEAT_MS} heartbeat:
+ * a diagnostic for "decided late" (host or main-thread delay vs a late timer), not an assertion.
+ */
+export interface Heartbeat {
+  /** First beat at or after probe start + 3000 ms, minus that deadline. */
+  atDeadlineMs: number;
+  /** Longest gap between two beats from probe start to the decision. */
+  maxGapMs: number;
+  /** Beats in that window. */
+  beats: number;
+}
+
+function heartbeatOf(beats: number[], start: number, end: number): Heartbeat | undefined {
+  const deadline = start + HANG_DEADLINE_MS;
+  const after = beats.find((b) => b >= deadline);
+  const window = beats.filter((b) => b >= start && b <= end + HEARTBEAT_MS * 5);
+  let maxGap = 0;
+  for (let i = 1; i < window.length; i += 1)
+    maxGap = Math.max(maxGap, (window[i] ?? 0) - (window[i - 1] ?? 0));
+  if (after === undefined || window.length === 0) return undefined;
+  return {
+    atDeadlineMs: Math.round(after - deadline),
+    maxGapMs: Math.round(maxGap),
+    beats: window.length,
+  };
 }
 
 interface Collected {
@@ -44,12 +79,14 @@ interface Collected {
   fcp: number;
   tier: string;
   mainThreadWebGL: number;
+  beats: number[];
 }
 
 declare global {
   interface Window {
     probeCostLongTasks?: { startTime: number; duration: number }[];
     probeCostWebGL?: number;
+    probeCostBeats?: number[];
   }
 }
 
@@ -67,7 +104,13 @@ export const fulfil =
 export async function load(
   browser: Browser,
   setup: Setup | null,
-  options: { waitMs?: number; tbtEndMs?: number; context?: BrowserContextOptions } = {},
+  options: {
+    waitMs?: number;
+    tbtEndMs?: number;
+    context?: BrowserContextOptions;
+    /** Run the main-thread heartbeat diagnostic (see {@link Heartbeat}). */
+    heartbeat?: boolean;
+  } = {},
 ): Promise<Run> {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
@@ -99,6 +142,18 @@ export async function load(
       });
     }
   });
+  if (options.heartbeat) {
+    await page.addInitScript((period: number) => {
+      const beats: number[] = [];
+      window.probeCostBeats = beats;
+      const beat = (): void => {
+        const now = performance.now();
+        beats.push(now);
+        if (now < 10_000) setTimeout(beat, period);
+      };
+      setTimeout(beat, period);
+    }, HEARTBEAT_MS);
+  }
   let bytes = 0;
   let probeRequests = 0;
   page.on("response", (res) => {
@@ -151,12 +206,15 @@ export async function load(
       fcp,
       tier: document.documentElement.dataset.tier ?? "",
       mainThreadWebGL: window.probeCostWebGL ?? 0,
+      beats: window.probeCostBeats ?? [],
     };
   });
   await context.close();
   const start = got.measure?.startTime ?? 0;
   const end = start + (got.measure?.duration ?? 0);
   const tbtEnd = options.tbtEndMs ?? end;
+  const heartbeat =
+    got.measure && options.heartbeat ? heartbeatOf(got.beats, start, end) : undefined;
   return {
     branch: got.measure?.detail.branch ?? "none",
     hardware: got.measure?.detail.hardware ?? false,
@@ -173,6 +231,7 @@ export async function load(
     probeRequests,
     tier: got.tier,
     mainThreadWebGL: got.mainThreadWebGL,
+    ...(heartbeat ? { heartbeat } : {}),
   };
 }
 
@@ -196,12 +255,48 @@ export const tbt = (runs: Run[]): number =>
     0.5,
   );
 
-/** Collects table rows for one spec file and writes them as `<name>.md` / `<name>.json` in OUT. */
+interface TableState {
+  runner: number;
+  rows: string[];
+  results: Record<string, Run[]>;
+}
+
+function isTableState(x: unknown): x is TableState {
+  if (x === null || typeof x !== "object") return false;
+  const rows: unknown = Reflect.get(x, "rows");
+  const results: unknown = Reflect.get(x, "results");
+  return (
+    typeof Reflect.get(x, "runner") === "number" &&
+    Array.isArray(rows) &&
+    rows.every((r) => typeof r === "string") &&
+    results !== null &&
+    typeof results === "object"
+  );
+}
+
+/**
+ * Collects table rows for one spec file and writes them as `<name>.md` / `<name>.json` in OUT.
+ * The tests are independent (not serial), so after a failure Playwright carries on in a fresh
+ * worker: the table is written after every row and a new worker of the same run (same runner
+ * process, `process.ppid`) continues it instead of overwriting it.
+ */
 export class ProbeCostTable {
   private readonly rows: string[] = [];
   private readonly results: Record<string, Run[]> = {};
+  private readonly state: string;
 
-  constructor(private readonly name: string) {}
+  constructor(private readonly name: string) {
+    this.state = join(OUT, `${name}.state.json`);
+    if (!existsSync(this.state)) return;
+    try {
+      const prev: unknown = JSON.parse(readFileSync(this.state, "utf8"));
+      if (!isTableState(prev) || prev.runner !== process.ppid) return;
+      this.rows.push(...prev.rows);
+      Object.assign(this.results, prev.results);
+    } catch {
+      // Unreadable state from an earlier run: start a new table.
+    }
+  }
 
   record(label: string, runs: Run[]): void {
     this.results[label] = runs;
@@ -214,14 +309,28 @@ export class ProbeCostTable {
     this.rows.push(
       `| ${label} | ${decisions.join(", ")} | ${col((r) => r.navToDecisionMs)} | ${col((r) => r.probeMs)} | ${col((r) => r.mainThreadMs)} | ${maxLong ? `${maxLong} ms` : "none"} | ${col((r) => r.tbtMs)} | ${Math.max(...runs.map((r) => r.bytes))} B (${Math.max(...runs.map((r) => r.probeRequests))} req) |`,
     );
+    this.save();
   }
 
   note(line: string): void {
     this.rows.push(line);
+    this.save();
   }
 
+  private save(): void {
+    mkdirSync(OUT, { recursive: true });
+    const state: TableState = { runner: process.ppid, rows: this.rows, results: this.results };
+    writeFileSync(this.state, JSON.stringify(state));
+    this.files();
+  }
+
+  /** Print the table (once per worker, from `afterAll`); the files are already up to date. */
   write(): void {
     if (this.rows.length === 0) return;
+    process.stdout.write(`${this.files()}\n`);
+  }
+
+  private files(): string {
     const header = [
       `Probe cost, ${RUNS} runs per branch, median / p95 (ms). Box: SwiftShader, no GPU.`,
       "",
@@ -232,7 +341,7 @@ export class ProbeCostTable {
     mkdirSync(OUT, { recursive: true });
     writeFileSync(join(OUT, `${this.name}.md`), `${md}\n`);
     writeFileSync(join(OUT, `${this.name}.json`), JSON.stringify(this.results, null, 1));
-    process.stdout.write(`${md}\n`);
+    return md;
   }
 }
 

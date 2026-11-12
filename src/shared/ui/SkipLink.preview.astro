@@ -1,0 +1,64 @@
+---
+// Preview of SkipLink in each state (shown by /ui-preview/ only, never in production).
+import SkipLink from "./SkipLink.astro";
+
+interface Props {
+  ground: "bg" | "surface";
+}
+const { ground } = Astro.props;
+---
+
+<div class="states">
+  <figure>
+    <div class="frame" data-state="rest">
+      <SkipLink target={`#skiplink-${ground}`} />
+    </div>
+    <figcaption>Rest: moved off-screen, still first in the tab order.</figcaption>
+  </figure>
+  <figure>
+    <div class="frame" data-state="focus">
+      <SkipLink target={`#skiplink-${ground}`} />
+    </div>
+    <figcaption>Keyboard focus (forced here): accent fill, focus ring, 44 px tall.</figcaption>
+  </figure>
+  <p id={`skiplink-${ground}`} tabindex="-1">
+    Live: press Tab on this page; the first stop is the page's own skip link.
+  </p>
+</div>
+
+<style>
+  .states {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  figure {
+    margin: 0;
+  }
+
+  .frame {
+    position: relative;
+    height: calc(var(--tap-min) + var(--space-8));
+    overflow: hidden;
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--radius-sm);
+  }
+
+  figcaption,
+  p {
+    margin: var(--space-2) 0 0;
+    font-size: var(--type-body-mobile);
+    color: var(--muted);
+  }
+
+  /* Same rules as the component's :focus-visible plus the global focus ring. */
+  .frame[data-state="focus"] :global(.skip-link) {
+    transform: none;
+    outline: var(--focus-ring-width) solid var(--focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  .frame :global(.skip-link) {
+    pointer-events: none;
+  }
+</style>
