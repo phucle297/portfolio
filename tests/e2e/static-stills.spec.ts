@@ -519,8 +519,37 @@ test("reviewer side-by-side against fallback-poster.png and mobile-full.png", as
     window.scrollTo(0, 0);
   });
   await phone.waitForTimeout(500);
-  const full = await phone.screenshot({ fullPage: true });
+  // One shot per section (and the footer), stacked: a single full-page shot of this ~10 000 px
+  // page comes back with the Contact rows replaced by the intro under load (QA-PF02-3). The fixed
+  // header would be stamped onto every section, so it stays on the intro only.
+  const parts = [...SECTIONS.map((id) => `#${id}`), "body > footer"];
+  const pieces = await parts.reduce<Promise<Buffer[]>>(
+    (previous, selector, k) =>
+      previous.then(async (list) => [
+        ...list,
+        await phone
+          .locator(selector)
+          .first()
+          .screenshot(k > 0 ? { style: ".site-header { visibility: hidden !important; }" } : {}),
+      ]),
+    Promise.resolve([]),
+  );
   await phone.context().close();
+  const heights = await Promise.all(
+    pieces.map(async (piece) => (await sharp(piece).metadata()).height ?? 0),
+  );
+  const tops = heights.map((_, k) => heights.slice(0, k).reduce((sum, h) => sum + h, 0));
+  const full = await sharp({
+    create: {
+      width: 390,
+      height: heights.reduce((sum, h) => sum + h, 0),
+      channels: 3,
+      background: "#0e0a08",
+    },
+  })
+    .composite(pieces.map((input, k) => ({ input, left: 0, top: tops[k] ?? 0 })))
+    .png()
+    .toBuffer();
   const mobile = process.env.MOBILE_FULL;
   // Both at native 390 px width, top-aligned, so rows line up section by section.
   const ref = mobile ? await sharp(mobile).png().toBuffer() : null;
