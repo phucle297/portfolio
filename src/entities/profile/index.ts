@@ -4,6 +4,7 @@ export {
   hello,
   journey,
   process,
+  REPLY_PROMISE,
   REPLY_WINDOW,
   roles,
   sceneDescription,
