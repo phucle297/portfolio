@@ -12,7 +12,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { contact } from "../../src/entities/profile/model/content";
 import { PUBLIC_EMAIL } from "../../src/shared/config/contact";
-import { KEY_PROGRESS } from "../../src/shared/lib/timeline";
+import { KEY_PROGRESS, beatProgress } from "../../src/shared/lib/timeline";
 import { inSequence, openScene, scrollToP, settle } from "./helpers";
 
 const errors = contact.form.errors;
@@ -245,15 +245,19 @@ test.describe("PF-13 contact form", () => {
     await expect(freelance(page)).toBeChecked();
     await expect(nameInput(page)).toBeFocused();
 
+    // Get a quote lives on Services beat 4. KEY_PROGRESS[3] (0.6) is beat 2 (the
+    // four service cards), so the list would intercept a click on the CTA.
+    const servicesQuoteP = beatProgress(3, 4, 5);
+
     await setFullTime();
-    await scrollToP(page, KEY_PROGRESS[3] ?? 0.6);
+    await scrollToP(page, servicesQuoteP);
     await page.locator("#services [data-start-project]").click();
     await settle(page);
     await expect(freelance(page)).toBeChecked();
     await expect(nameInput(page)).toBeFocused();
 
     await setFullTime();
-    await scrollToP(page, KEY_PROGRESS[3] ?? 0.6);
+    await scrollToP(page, servicesQuoteP);
     await page.locator("#services [data-start-project]").focus();
     await page.keyboard.press("Enter");
     await settle(page);
