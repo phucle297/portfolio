@@ -12,7 +12,8 @@ export function isSoftwareRenderer(gl: GL): boolean {
 }
 
 /**
- * Probe a canvas for a hardware-accelerated WebGL context.
+ * Probe a canvas for a hardware-accelerated WebGL2 context (WebGL1-only devices get the
+ * poster: the scene relies on WebGL2 single-channel textures).
  *
  * Software rasterisers (SwiftShader, llvmpipe, Microsoft Basic Render) turn a continuous render
  * loop into main-thread jank and battery drain, so on those the CSS poster is kept instead.
@@ -22,7 +23,7 @@ export function isSoftwareRenderer(gl: GL): boolean {
 export function probeCanvas(canvas: HTMLCanvasElement | OffscreenCanvas): boolean {
   try {
     const attrs: WebGLContextAttributes = { failIfMajorPerformanceCaveat: true };
-    const gl: GL | null = canvas.getContext("webgl2", attrs) ?? canvas.getContext("webgl", attrs);
+    const gl: GL | null = canvas.getContext("webgl2", attrs);
     if (!gl) return false;
     const hardware = !isSoftwareRenderer(gl);
     gl.getExtension("WEBGL_lose_context")?.loseContext();

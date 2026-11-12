@@ -1,0 +1,88 @@
+---
+import { hello, profile } from "@entities/profile";
+import HomeSection from "./HomeSection.astro";
+
+const linkedin = profile.socials.find((social) => social.label === "LinkedIn");
+const cvHref = profile.cvUrl ?? linkedin?.href ?? null;
+const cvLabel = profile.cvUrl ? hello.secondaryCta : hello.secondaryCtaFallback;
+---
+
+<HomeSection id="hello" index={0} labelledBy="hello-title" align="center">
+  <div class="hello">
+    <p class="eyebrow">{hello.eyebrow}</p>
+    <h1 id="hello-title" class="display hello__title">
+      {hello.title} <em>{hello.titleAccent}</em>
+    </h1>
+    <p class="hello__subtitle">{hello.subtitle}</p>
+    <p class="hello__lede">{hello.lede}</p>
+    <div class="hello__actions">
+      <a class="button button--primary" href="#contact" data-start-project>
+        {hello.primaryCta}
+      </a>
+      {cvHref && (
+        <a class="button button--ghost" href={cvHref} rel="noopener noreferrer" target="_blank">
+          {cvLabel}
+          <span class="visually-hidden"> (opens in a new tab)</span>
+        </a>
+      )}
+    </div>
+    <p class="hello__cue mono" aria-hidden="true">
+      {hello.scrollCue}
+    </p>
+  </div>
+</HomeSection>
+
+<style>
+  .hello {
+    display: grid;
+    gap: 1.25rem;
+    max-width: 36rem;
+  }
+
+  .hello__title {
+    font-size: clamp(3.5rem, 8.4vw, 8.5rem);
+    line-height: 0.92;
+  }
+
+  .hello__title em {
+    display: block;
+  }
+
+  .hello__subtitle {
+    font-size: clamp(1.125rem, 1.6vw, 1.5rem);
+    font-weight: 600;
+  }
+
+  .hello__lede {
+    /* --text, not --muted: over the lit print at K0 muted measured 4.24:1 (< 4.5). */
+    color: var(--text);
+    font-size: 1.0625rem;
+    line-height: 1.6;
+  }
+
+  .hello__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+
+  .hello__cue {
+    margin-top: 0.5rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+  @media (max-width: 767px) {
+    .hello {
+      /* The portrait intro still shows the developed print in the top half. */
+      padding-top: calc(100vw * 486 / 390 - var(--header-h) - 2rem);
+    }
+
+    .hello__title {
+      font-size: 3.5rem;
+    }
+  }
+</style>

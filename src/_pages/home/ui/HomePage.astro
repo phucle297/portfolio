@@ -1,11 +1,41 @@
 ---
-import AboutSection from "./AboutSection.astro";
+import DarkroomScene from "./DarkroomScene.astro";
 import ContactSection from "./ContactSection.astro";
-import HeroSection from "./HeroSection.astro";
-import ProjectsSection from "./ProjectsSection.astro";
+import HelloSection from "./HelloSection.astro";
+import JourneySection from "./JourneySection.astro";
+import ProcessSection from "./ProcessSection.astro";
+import SectionRail from "./SectionRail.astro";
+import ServicesSection from "./ServicesSection.astro";
+import WorkSection from "./WorkSection.astro";
 ---
 
-<HeroSection />
-<AboutSection />
-<ProjectsSection />
+<DarkroomScene />
+<div class="home-scrim" aria-hidden="true"></div>
+<SectionRail />
+<HelloSection />
+<JourneySection />
+<WorkSection />
+<ServicesSection />
+<ProcessSection />
 <ContactSection />
+
+<style>
+  /* Text over the scene always sits on a scrim (design.md Tokens), limited to the left
+     ~740 px at 1600 so it never dims the scene's subject. */
+  .home-scrim {
+    display: none;
+  }
+
+  @media (min-width: 768px) {
+    .home-scrim {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 1;
+      display: block;
+      width: max(46.25vw, 30rem);
+      /* design.md: .86 up to 38% of 1600 (608 px), fading out; cut at 740 px. */
+      background: linear-gradient(90deg, rgb(14 10 8 / 0.86) 0 82%, transparent 100%);
+      pointer-events: none;
+    }
+  }
+</style>

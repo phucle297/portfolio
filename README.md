@@ -1,11 +1,12 @@
 # portfolio
 
-Personal portfolio of Phuc Le: a static-first [Astro](https://astro.build) site with a lazily
-loaded [Three.js](https://threejs.org) hero and [Motion](https://motion.dev) UI animations, built
-to stay fast (Lighthouse ≥ 95 in every category) and accessible.
+Personal portfolio of Phúc Lê: a static-first [Astro](https://astro.build) site built to the
+approved **Darkroom Morph** design: one persistent, lazily loaded [Three.js](https://threejs.org)
+scene (a photo darkroom) behind the whole page, driven by scroll, over a plain-HTML copy layer.
+Built to stay fast (Lighthouse ≥ 95 in every category) and accessible.
 
-> This repository currently contains the **foundation** only: layout, design tokens, the 3D hero
-> island, scroll-reveal animations and placeholder content. Content marked `TODO` is placeholder.
+> Milestone **M1** (scene + copy layer). Values the owner has not supplied yet render as visible
+> `[Owner: …]` placeholders; see [Owner content](#owner-content-and-the-email-switch).
 
 ## Requirements
 
@@ -30,7 +31,9 @@ to stay fast (Lighthouse ≥ 95 in every category) and accessible.
 | `bun run lint:fix`              | Oxlint with autofix                                             |
 | `bun run format`                | Format everything with oxfmt (including `.astro`)               |
 | `bun run format:check`          | Verify formatting without writing                               |
-| `bun run verify`                | check + typecheck + lint + format:check + build                 |
+| `bun run test`                  | Unit tests (Vitest): timeline, key states, scene graph          |
+| `bun run test:e2e`              | End-to-end tests (Playwright) against `build` + `preview`       |
+| `bun run verify`                | check + typecheck + lint + format:check + test + build          |
 | `bun run prepare`               | Install Lefthook git hooks (runs automatically on install)      |
 
 Set `SITE_URL` at build time to control canonical URLs, Open Graph URLs, `robots.txt` and the
@@ -39,6 +42,37 @@ sitemap (defaults to `https://phucle297.github.io`):
 ```sh
 SITE_URL=https://example.dev bun run build
 ```
+
+`test:e2e` builds the site and serves it on port 4510 (override with `E2E_PORT`; it never reuses a server already on that port). On a machine without Playwright's own
+browser download, point it at an installed Chrome: `CHROME_PATH=/usr/bin/google-chrome bun run
+test:e2e`. Tests that need the full 3D tier stub the hardware-WebGL probe and render on
+SwiftShader, so they check behaviour, not GPU performance. Pick a free port with `E2E_PORT` if 4510
+is taken; do not stop other preview servers on a shared machine.
+
+## Owner content and the email switch
+
+All copy lives in one content module, `src/entities/profile/model/content.ts` (plus
+`profile.ts`), sourced from the owner's CV. Launch defaults (build plan, updated by Owner decisions):
+
+| Question                      | Shipped default                                                          |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| Photo                         | none: the Journey slot shows the name / city / time zone meta only       |
+| Public email                  | **on** (Owner decision): `phucle.2971.dd@gmail.com`, see below           |
+| Reply time                    | "I reply within 4 hours" (Owner decision; `REPLY_WINDOW`)                |
+| Case screenshots / case pages | no screenshots; "Read the case" links hidden until `href` is set         |
+| Mobile                        | static stills (`LITE_MORPH_ENABLED = false`)                             |
+| Contact form                  | client-side validation, then a prefilled `mailto:` (needs the email)     |
+| CV PDF                        | not published (it has a phone number): the button reads "CV on LinkedIn" |
+
+**The email is behind one switch:** `PUBLIC_EMAIL` in `src/shared/config/contact.ts`. It is set to
+`phucle.2971.dd@gmail.com` by the Owner's decision, so the Contact section shows it as a
+`mailto:` link, the contact form opens a prefilled `mailto:` to it and the no-JS form action uses
+it. Set it to `null` to hide it again: the page then shows a visible `[Owner: email]` placeholder
+and submitting the form explains that sending is not switched on. Nothing else changes.
+
+After changing anything drawn in the scene (or to refresh the poster stills), re-render the stills
+from the shipped scene: `bun run build && bun run preview -- --port 4321 &` then
+`CHROME_PATH=/usr/bin/google-chrome node tools/render-stills.mjs`.
 
 ## Tooling notes
 
@@ -67,7 +101,8 @@ Lefthook is not installed, so it never breaks an install. Hooks are defined in `
 - **pre-commit** (staged files only): `oxfmt` formats staged files and re-stages them
   (`stage_fixed`), `oxlint` lints staged JS/TS/Astro files, and Steiger checks the architecture
   when anything under `src/` is staged.
-- **pre-push**: `typecheck` (TS 7), `astro check`, full `lint` (oxlint + Steiger), `build`.
+- **pre-push**: `typecheck` (TS 7), `astro check`, full `lint` (oxlint + Steiger),
+  `format:check` (oxfmt), `build`.
 
 Skip once with `LEFTHOOK=0 git commit …` (use sparingly).
 
@@ -88,10 +123,13 @@ src/
 │   └── styles/global.css       #   design tokens, base styles, reduced-motion rules
 ├── _pages/                     # pages layer (FSD), one slice per page
 │   ├── home/
-│   │   ├── ui/                 #   HomePage + Hero/About/Projects/Contact sections, ProjectCard,
-│   │   │                       #   HeroBackdrop (lazy 3D island + CSS poster)
-│   │   ├── lib/hero-scene.ts   #   three.js scene (own lazy chunk, only via dynamic import())
-│   │   ├── model/              #   projects.ts (placeholder data) + covers/*.webp
+│   │   ├── ui/                 #   HomePage, six section components, SectionStill (poster AVIFs
+│   │   │                       #   from ui/stills/), SectionRail, DarkroomScene (the 3D loader)
+│   │   ├── model/              #   keyframes.ts (K[0..5], design.md §4), evaluate.ts (pure
+│   │   │                       #   p → scene state)
+│   │   ├── lib/                #   gate.ts + tiers.ts (initial bundle); stage.ts, darkroom.ts,
+│   │   │                       #   scene-graph.ts, atlases.ts, tile-material.ts (lazy chunk);
+│   │   │                       #   section-tracker.ts, contact-form.ts
 │   │   └── index.ts            #   public API: HomePage
 │   └── not-found/
 │       ├── ui/NotFoundPage.astro
@@ -103,21 +141,23 @@ src/
 ├── features/                   # features layer
 │   └── reveal-on-scroll/       #   ui/reveal.ts (Motion inView + motion/mini) + index.ts
 ├── entities/                   # entities layer
-│   └── profile/                #   model/profile.ts (owner name, role, email, socials) + index.ts
+│   └── profile/                #   model/profile.ts (owner facts) + model/content.ts (copy deck)
 └── shared/                     # shared layer, no slices; one public API per segment
-    ├── config/                 #   site metadata + navigation (index.ts)
-    ├── ui/                     #   Section, SkipLink (index.ts)
+    ├── config/                 #   site metadata + navigation, PUBLIC_EMAIL switch (index.ts)
+    ├── ui/                     #   SkipLink (index.ts)
     └── lib/                    #   one public API per library (see shared/lib/README.md)
-        ├── motion/             #     reduced-motion helpers
-        └── webgl/              #     hardware-WebGL detection, Worker probe
+        ├── motion/             #     reduced-motion + Motion toggle preference
+        ├── timeline/           #     the one scroll timeline (sections, holds, TIMING, easing)
+        └── webgl/              #     hardware-WebGL2 detection, Worker probe
 ```
 
 Why things live where they do:
 
-- **Hero 3D scene and projects** are only used by the home page, so they stay in the `home`
-  page slice (FSD keeps screen-specific compositions in pages; Steiger's
-  `insignificant-slice` rule flags single-use slices). Extract them to `widgets`/`entities` once
-  a second page needs them.
+- **The darkroom scene** is only used by the home page, so it stays in the `home` page slice
+  (Steiger's `insignificant-slice` rule rejects a `widgets/darkroom-scene` slice with a single
+  reference). Extract it to `widgets` once a second page needs it.
+- **The timeline** (`shared/lib/timeline`) is pure data shared by the scene and the page (nav
+  highlight, rail), with no business meaning, so it is shared.
 - **Header and footer** are app-wide blocks composed by the app layout, so they are widgets.
 - **Scroll reveal** is a cross-page interaction, so it is a feature; the app entrypoint wires it.
 - **GPU probe and reduced-motion helpers** have no business meaning, so they are `shared/lib`.
@@ -168,34 +208,56 @@ frontmatter + `<script>` covers every import in the project.
 
 ## How the performance budget is kept
 
-- **Static HTML first.** Every page is pre-rendered; the hero text is plain HTML and is the LCP
-  element. All CSS is inlined (it is small), so there are no render-blocking stylesheets.
-- **Three.js is a lazy island.** `HeroBackdrop.astro` (in `_pages/home/ui`) shows a pure-CSS poster immediately. Only after
-  `load`, when the browser is idle **and** the hero is on screen, does it `import()` the scene,
-  so three.js (~130 kB gzip) lives in its own chunk that never blocks first paint.
-- **The render loop is frugal.** It pauses when the hero is off screen (IntersectionObserver) or
-  the tab is hidden, caps the pixel ratio at 1.5, compiles shaders with `compileAsync`, and
-  disposes geometries, materials and the renderer on teardown.
-- **No 3D on software WebGL.** If the GPU probe finds a software rasteriser (SwiftShader,
-  llvmpipe, …) or `failIfMajorPerformanceCaveat` fails, or Save-Data is on, three.js is never
-  downloaded and the poster stays. The probe runs in a Web Worker on an `OffscreenCanvas`, so
-  creating the test context never blocks the main thread.
-- **Motion, small.** Scroll reveals use `inView` from `motion` and `animate` from `motion/mini`
-  (WAAPI-based), ~3.7 kB gzip for the whole layout script.
-- **Fonts.** Inter Variable is self-hosted via `@fontsource-variable/inter` with
-  `font-display: swap`; the Latin subset is preloaded and a metric-matched Arial fallback avoids
-  layout shift.
-- **Images.** `astro:assets` generates responsive WebP variants with `srcset`/`sizes`, lazy loading
-  and intrinsic dimensions.
+- **Static HTML first.** Every page is pre-rendered; all copy is plain HTML. All CSS is inlined,
+  so there are no render-blocking stylesheets.
+- **Static tier by default.** Each section shows an AVIF poster still of the same scene at its
+  key state (`astro:assets`, ≈ 9–23 kB each desktop, ≈ 3–7 kB mobile). The first still is eager
+  with `fetchpriority="high"`; the others are lazy and are never fetched on the full tier.
+- **Gates before any download (F1).** `DarkroomScene.astro` requests nothing until the page has
+  loaded and the browser is idle (or on first input), and then only if **all** cheap gates pass:
+  `(pointer: fine)`, viewport ≥ 768 px, no `prefers-reduced-motion`, the Motion toggle is on and
+  Save-Data is off. Only then does the hardware-WebGL2 probe run in a Worker; only if it passes is
+  the three.js + scene chunk (~141 kB gzip) imported. Under reduced motion neither the probe nor
+  three.js is ever requested.
+- **One renderer, one scene, one canvas** for the whole page, `position: fixed` behind the copy.
+  Every object is built once; `set(p)` only copies a pure `evaluate(p)` result onto it.
+- **Render on demand.** Frames render only while the scene is catching up with the scroll
+  position (one damped catch-up, ≈ GSAP `scrub: .6`); nothing renders when idle or when the tab is
+  hidden. DPR is capped at 1.5 (1.0 on the lite tier); no shadows, no post-processing.
+- **Small textures.** The six print atlases are drawn at runtime from fonts (0 kB download) at
+  1536 px wide and stored as single-channel R8 (the shader reads one channel): ≈ 14.8 MiB of
+  texture memory including mipmaps, vs ≈ 54 MB budgeted for RGBA.
+- **Fonts.** Be Vietnam Pro, Instrument Serif and IBM Plex Mono are self-hosted via `@fontsource`
+  with `unicode-range` subsets (only used ranges download); the H1 faces are preloaded; metric
+  overrides on local fallbacks limit layout shift. Anton is declared but only used by the 3D
+  island's textures, so static-tier visitors never download it. Only the latin, latin-ext and
+  Vietnamese subsets ship (IBM Plex Mono's cyrillic faces are left out in
+  `src/app/styles/fonts-plex-mono.css`).
+- **`hidden` always wins.** `global.css` sets `[hidden] { display: none !important; }`, so a
+  component's `display` rule can never reveal an element that ships hidden (form errors, the
+  Motion toggle without JS, the copy-email button).
+- **Copy email.** Next to the address, a "Copy email" button uses the Clipboard API and announces
+  "Email copied." in a polite live region; if the write fails it selects the address and says so.
+  It ships `hidden` and appears only with JS and the Clipboard API, so without JS the mailto link
+  and the selectable address remain.
 
 ## Accessibility and reduced motion
 
-- `lang` attribute, skip link, `header`/`nav`/`main`/`footer` landmarks, labelled sections,
-  visible focus rings, colour contrast that passes WCAG AA.
-- `prefers-reduced-motion: reduce` is respected everywhere: scroll reveals are disabled (content is
-  visible immediately), CSS transitions/animations are neutralised, smooth scrolling is turned off,
-  and the 3D hero paints a single static frame instead of animating. Content never depends on JS:
-  reveal styles only apply when an inline script confirms JS is running and motion is allowed.
+- `lang` attribute, skip link, `header`/`nav`/`main`/`footer` landmarks, a separate
+  `nav[aria-label="Sections"]` rail with `aria-current`, labelled sections, visible focus rings,
+  WCAG AA contrast with scrims behind text over the scene.
+- The canvas is `aria-hidden`, preceded by a visually hidden description of the animation.
+- **Motion toggle** (WCAG 2.2.2) in the header: switches the full tier to the poster stills
+  without a reload and persists in `localStorage` (`motion` = `off`). It follows
+  `prefers-reduced-motion` by default; under reduced motion it stays off.
+- `prefers-reduced-motion: reduce`: no three.js, no probe, no scroll reveals, transitions
+  neutralised. Content never depends on JS.
+
+### Test hook
+
+`window.darkroomTest = { set(p), state(), info(), frames(), tier }` is exposed only in dev or when
+the URL has `?scene-test` (the build plan's `__darkroom`, renamed because `no-underscore-dangle`
+is enforced). `?scene-test&tier=lite` forces the lite tier for measurement.
 
 ## Deployment
 

@@ -1,93 +1,276 @@
 ---
 import { profile } from "@entities/profile";
 import { siteConfig } from "@shared/config";
+
+interface Props {
+  /** Prefix for section anchors: "" on the home page, "/" elsewhere. */
+  anchorBase?: string;
+}
+const { anchorBase = "" } = Astro.props;
 ---
 
 <header class="site-header">
-  <div class="container site-header__inner">
-    <a class="site-header__brand" href="/">
+  <div class="site-header__inner">
+    <a class="site-header__brand" href={anchorBase === "" ? "#hello" : "/"}>
       {profile.name}
+      <span aria-hidden="true">.</span>
     </a>
-    <nav aria-label="Primary">
-      <ul class="site-header__nav" role="list">
+    <nav class="site-header__nav" aria-label="Main">
+      <ul role="list">
         {siteConfig.nav.map((item) => (
           <li>
-            <a href={item.href}>{item.label}</a>
+            <a href={`${anchorBase}#${item.id}`} data-section-link={item.id}>
+              <span class="site-header__num">{item.number}</span> {item.label}
+            </a>
           </li>
         ))}
       </ul>
     </nav>
+    <div class="site-header__actions">
+      <button type="button" class="site-header__toggle" data-motion-toggle aria-pressed="true">
+        <span class="site-header__switch" aria-hidden="true"></span>
+        Motion{" "}
+        <span class="site-header__state" data-motion-state>
+          on
+        </span>
+      </button>
+      <a class="site-header__pill" href={`${anchorBase}#contact`}>
+        <span class="site-header__dot" aria-hidden="true"></span>
+        Open for freelance
+      </a>
+    </div>
   </div>
-  <div class="scroll-progress" aria-hidden="true"></div>
 </header>
+
+<script>
+  import {
+    motionAllowed,
+    onMotionChange,
+    prefersReducedMotion,
+    setUserMotion,
+  } from "@shared/lib/motion";
+
+  const toggle = document.querySelector<HTMLButtonElement>("[data-motion-toggle]");
+  const state = toggle?.querySelector<HTMLElement>("[data-motion-state]");
+
+  const render = (): void => {
+    if (!toggle || !state) return;
+    const on = motionAllowed();
+    const locked = prefersReducedMotion();
+    toggle.setAttribute("aria-pressed", String(on));
+    toggle.disabled = locked;
+    toggle.title = locked ? "Reduced motion is on in your system settings" : "";
+    state.textContent = on ? "on" : "off";
+    document.documentElement.classList.toggle("motion-ok", on);
+  };
+
+  const header = document.querySelector<HTMLElement>(".site-header");
+  if (header) {
+    let queued = false;
+    const syncTop = (): void => {
+      queued = false;
+      header.toggleAttribute("data-at-top", window.scrollY < 8);
+    };
+    window.addEventListener(
+      "scroll",
+      () => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(syncTop);
+      },
+      { passive: true },
+    );
+    syncTop();
+  }
+
+  if (toggle) {
+    toggle.addEventListener("click", () => {
+      setUserMotion(!motionAllowed());
+    });
+    onMotionChange(render);
+    render();
+  }
+</script>
 
 <style>
   .site-header {
-    position: sticky;
-    top: 0;
-    z-index: 50;
-    backdrop-filter: blur(12px);
-    background: rgb(11 13 18 / 0.72);
-    border-bottom: 1px solid var(--color-border);
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 20;
+    /* Opaque bar so copy scrolling underneath never shows through (QA-7); only at the very top
+       of the page, where nothing sits under it, it softens into the design's gradient. */
+    border-bottom: 1px solid var(--line);
+    background: rgb(14 10 8 / 0.97);
+    transition:
+      background-color var(--t-ui) var(--ease-inout),
+      border-color var(--t-ui) var(--ease-inout);
+  }
+
+  .site-header[data-at-top] {
+    border-bottom-color: transparent;
+    background: linear-gradient(180deg, rgb(14 10 8 / 0.94) 0 72%, rgb(14 10 8 / 0));
   }
 
   .site-header__inner {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    min-height: 3.75rem;
+    gap: 1.5rem;
+    min-height: var(--header-h);
+    padding-inline: var(--gutter);
   }
 
   .site-header__brand {
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    color: var(--color-text);
+    font: 400 1.6rem/1 var(--font-serif);
+    color: var(--text);
     text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .site-header__brand span {
+    color: var(--accent);
   }
 
   .site-header__nav {
+    flex: 1;
     display: flex;
-    gap: clamp(0.75rem, 3vw, 1.75rem);
+    justify-content: center;
+    min-width: 0;
+  }
+
+  .site-header__nav ul {
+    display: flex;
+    gap: clamp(0.5rem, 2vw, 1.75rem);
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
   .site-header__nav a {
-    display: inline-block;
-    padding: 0.5rem 0.25rem;
-    color: var(--color-text-muted);
+    display: inline-flex;
+    gap: 0.3em;
+    align-items: center;
+    min-height: 2.75rem;
+    color: var(--muted);
+    font-size: 0.9375rem;
     text-decoration: none;
-    transition: color 0.2s ease;
+    white-space: nowrap;
+    transition: color var(--t-micro) var(--ease-out);
   }
 
-  .site-header__nav a:hover {
-    color: var(--color-text);
+  .site-header__nav a:hover,
+  .site-header__nav a[aria-current="true"] {
+    color: var(--accent-2);
   }
 
-  /* Zero-JS scroll progress bar using scroll-driven animations where supported. */
-  .scroll-progress {
+  .site-header__actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+  }
+
+  .site-header__toggle,
+  .site-header__pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0.4rem 0.9rem;
+    border-radius: 999px;
+    font: 500 0.75rem/1 var(--font-mono);
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+  }
+
+  /* The Motion toggle needs JS: without it (no "js" class from the inline head script) it is
+     not shown at all (QA-4). */
+  :global(html:not(.js)) .site-header__toggle {
+    display: none;
+  }
+
+  .site-header__toggle {
+    border: 1px solid var(--line-strong);
+    background: rgb(14 10 8 / 0.6);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .site-header__toggle:disabled {
+    cursor: not-allowed;
+  }
+
+  .site-header__switch {
+    position: relative;
+    width: 26px;
+    height: 14px;
+    border-radius: 7px;
+    background: var(--line-strong);
+  }
+
+  .site-header__switch::after {
+    content: "";
     position: absolute;
-    inset: auto 0 -1px;
-    height: 2px;
-    background: linear-gradient(90deg, var(--color-accent), var(--color-accent-2));
-    transform-origin: 0 50%;
-    transform: scaleX(0);
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text);
+    transition: transform var(--t-micro) var(--ease-out);
   }
 
-  @supports (animation-timeline: scroll()) {
-    @media (prefers-reduced-motion: no-preference) {
-      .scroll-progress {
-        animation: grow-progress linear both;
-        animation-timeline: scroll(root block);
-      }
+  .site-header__toggle[aria-pressed="true"] .site-header__switch {
+    background: var(--accent-2);
+  }
+
+  .site-header__toggle[aria-pressed="true"] .site-header__switch::after {
+    transform: translateX(12px);
+    background: var(--ink);
+  }
+
+  .site-header__pill {
+    border: 1px solid rgb(255 194 75 / 0.45);
+    background: rgb(14 10 8 / 0.6);
+    color: var(--accent-2);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    letter-spacing: 0;
+    text-decoration: none;
+  }
+
+  .site-header__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-2);
+    box-shadow: 0 0 12px var(--accent-2);
+  }
+
+  @media (max-width: 1100px) {
+    .site-header__num {
+      display: none;
     }
   }
 
-  @keyframes grow-progress {
-    to {
-      transform: scaleX(1);
+  @media (max-width: 900px) {
+    .site-header__inner {
+      flex-wrap: wrap;
+      gap: 0 1rem;
+      padding-block: 0.5rem;
+    }
+
+    .site-header__nav {
+      order: 3;
+      flex-basis: 100%;
+      justify-content: flex-start;
+      overflow-x: auto;
+    }
+
+    .site-header__actions {
+      margin-left: auto;
+    }
+
+    .site-header__toggle {
+      display: none;
     }
   }
 </style>

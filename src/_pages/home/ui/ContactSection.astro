@@ -1,31 +1,362 @@
 ---
-import { profile } from "@entities/profile";
-import { Section } from "@shared/ui";
+import { contact, ownerPlaceholder, profile } from "@entities/profile";
+import HomeSection from "./HomeSection.astro";
+
+const { form } = contact;
+const email = profile.email;
 ---
 
-<Section id="contact" title="Let’s work together" eyebrow="Contact">
-  <div class="contact" data-reveal data-reveal-delay="80">
-    <p>
-      Have a project in mind or just want to say hello? My inbox is open. I usually reply within a
-      couple of days.
-    </p>
-    <a class="button button--primary" href={`mailto:${profile.email}`}>
-      Email me
-    </a>
+<HomeSection id="contact" index={5} labelledBy="contact-title" align="end">
+  <div class="contact">
+    <div class="contact__intro">
+      <p class="eyebrow">{contact.eyebrow}</p>
+      <h2 id="contact-title" class="display section-title">
+        {contact.title} <em>{contact.titleAccent}</em>
+      </h2>
+      <p class="contact__copy">{contact.copy}</p>
+      <dl class="contact__links mono">
+        <div>
+          <dt>Email</dt>
+          <dd data-email>
+            {email ? (
+              <>
+                <a href={`mailto:${email}`} data-email-address>
+                  {email}
+                </a>
+                {/* Shown only when JS and the Clipboard API are available (no-JS: the link and the selectable address remain). */}
+                <button
+                  type="button"
+                  class="contact__copy-email"
+                  data-copy-email={email}
+                  data-copied={form.copied}
+                  data-copy-failed={form.copyFailed}
+                  hidden
+                >
+                  {form.copyEmail}
+                </button>
+                <span class="visually-hidden" role="status" aria-live="polite" data-copy-status />
+              </>
+            ) : (
+              ownerPlaceholder("email")
+            )}
+          </dd>
+        </div>
+        {profile.socials.map((social) => (
+          <div>
+            <dt>{social.label}</dt>
+            <dd>
+              <a href={social.href} rel="me noopener noreferrer" target="_blank">
+                {social.handle}
+                <span class="visually-hidden"> (opens in a new tab)</span>
+              </a>
+            </dd>
+          </div>
+        ))}
+        <div>
+          <dt>Time</dt>
+          <dd>{profile.timezone}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <form
+      class="card contact__form"
+      data-contact-form
+      data-email={email ?? ""}
+      action={email ? `mailto:${email}` : undefined}
+      method="post"
+      enctype="text/plain"
+      novalidate
+      aria-labelledby="contact-title"
+    >
+      <fieldset class="contact__modes">
+        <legend class="visually-hidden">I'm writing about</legend>
+        {form.modes.map((mode, i) => (
+          <label>
+            <input type="radio" name="mode" value={mode} checked={i === 0} data-mode={i} />
+            <span>{mode}</span>
+          </label>
+        ))}
+      </fieldset>
+
+      <div class="contact__row">
+        <div class="field">
+          <label for="contact-name">{form.name.label}</label>
+          <input
+            id="contact-name"
+            name="name"
+            type="text"
+            autocomplete="name"
+            placeholder={form.name.placeholder}
+            required
+            aria-describedby="contact-name-error"
+          />
+          <p class="field__error" id="contact-name-error" data-error-for="name" hidden>
+            <span aria-hidden="true">!</span>
+            {form.errors.name}
+          </p>
+        </div>
+        <div class="field">
+          <label for="contact-email">{form.email.label}</label>
+          <input
+            id="contact-email"
+            name="email"
+            type="email"
+            autocomplete="email"
+            placeholder={form.email.placeholder}
+            required
+            aria-describedby="contact-email-error"
+          />
+          <p class="field__error" id="contact-email-error" data-error-for="email" hidden>
+            <span aria-hidden="true">!</span>
+            {form.errors.email}
+          </p>
+        </div>
+      </div>
+
+      <div class="field" data-project-type>
+        <label for="contact-type">{form.projectType.label}</label>
+        <select id="contact-type" name="project-type">
+          {form.projectType.options.map((option) => (
+            <option>{option}</option>
+          ))}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="contact-brief">{form.brief.label}</label>
+        <textarea
+          id="contact-brief"
+          name="brief"
+          rows="3"
+          placeholder={form.brief.placeholder}
+          required
+          aria-describedby="contact-brief-error"
+        ></textarea>
+        <p class="field__error" id="contact-brief-error" data-error-for="brief" hidden>
+          <span aria-hidden="true">!</span>
+          {form.errors.brief}
+        </p>
+      </div>
+
+      <button class="button button--primary contact__submit" type="submit">
+        {form.submit}
+      </button>
+      <p class="contact__note">{form.note}</p>
+      <p class="contact__status" role="status" aria-live="polite" data-form-status></p>
+      <template data-form-messages>
+        <span data-msg="success">{form.success}</span>
+        <span data-msg="no-email">{form.noEmail}</span>
+      </template>
+    </form>
   </div>
-</Section>
+</HomeSection>
+
+<script>
+  import { initContactForm } from "../lib/contact-form";
+  import { initCopyEmail } from "../lib/copy-email";
+
+  const form = document.querySelector<HTMLFormElement>("[data-contact-form]");
+  if (form) initContactForm(form);
+  const copyButton = document.querySelector<HTMLButtonElement>("[data-copy-email]");
+  if (copyButton) initCopyEmail(copyButton);
+</script>
 
 <style>
   .contact {
     display: grid;
-    justify-items: start;
-    gap: 1.5rem;
-    max-width: 60ch;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: clamp(2rem, 5vw, 5rem);
+    align-items: end;
+    padding-bottom: 2rem;
   }
 
-  .contact p {
+  .contact__intro {
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .contact__copy {
+    color: var(--muted);
+    max-width: 32rem;
+  }
+
+  .contact__links {
+    display: grid;
+    gap: 0.4rem;
     margin: 0;
-    color: var(--color-text-muted);
-    font-size: 1.1rem;
+    font-size: 0.875rem;
+  }
+
+  .contact__links div {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+  }
+
+  .contact__links dt {
+    min-width: 5.5rem;
+    color: var(--accent-2);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .contact__links dd {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    align-items: center;
+    margin: 0;
+  }
+
+  .contact__copy-email {
+    min-height: 2.75rem;
+    padding: 0 0.85rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .contact__copy-email:hover {
+    border-color: var(--accent-2);
+  }
+
+  .contact__copy-email[data-state="copied"] {
+    border-color: var(--accent-2);
+    color: var(--accent-2);
+  }
+
+  .contact__links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    color: var(--text);
+  }
+
+  .contact__form {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .contact__modes {
+    display: flex;
+    gap: 0.6rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .contact__modes label {
+    flex: 1;
+  }
+
+  .contact__modes input {
+    position: absolute;
+    opacity: 0;
+  }
+
+  .contact__modes span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    font-size: 0.875rem;
+    cursor: pointer;
+  }
+
+  .contact__modes input:checked + span {
+    border-color: var(--accent-2);
+    color: var(--accent-2);
+  }
+
+  .contact__modes input:focus-visible + span {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  .contact__row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem;
+  }
+
+  .field {
+    display: grid;
+    gap: 0.4rem;
+  }
+
+  .field label {
+    font: 500 0.6875rem/1.2 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .field input,
+  .field select,
+  .field textarea {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: rgb(14 10 8 / 0.8);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9375rem;
+  }
+
+  .field ::placeholder {
+    color: var(--muted);
+    opacity: 1;
+  }
+
+  .field [aria-invalid="true"] {
+    border-color: var(--error);
+  }
+
+  .field__error {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    color: var(--error);
+    font-size: 0.8125rem;
+  }
+
+  .field__error span {
+    display: grid;
+    place-items: center;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    background: var(--error);
+    color: var(--ink);
+    font-weight: 700;
+    font-size: 0.6875rem;
+  }
+
+  .contact__submit {
+    width: 100%;
+  }
+
+  .contact__note,
+  .contact__status {
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+
+  .contact__status:empty {
+    display: none;
+  }
+
+  @media (max-width: 767px) {
+    .contact,
+    .contact__row {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

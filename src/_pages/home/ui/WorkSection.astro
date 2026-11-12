@@ -1,0 +1,71 @@
+---
+import { work } from "@entities/profile";
+import HomeSection from "./HomeSection.astro";
+---
+
+<HomeSection id="work" index={2} labelledBy="work-title">
+  <p class="eyebrow">{work.eyebrow}</p>
+  <h2 id="work-title" class="display section-title">
+    {work.title} <em>{work.titleAccent}</em>
+  </h2>
+  <ul class="work__cases" role="list">
+    {work.cases.map((item, i) => (
+      <li class="card work__case" data-reveal>
+        <article>
+          <p class="eyebrow">
+            Print 0{i + 1} · {item.context}
+          </p>
+          <h3>{item.title}</h3>
+          <p class="work__copy">{item.copy}</p>
+          <p class="work__tags mono">{item.tags}</p>
+          {item.href && (
+            <a class="work__link" href={item.href}>
+              {work.readCase}
+            </a>
+          )}
+        </article>
+      </li>
+    ))}
+  </ul>
+</HomeSection>
+
+<style>
+  .work__cases {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 2rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .work__case h3 {
+    margin: 0.5rem 0;
+    font: 400 2.25rem/1.05 var(--font-serif);
+  }
+
+  .work__copy {
+    color: var(--muted);
+  }
+
+  .work__tags {
+    margin-top: 0.9rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+  }
+
+  .work__link {
+    display: inline-flex;
+    margin-top: 0.75rem;
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  @media (max-width: 767px) {
+    .work__cases {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

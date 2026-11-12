@@ -26,3 +26,7 @@ pnpm-debug.log*
 lighthouse/
 *.lighthouse.html
 *.lighthouse.json
+
+# test output
+test-results/
+playwright-report/

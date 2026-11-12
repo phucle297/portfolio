@@ -1,0 +1,111 @@
+---
+import { services } from "@entities/profile";
+import HomeSection from "./HomeSection.astro";
+---
+
+<HomeSection id="services" index={3} labelledBy="services-title">
+  <div class="services__head">
+    <p class="eyebrow">{services.eyebrow}</p>
+    <h2 id="services-title" class="display section-title">
+      {services.title} <em>{services.titleAccent}</em>
+    </h2>
+    <p class="services__subline">{services.subline}</p>
+  </div>
+  <ul class="services__list" role="list">
+    {services.items.map((item, i) => (
+      <li class="card" data-reveal>
+        <article>
+          <p class="eyebrow">0{i + 1}</p>
+          <h3>{item.title}</h3>
+          <p>{item.copy}</p>
+        </article>
+      </li>
+    ))}
+  </ul>
+  <div class="card services__price">
+    <div>
+      <p class="eyebrow">{services.price.label}</p>
+      <p class="services__value">{services.price.value}</p>
+      <p class="services__note">{services.price.note}</p>
+    </div>
+    <div>
+      <p class="eyebrow">{services.timeline.label}</p>
+      <p class="services__value services__value--time">{services.timeline.value}</p>
+      <p class="services__note">{services.timeline.note}</p>
+    </div>
+    <a class="button button--primary" href="#contact" data-start-project>
+      {services.cta}
+    </a>
+  </div>
+</HomeSection>
+
+<style>
+  .services__head {
+    display: grid;
+    gap: 1rem;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .services__subline {
+    color: var(--muted);
+  }
+
+  .services__list {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 2.5rem 0 1rem;
+    padding: 0;
+    list-style: none;
+  }
+
+  .services__list h3 {
+    margin: 0.4rem 0 0.6rem;
+    font: 400 1.75rem/1.1 var(--font-serif);
+  }
+
+  .services__list p:last-child {
+    color: var(--muted);
+    font-size: 0.9375rem;
+  }
+
+  .services__price {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 1.5rem;
+    align-items: center;
+  }
+
+  .services__value {
+    font: italic 400 clamp(2rem, 3.4vw, 3rem)/1.1 var(--font-serif);
+    color: var(--accent-2);
+  }
+
+  .services__value--time {
+    color: var(--text);
+  }
+
+  .services__note {
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
+  @media (max-width: 1023px) {
+    .services__list {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 767px) {
+    .services__head {
+      justify-items: start;
+      text-align: left;
+    }
+
+    .services__list,
+    .services__price {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

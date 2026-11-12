@@ -23,5 +23,7 @@ pre-push:
       run: bun run check
     - name: lint (oxlint + steiger)
       run: bun run lint
+    - name: format (oxfmt --check)
+      run: bun run format:check
     - name: build
       run: bun run build
