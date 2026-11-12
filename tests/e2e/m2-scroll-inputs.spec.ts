@@ -44,6 +44,8 @@ interface FrameLog {
   lastScroll: number;
   frames: number[];
   ticks: number[];
+  /** Runs right after each stage rAF callback (the stall test hooks in here). */
+  afterTick?: (() => void) | undefined;
 }
 declare global {
   interface Window {
@@ -71,7 +73,10 @@ async function withFrameClock(page: Page): Promise<void> {
         const at = performance.now();
         callback(time);
         if ((window.darkroomTest?.frames() ?? 0) > frames) log.frames.push(at);
-        if ((window.darkroomTest?.rafs() ?? 0) > ticks) log.ticks.push(at);
+        if ((window.darkroomTest?.rafs() ?? 0) > ticks) {
+          log.ticks.push(at);
+          log.afterTick?.();
+        }
       });
   });
 }
@@ -296,38 +301,36 @@ test.describe("PF-15 AC2 no frames 1.5 s after the scroll stops", () => {
     expectIdleWithin1500(await wheelAndWatch(page, { longFrameAt: 1000, longFrameMs: 500 }));
   });
 
-  test("when a stall in the middle of the catch-up runs past the deadline (700 ms → 1700 ms)", async ({
+  test("when a stall in the middle of the catch-up runs past the deadline (→ 1700 ms)", async ({
     page,
   }) => {
-    // A 1000 ms task (not a frame: nothing the loop can see coming) starts 700 ms after the scroll
-    // stop, while the catch-up is still running, and ends 200 ms past the 1.5 s deadline. The
-    // frame the loop had already requested is delivered late; drawing it would break AC2.
+    // Right after a stage frame that left the catch-up unfinished (so its next frame is already
+    // requested), the main thread stalls until 1700 ms after the scroll stop: 200 ms past the
+    // 1.5 s deadline, with nothing the loop could have seen coming. Hooked to the stage's own
+    // frame, not a timer, so it lands mid catch-up however slow the frames are.
     await page.evaluate(() => {
       const log = window.pf15;
       if (!log) throw new Error("no frame clock");
       log.frames = [];
       log.ticks = [];
-      let timer = 0;
+      const max = document.documentElement.scrollHeight - innerHeight;
+      const finalY = Math.min(max, scrollY + 3600);
       const w = window as Window & { pf15Stall?: { loopRunning: boolean; from: number } };
-      window.addEventListener(
-        "scroll",
-        () => {
-          window.clearTimeout(timer);
-          timer = window.setTimeout(() => {
-            const max = document.documentElement.scrollHeight - innerHeight;
-            const shown = window.darkroomTest?.shown() ?? -1;
-            w.pf15Stall = {
-              loopRunning: Math.abs(shown - scrollY / max) > 1e-4,
-              from: Math.round(performance.now() - log.lastScroll),
-            };
-            const end = log.lastScroll + 1700;
-            while (performance.now() < end) {
-              // Busy: the main thread is stuck (GC, a heavy extension, a swapped-out tab).
-            }
-          }, 700);
-        },
-        { passive: true },
-      );
+      log.afterTick = () => {
+        if (scrollY < finalY) return;
+        const shown = window.darkroomTest?.shown() ?? -1;
+        const running = Math.abs(shown - scrollY / max) > 1e-4;
+        if (!running) return;
+        log.afterTick = undefined;
+        w.pf15Stall = {
+          loopRunning: running,
+          from: Math.round(performance.now() - log.lastScroll),
+        };
+        const end = log.lastScroll + 1700;
+        while (performance.now() < end) {
+          // Busy: the main thread is stuck (GC, a heavy extension, a swapped-out tab).
+        }
+      };
     });
     await page.mouse.move(800, 500);
     await page.mouse.wheel(0, 1200);
@@ -348,10 +351,7 @@ test.describe("PF-15 AC2 no frames 1.5 s after the scroll stops", () => {
     const detail = JSON.stringify(result);
     // The stall really hit a running catch-up (otherwise this proves nothing).
     expect(result.stall?.loopRunning, detail).toBe(true);
-    expect(
-      result.frames.some((t) => t > 0 && t < 700),
-      detail,
-    ).toBe(true);
+    expect(result.stall?.from ?? Infinity, detail).toBeLessThan(1500);
     // No frame after the deadline...
     expect(
       result.frames.filter((t) => t > 1500),
