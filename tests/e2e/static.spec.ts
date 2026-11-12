@@ -65,22 +65,34 @@ test("M1-AC13 fonts: design faces, no fallback in the names, ≤ 150 KB of page 
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await scrollThrough(page);
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
-  const checks = await page.evaluate(() => ({
-    sans: document.fonts.check('400 16px "Be Vietnam Pro"', "Lê Đàm Duy Phúc Asia/Saigon"),
-    serif: document.fonts.check('400 64px "Instrument Serif"', "Phúc Lê"),
-    serifItalic: document.fonts.check('italic 400 64px "Instrument Serif"', "developing."),
-    mono: document.fonts.check('500 13px "IBM Plex Mono"', "Asia/Saigon (UTC+7)"),
-    h1Family: getComputedStyle(document.querySelector("h1") ?? document.body).fontFamily,
-  }));
+  // Page-font bytes as the page itself loaded them, before the glyph checks below force any load.
+  const urls = [...fontBytes.keys()];
+  const total = [...fontBytes.values()].reduce((a, b) => a + b, 0);
+  // Load the faces for each string before check(), so the result does not depend on fonts
+  // installed on the machine (check() is trivially true when the family is a system font).
+  const checks = await page.evaluate(async () => {
+    const faces = {
+      sans: ['400 16px "Be Vietnam Pro"', "Lê Đàm Duy Phúc Asia/Saigon"],
+      serif: ['400 64px "Instrument Serif"', "Phúc Lê"],
+      serifItalic: ['italic 400 64px "Instrument Serif"', "developing."],
+      mono: ['500 13px "IBM Plex Mono"', "Asia/Saigon (UTC+7)"],
+    } as const;
+    await Promise.all(Object.values(faces).map(([font, text]) => document.fonts.load(font, text)));
+    return {
+      sans: document.fonts.check(...faces.sans),
+      serif: document.fonts.check(...faces.serif),
+      serifItalic: document.fonts.check(...faces.serifItalic),
+      mono: document.fonts.check(...faces.mono),
+      h1Family: getComputedStyle(document.querySelector("h1") ?? document.body).fontFamily,
+    };
+  });
   expect(checks.sans).toBe(true);
   expect(checks.serif).toBe(true);
   expect(checks.serifItalic).toBe(true);
   expect(checks.mono).toBe(true);
   expect(checks.h1Family).toContain("Instrument Serif");
-  const urls = [...fontBytes.keys()];
   expect(urls.some((u) => u.includes("inter"))).toBe(false);
   expect(urls.some((u) => u.includes("anton"))).toBe(false);
-  const total = [...fontBytes.values()].reduce((a, b) => a + b, 0);
   expect(total).toBeLessThanOrEqual(150 * 1024);
 });
 
