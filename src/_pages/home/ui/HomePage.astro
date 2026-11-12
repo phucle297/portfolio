@@ -22,6 +22,11 @@ import WorkSection from "./WorkSection.astro";
 <ProcessSection />
 <ContactSection />
 
+<script>
+  import { initProgressBar } from "../lib/progress-bar";
+  initProgressBar();
+</script>
+
 <style>
   /* Text over the scene always sits on a scrim (design.md Tokens), limited to the left
      ~740 px at 1600 so it never dims the scene's subject. */
@@ -47,17 +52,16 @@ import WorkSection from "./WorkSection.astro";
     display: none;
   }
 
-  /* Scroll progress line (pinned full tier only; the rail and nav carry the same information). */
+  /* Scroll progress line: fixed flush under the header (PF-27). Takes no layout space.
+     --header-bottom is the header's real bottom edge, set before first paint and kept in
+     sync on resize, so the bar is never behind the header and survives header-height
+     changes (mobile, scrolled state, later PF-11). Shown on every tier. */
   .home-progress {
-    display: none;
-  }
-
-  :global(html[data-pin="on"]) .home-progress {
     position: fixed;
-    right: var(--gutter);
-    bottom: 1.25rem;
-    left: var(--gutter);
-    z-index: 4;
+    top: var(--header-bottom, var(--header-h));
+    right: 0;
+    left: 0;
+    z-index: 21;
     display: block;
     height: 2px;
     background: var(--line);
@@ -70,5 +74,11 @@ import WorkSection from "./WorkSection.astro";
     background: var(--accent);
     transform: scaleX(0);
     transform-origin: 0 50%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .home-progress span {
+      transition: none;
+    }
   }
 </style>

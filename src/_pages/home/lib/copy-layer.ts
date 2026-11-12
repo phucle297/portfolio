@@ -19,6 +19,7 @@ import {
   HOLDS,
   SECTIONS,
 } from "@shared/lib/timeline";
+import { driveProgress, releaseProgress } from "./progress-bar";
 
 /** Viewports where every section's pinned layout fits (smaller ones keep normal flow). */
 export const PIN_QUERY = "(min-width: 1200px) and (min-height: 760px)";
@@ -103,7 +104,6 @@ const progressToScroll = (p: number): number =>
 export function createCopyLayer(): CopyLayer {
   const sections = collect();
   const query = window.matchMedia(PIN_QUERY);
-  const bar = document.querySelector<HTMLElement>("[data-progress]");
   const footer = document.querySelector<HTMLElement>("[data-site-footer]");
   const last = sections.at(-1);
   let current = 0;
@@ -120,15 +120,14 @@ export function createCopyLayer(): CopyLayer {
       section.lastOpacity = -1;
       section.lastBeat = -1;
     }
-    bar?.style.removeProperty("transform");
     footer?.style.removeProperty("--footer-o");
     footer?.removeAttribute("data-footer-active");
   };
 
   const update = (p: number): void => {
     current = p;
+    driveProgress(p);
     if (!query.matches) return;
-    if (bar) bar.style.transform = `scaleX(${clamp(p).toFixed(4)})`;
     if (footer && last) {
       const { opacity } = copyState(p, last.index);
       footer.style.setProperty("--footer-o", opacity.toFixed(4));
@@ -239,6 +238,7 @@ export function createCopyLayer(): CopyLayer {
       document.removeEventListener("focusout", onFocusOut);
       delete root.dataset.pin;
       reset();
+      releaseProgress();
     },
   };
 }

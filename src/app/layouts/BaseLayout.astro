@@ -112,6 +112,23 @@ const imageUrl = new URL(image, Astro.site ?? Astro.url).href;
   <body>
     <SkipLink />
     <SiteHeader anchorBase={anchorBase} />
+    <script is:inline>
+      // Measure the header's real bottom before first paint so the progress bar (and anything
+      // else that uses --header-bottom) is flush under it, including a restored scroll position
+      // where html[data-scrolled] has already been set in the head script (QA B-8).
+      (function () {
+        const header = document.querySelector(".site-header");
+        if (!header) return;
+        const sync = function () {
+          document.documentElement.style.setProperty(
+            "--header-bottom",
+            Math.round(header.getBoundingClientRect().bottom) + "px",
+          );
+        };
+        sync();
+        window.addEventListener("resize", sync);
+      })();
+    </script>
     <main id="main" tabindex="-1">
       <slot />
     </main>
