@@ -3,8 +3,7 @@
    downloaded). Anton is declared here but only ever used by the 3D island's print textures. */
 @import "@fontsource/be-vietnam-pro/400.css";
 @import "@fontsource/be-vietnam-pro/600.css";
-@import "@fontsource/instrument-serif/400.css";
-@import "@fontsource/instrument-serif/400-italic.css";
+@import "./fonts-instrument-serif.css";
 @import "./fonts-plex-mono.css";
 @import "@fontsource/anton/400.css";
 /* Design tokens: the one source, in the shared UI slice (PF-28). */
