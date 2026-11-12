@@ -1,5 +1,8 @@
 /**
- * Motion-safety (flash) check, build-plan M3-AC10 (backlog PF-14). Runnable in CI.
+ * Motion-safety (flash) check, build-plan M3-AC10 (backlog PF-14). Run it LOCALLY before merging
+ * anything that changes the scene, its lighting or the scroll timeline; it is CI-ready (headless, no
+ * port, exit 1 on fail) but deliberately NOT wired into a workflow yet (reviewer decision on PF-14:
+ * the CI job goes to #4's reopened scope or a follow-up card). See tools/flash/README.md.
  *
  *   bun run flash:check                               # build, capture 384 frames, analyse
  *   bun run flash:check -- --no-build                 # reuse the cached build
