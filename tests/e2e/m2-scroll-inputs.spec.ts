@@ -116,6 +116,10 @@ test.describe("PF-15 AC1 wheel and scrollbar match keyboard scrolling", () => {
     expect((await snapshot(page)).y).toBe(0);
     await page.mouse.move(800, 500);
     await page.mouse.wheel(0, keyboard.y);
+    // Under load the wheel scroll can land later than settle()'s 250 ms stability window.
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY), { timeout: 10_000 })
+      .toBe(keyboard.y);
     const wheel = await snapshot(page);
     expect(wheel).toEqual(keyboard);
   });
@@ -147,6 +151,9 @@ test.describe("PF-15 AC1 wheel and scrollbar match keyboard scrolling", () => {
     await page.mouse.down();
     await page.mouse.move(bar.x, grabY + (track - thumb) * 0.4, { steps: 12 });
     await page.mouse.up();
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY), { timeout: 10_000 })
+      .toBeGreaterThan(0);
     const drag = await snapshot(page);
     expect(drag.state, "the drag moved the scene").not.toBe(top.state);
     expect(drag.y).toBeGreaterThan(bar.max * 0.3);
