@@ -54,15 +54,29 @@ const ERROR_IDS = ["contact-name-error", "contact-email-error", "contact-brief-e
 const AA_NORMAL = 4.5;
 
 /**
- * Wait until nothing on the page is still moving (QA-PF03-1): no finite animation or transition
- * running or pending (Motion's `animate` is WAAPI, CSS transitions show up as CSSTransition), and
- * every `[data-reveal]` block that is at least 15 % in view (the reveal threshold) is revealed at
- * effective opacity 1. Must hold for 3 consecutive frames, so a reveal that the IntersectionObserver
- * has not delivered yet cannot slip through.
+ * Wait until nothing on the page is still moving, then scan (QA-PF03-1, attempt 3).
+ *
+ * All of these must hold for 3 consecutive frames:
+ * 1. No finite animation or transition is running or pending (Motion's `animate` is WAAPI, CSS
+ *    transitions show up as CSSTransition).
+ * 2. Every `[data-reveal]` block that is in view by the reveal's own measure (≥ 15 % of its
+ *    AREA inside the viewport and its clipping ancestors, as Motion's `inView({ amount: .15 })`
+ *    / IntersectionObserver count it) has finished ITS OWN reveal: it carries `data-revealed`
+ *    and its own computed opacity is 1. Ancestor opacity is deliberately not multiplied in: on
+ *    the full tier (M2) every section body stays pinned in the viewport and the copy layer
+ *    scrubs inactive bodies to opacity 0, so a revealed card can sit under a 0-opacity body
+ *    forever (attempt 2 timed out on exactly that at p .03).
+ * 3. The scroll-linked copy is still: the copy layer writes inline custom properties
+ *    (`--copy-o`, `--copy-y`, `--beat-o`, `--footer-o`, the progress bar's transform) from the
+ *    stage's catch-up loop, which is not an animation, so rule 1 cannot see it. Every inline
+ *    `style` on the page, the scroll position and the computed opacity of each section body
+ *    must be identical to the previous frame. A crossfade between sections or beats therefore
+ *    always finishes before axe runs, wherever it comes from.
  */
 async function settle(page: Page): Promise<void> {
   await page.evaluate(() => {
     Reflect.set(window, "a11ySettledFrames", 0);
+    Reflect.set(window, "a11ySettleSig", "");
   });
   const settled = page.waitForFunction(
     () => {
@@ -71,19 +85,43 @@ async function settle(page: Page): Promise<void> {
         if (iterations === Number.POSITIVE_INFINITY) return false;
         return animation.pending || animation.playState === "running";
       });
-      const moving = movingList.length > 0;
       const unrevealedList = Array.from(document.querySelectorAll("[data-reveal]")).filter((el) => {
+        const style = getComputedStyle(el);
+        if (style.display === "none") return false;
+        // Area share inside the viewport and every overflow-clipping ancestor.
         const rect = el.getBoundingClientRect();
-        const visible =
-          Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0)) /
-          Math.max(1, rect.height);
-        if (visible < 0.15 || getComputedStyle(el).display === "none") return false;
-        let opacity = 1;
-        for (let node: Element | null = el; node; node = node.parentElement)
-          opacity *= Number(getComputedStyle(node).opacity);
-        return opacity < 1;
+        let left = Math.max(rect.left, 0);
+        let top = Math.max(rect.top, 0);
+        let right = Math.min(rect.right, window.innerWidth);
+        let bottom = Math.min(rect.bottom, window.innerHeight);
+        for (
+          let node = el.parentElement;
+          node && node !== document.body;
+          node = node.parentElement
+        ) {
+          const cs = getComputedStyle(node);
+          if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+          const clip = node.getBoundingClientRect();
+          left = Math.max(left, clip.left);
+          top = Math.max(top, clip.top);
+          right = Math.min(right, clip.right);
+          bottom = Math.min(bottom, clip.bottom);
+        }
+        const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+        if (area / Math.max(1, rect.width * rect.height) < 0.15) return false;
+        return !el.hasAttribute("data-revealed") || Number(style.opacity) < 1;
       });
-      const unrevealed = unrevealedList.length > 0;
+      const sig = JSON.stringify([
+        window.scrollX,
+        window.scrollY,
+        Array.from(document.querySelectorAll("[style]"), (el) => el.getAttribute("style")),
+        Array.from(
+          document.querySelectorAll(".home-section__body"),
+          (el) => getComputedStyle(el).opacity,
+        ),
+      ]);
+      const scrubbing = sig !== Reflect.get(window, "a11ySettleSig");
+      Reflect.set(window, "a11ySettleSig", sig);
       Reflect.set(
         window,
         "a11ySettleWhy",
@@ -96,11 +134,12 @@ async function settle(page: Page): Promise<void> {
             const r = el.getBoundingClientRect();
             return `${el.className} revealed=${String(el.hasAttribute("data-revealed"))} rect=${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}x${Math.round(r.height)} op=${getComputedStyle(el).opacity}`;
           }),
+          scrubbing,
           scrollY: window.scrollY,
         }),
       );
-      const frames =
-        moving || unrevealed ? 0 : Number(Reflect.get(window, "a11ySettledFrames")) + 1;
+      const still = movingList.length === 0 && unrevealedList.length === 0 && !scrubbing;
+      const frames = still ? Number(Reflect.get(window, "a11ySettledFrames")) + 1 : 0;
       Reflect.set(window, "a11ySettledFrames", frames);
       return frames >= 3;
     },
