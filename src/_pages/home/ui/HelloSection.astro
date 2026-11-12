@@ -54,7 +54,8 @@ const cvLabel = profile.cvUrl ? hello.secondaryCta : hello.secondaryCtaFallback;
   }
 
   .hello__lede {
-    color: var(--muted);
+    /* --text, not --muted: over the lit print at K0 muted measured 4.24:1 (< 4.5). */
+    color: var(--text);
     font-size: 1.0625rem;
     line-height: 1.6;
   }

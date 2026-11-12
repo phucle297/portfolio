@@ -85,7 +85,8 @@ const { anchorBase = "" } = Astro.props;
     position: fixed;
     inset: 0 0 auto;
     z-index: 20;
-    background: linear-gradient(180deg, rgb(14 10 8 / 0.92), rgb(14 10 8 / 0));
+    /* Solid behind the nav row so copy scrolling underneath never meets the links. */
+    background: linear-gradient(180deg, rgb(14 10 8 / 0.94) 0 72%, rgb(14 10 8 / 0));
   }
 
   .site-header__inner {
