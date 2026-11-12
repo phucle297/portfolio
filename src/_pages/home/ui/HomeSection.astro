@@ -207,12 +207,11 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
   }
 
   /* Beats: cards a section steps through while pinned (one shown at a time). */
+  /* Opacity is scrubbed by scroll (--beat-o from the copy layer), like the rest of the copy. */
   :global(html[data-pin="on"]) .home-section__body :global([data-beat]) {
-    opacity: 0;
-    transition: opacity var(--t-ui) var(--ease-inout);
+    opacity: var(--beat-o, 0);
   }
 
-  :global(html[data-pin="on"]) .home-section__body :global([data-beat][data-beat-active]),
   :global(html[data-pin="on"]) .home-section__body :global([data-beat]:focus-within) {
     opacity: 1;
   }

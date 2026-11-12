@@ -59,7 +59,7 @@ export const TIMING: Readonly<Record<Track, readonly Window[]>> = {
     [0.15, 1],
     [0, 1],
     // Prints start sliding only once they have risen clear of the tray walls (M2-AC5).
-    [0.2, 0.75],
+    [0.28, 0.8],
   ],
   ves: [
     [0, 1],
@@ -196,4 +196,28 @@ export function beatProgress(index: number, beat: number, count: number): number
   if (count <= 1) return KEY_PROGRESS[index] ?? 0;
   const [from, to] = copyWindow(index);
   return from + ((beat + 0.5) / count) * (to - from);
+}
+
+/** Crossfade width (in p) between two beats: ≤ .035, and never more than 60 % of a beat. */
+export function beatFade(index: number, count: number): number {
+  const [from, to] = copyWindow(index);
+  return Math.min(0.035, (0.6 * (to - from)) / Math.max(1, count));
+}
+
+/**
+ * Opacity of beat `beat` (of `count`) of section `index` at `p`, scrubbed by scroll like the rest
+ * of the copy: 1 inside its share of the copy window, crossfading with its neighbour (linear in
+ * p, centred on the boundary, the two always sum to 1). Linear keeps the per-frame change as
+ * small as possible; time-based or eased transitions concentrate it and show up as pops in the
+ * per-p smoothness capture (M2-AC6).
+ */
+export function beatOpacity(p: number, index: number, beat: number, count: number): number {
+  if (count <= 1) return 1;
+  const [from, to] = copyWindow(index);
+  const share = (to - from) / count;
+  const fade = beatFade(index, count);
+  const ramp = (boundary: number): number => clamp((p - (boundary - fade / 2)) / fade);
+  const rise = beat === 0 ? 1 : ramp(from + beat * share);
+  const fall = beat === count - 1 ? 1 : 1 - ramp(from + (beat + 1) * share);
+  return rise * fall;
 }

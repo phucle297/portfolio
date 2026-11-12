@@ -9,6 +9,8 @@ export {
   SECTIONS,
   TIMING,
   beatAt,
+  beatFade,
+  beatOpacity,
   beatProgress,
   clamp,
   copyState,

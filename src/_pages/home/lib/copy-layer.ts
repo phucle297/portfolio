@@ -10,7 +10,14 @@
  * The copy is never `display:none` or `visibility:hidden`; it stays in the accessibility tree,
  * and focus inside a section scrolls the page to where that copy is shown.
  */
-import { beatAt, beatProgress, clamp, copyState, SECTIONS } from "@shared/lib/timeline";
+import {
+  beatAt,
+  beatOpacity,
+  beatProgress,
+  clamp,
+  copyState,
+  SECTIONS,
+} from "@shared/lib/timeline";
 
 /** Viewports where every section's pinned layout fits (smaller ones keep normal flow). */
 export const PIN_QUERY = "(min-width: 1200px) and (min-height: 760px)";
@@ -57,6 +64,8 @@ export function createCopyLayer(): CopyLayer {
   const sections = collect();
   const query = window.matchMedia(PIN_QUERY);
   const bar = document.querySelector<HTMLElement>("[data-progress]");
+  const footer = document.querySelector<HTMLElement>("[data-site-footer]");
+  const last = sections.at(-1);
   let current = 0;
 
   const reset = (): void => {
@@ -64,17 +73,27 @@ export function createCopyLayer(): CopyLayer {
       section.body.style.removeProperty("--copy-o");
       section.body.style.removeProperty("--copy-y");
       section.body.removeAttribute("data-copy-active");
-      for (const { el } of section.beats) el.removeAttribute("data-beat-active");
+      for (const { el } of section.beats) {
+        el.removeAttribute("data-beat-active");
+        el.style.removeProperty("--beat-o");
+      }
       section.lastOpacity = -1;
       section.lastBeat = -1;
     }
     bar?.style.removeProperty("transform");
+    footer?.style.removeProperty("--footer-o");
+    footer?.removeAttribute("data-footer-active");
   };
 
   const update = (p: number): void => {
     current = p;
     if (!query.matches) return;
     if (bar) bar.style.transform = `scaleX(${clamp(p).toFixed(4)})`;
+    if (footer && last) {
+      const { opacity } = copyState(p, last.index);
+      footer.style.setProperty("--footer-o", opacity.toFixed(4));
+      footer.toggleAttribute("data-footer-active", opacity > 0.01);
+    }
     for (const section of sections) {
       const { opacity, y } = copyState(p, section.index);
       if (opacity !== section.lastOpacity) {
@@ -83,7 +102,19 @@ export function createCopyLayer(): CopyLayer {
         section.body.style.setProperty("--copy-y", `${y.toFixed(2)}px`);
         section.body.toggleAttribute("data-copy-active", opacity > 0.01);
       }
-      if (section.beatCount > 1) {
+      if (section.beatCount > 1 && opacity > 0) {
+        for (const item of section.beats) {
+          // An element in several beats (e.g. a list shown across two) stays opaque through
+          // the crossfade between them: neighbouring weights sum to 1.
+          const o = Math.min(
+            1,
+            item.beats.reduce(
+              (sum, b) => sum + beatOpacity(p, section.index, b, section.beatCount),
+              0,
+            ),
+          );
+          item.el.style.setProperty("--beat-o", o.toFixed(4));
+        }
         const beat = beatAt(p, section.index, section.beatCount);
         if (beat !== section.lastBeat) {
           section.lastBeat = beat;

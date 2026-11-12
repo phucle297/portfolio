@@ -5,6 +5,8 @@ import {
   HOLDS,
   KEY_COUNT,
   beatAt,
+  beatFade,
+  beatOpacity,
   beatProgress,
   copyState,
   copyWindow,
@@ -100,5 +102,31 @@ describe("beats", () => {
   it("single-beat sections scroll to their key p", () => {
     expect(beatProgress(2, 0, 1)).toBe(0.41);
     expect(beatAt(0.5, 2, 1)).toBe(0);
+  });
+
+  it("crossfade by scroll: beat opacities always sum to 1 and change gradually", () => {
+    for (const [index, count] of [
+      [1, 3],
+      [3, 5],
+    ] as const) {
+      const [from, to] = copyWindow(index);
+      const step = 1 / 383;
+      const fade = beatFade(index, count);
+      // Linear crossfade: at most step / fade per frame.
+      const maxStep = step / fade + 1e-9;
+      let prev = Array.from({ length: count }, (_, b) => beatOpacity(from, index, b, count));
+      for (let p = from; p <= to; p += step) {
+        const now = Array.from({ length: count }, (_, b) => beatOpacity(p, index, b, count));
+        expect(now.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
+        now.forEach((o, b) => {
+          expect(Math.abs(o - (prev[b] ?? 0))).toBeLessThanOrEqual(maxStep);
+        });
+        prev = now;
+      }
+      // Every beat is fully shown at its own scroll target.
+      for (let b = 0; b < count; b += 1) {
+        expect(beatOpacity(beatProgress(index, b, count), index, b, count)).toBe(1);
+      }
+    }
   });
 });

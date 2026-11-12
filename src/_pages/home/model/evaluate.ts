@@ -166,11 +166,12 @@ export function evaluate(p: number, options: EvaluateOptions = {}): SceneState {
     const lift = k === 1 ? 0.5 + 0.25 * (i >> 1) : k === 2 ? 1.4 : k === 3 ? 1 : 0;
     pos[1] += Math.sin(PI * e) * lift;
     // Prints hover above the walls until the trays have merged. They leave only once the bath
-    // has drained (liq window ends at .12) and hover on separate layers, so the outer prints
-    // slide over the inner ones instead of through them (M2-AC5).
+    // has drained (liq window ends at .12), rise over a quarter of the morph (as gently as the
+    // prototype's 0–.25), and hover on separate layers, so the outer prints slide over the
+    // inner ones instead of through them (M2-AC5, M2-AC6).
     if (k === 4) {
-      const hover = 0.55 + 0.1 * pick(SLOT, i);
-      pos[1] += hover * windowed(t, [0.12, 0.3]) * (1 - windowed(t, [0.6, 1]));
+      const hover = 0.55 + 0.08 * pick(SLOT, i);
+      pos[1] += hover * windowed(t, [0.12, 0.36]) * (1 - windowed(t, [0.6, 1]));
     }
     // Prints swing toward the camera so they never pass through a jug.
     // Into the Process trays the swing settles as (1 − e)^1.5, ahead of the arc height, so each

@@ -6,7 +6,7 @@ const cvHref = profile.cvUrl ?? linkedin?.href ?? null;
 const cvLabel = profile.cvUrl ? hello.secondaryCta : hello.secondaryCtaFallback;
 ---
 
-<footer class="site-footer">
+<footer class="site-footer" data-site-footer>
   <div class="site-footer__inner">
     <p>
       © 2026 {profile.name} · {profile.city}
@@ -33,6 +33,24 @@ const cvLabel = profile.cvUrl ? hello.secondaryCta : hello.secondaryCtaFallback;
 </footer>
 
 <style>
+  /* Pinned copy (full tier): the footer sticks to the bottom of the viewport and fades in with
+     the Contact copy (the copy layer writes --footer-o), so it never scrolls in under the pinned
+     scene at the end of the page. */
+  :global(html[data-pin="on"]) .site-footer {
+    position: sticky;
+    bottom: 0;
+    opacity: var(--footer-o, 0);
+    pointer-events: none;
+  }
+
+  :global(html[data-pin="on"]) .site-footer[data-footer-active] {
+    pointer-events: auto;
+  }
+
+  :global(html[data-pin="on"]) .site-footer:focus-within {
+    opacity: 1;
+  }
+
   .site-footer {
     position: relative;
     z-index: 2;
