@@ -311,15 +311,21 @@ test.describe("PF-15 AC3 a hidden tab renders nothing", () => {
     // Hide in the middle of a catch-up: the loop is running when the tab goes away.
     await page.mouse.wheel(0, 2400);
     await setHidden(page, true);
-    const hiddenAt = await page.evaluate(() => {
+    // Count with the stage's own counters, not only the rAF-stamped log: a draw outside rAF (a
+    // Safelight change, say) must count too.
+    const atHide = await page.evaluate(() => {
       const log = window.pf15;
       if (!log) throw new Error("no frame clock");
       log.frames = [];
       log.ticks = [];
-      return performance.now();
+      return {
+        frames: window.darkroomTest?.frames() ?? -1,
+        rafs: window.darkroomTest?.rafs() ?? -1,
+        safelight: window.darkroomTest?.safelight() ?? null,
+      };
     });
     expect(await page.evaluate(() => document.visibilityState)).toBe("hidden");
-    // Things that would normally request frames, all while hidden.
+    // Things that would normally request or draw frames, all while hidden.
     await page.evaluate(() => {
       window.scrollBy(0, 900);
     });
@@ -329,10 +335,23 @@ test.describe("PF-15 AC3 a hidden tab renders nothing", () => {
     });
     await page.waitForTimeout(2500);
     const hidden = await page.evaluate(() => ({
-      frames: window.pf15?.frames.length ?? -1,
-      ticks: window.pf15?.ticks.length ?? -1,
+      frames: window.darkroomTest?.frames() ?? -1,
+      rafs: window.darkroomTest?.rafs() ?? -1,
+      safelight: window.darkroomTest?.safelight() ?? null,
+      stampedFrames: window.pf15?.frames.length ?? -1,
+      stampedTicks: window.pf15?.ticks.length ?? -1,
     }));
-    expect(hidden, `hidden at ${hiddenAt}`).toEqual({ frames: 0, ticks: 0 });
+    // The Safelight click really landed (so a draw on it would have been counted).
+    expect(hidden.safelight).toBe(!atHide.safelight);
+    expect(
+      {
+        frames: hidden.frames - atHide.frames,
+        rafs: hidden.rafs - atHide.rafs,
+        stampedFrames: hidden.stampedFrames,
+        stampedTicks: hidden.stampedTicks,
+      },
+      JSON.stringify({ atHide, hidden }),
+    ).toEqual({ frames: 0, rafs: 0, stampedFrames: 0, stampedTicks: 0 });
     // rAF itself still runs here (headless never pauses it): the stage's guards kept it at 0.
     const rafAlive = await page.evaluate(
       () =>
