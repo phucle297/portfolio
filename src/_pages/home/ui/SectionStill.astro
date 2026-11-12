@@ -4,6 +4,10 @@
  * (design.md §7, §8). Desktop: a 1440×900 still pinned behind the section. Mobile: a portrait
  * intro still or a 390×240 band. AVIF via astro:assets. Hidden on the full tier, where the live
  * canvas takes over (hidden lazy images are never fetched).
+ *
+ * With JS at ≥ 768 px the stills are viewport-fixed and cross-fade (320 ms, never black) to the
+ * still of the section under the scroll position; see `lib/still-crossfade.ts`. Without JS each
+ * still stays sticky inside its own section.
  */
 import { getImage } from "astro:assets";
 import type { ImageMetadata } from "astro";
@@ -43,7 +47,7 @@ const desktop = await getImage({
 const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, widths: [390] });
 ---
 
-<div class:list={["still", { "still--intro": index === 0 }]} aria-hidden="true">
+<div class:list={["still", { "still--intro": index === 0 }]} data-still={index} aria-hidden="true">
   <picture>
     <source
       media="(max-width: 767px)"
@@ -66,6 +70,12 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
     />
   </picture>
 </div>
+
+<script>
+  import { initStillCrossfade } from "../lib/still-crossfade";
+
+  initStillCrossfade();
+</script>
 
 <style>
   .still {
@@ -105,6 +115,52 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
 
   :global(html[data-tier="full"]) .still {
     display: none;
+  }
+
+  /* Static tier with JS, desktop and tablet: one viewport-fixed still at a time, cross-faded. */
+  @media (min-width: 768px) {
+    :global(html.js) .still picture {
+      position: fixed;
+      inset: 0;
+      display: none;
+      opacity: 0;
+    }
+
+    /* Displayed (so the lazy image loads) but transparent until shown: the shown still and its
+       neighbours, and the intro still before the script has picked a section. */
+    :global(html.js:not([data-still-active])) .still--intro picture,
+    :global(html.js) .still.is-near picture,
+    :global(html.js) .still.is-shown picture {
+      display: block;
+    }
+
+    /* Before the script picks the section, the intro still (the LCP image) is the one shown. */
+    :global(html.js:not([data-still-active])) .still--intro picture,
+    :global(html.js) .still.is-shown picture {
+      opacity: 1;
+    }
+
+    :global(html.js.motion-ok) .still.is-fading picture {
+      transition: opacity 320ms linear;
+    }
+
+    /* The section-edge fade only hides the seam of sticky stills; fixed stills have no seam. */
+    :global(html.js) .still::after {
+      display: none;
+    }
+
+    :global(html.js) .still picture::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, rgb(14 10 8 / 0.35), rgb(14 10 8 / 0.7) 75%);
+    }
+  }
+
+  @media (min-width: 768px) and (prefers-reduced-motion: reduce) {
+    :global(html.js) .still.is-fading picture {
+      transition: none;
+    }
   }
 
   @media (max-width: 767px) {
