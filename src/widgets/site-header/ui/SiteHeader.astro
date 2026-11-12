@@ -5,11 +5,13 @@ import { siteConfig } from "@shared/config";
 interface Props {
   /** Prefix for section anchors: "" on the home page, "/" elsewhere. */
   anchorBase?: string;
+  /** The page has the 3D scene: keep the Safelight's slot while the full tier can still mount. */
+  scene?: boolean;
 }
-const { anchorBase = "" } = Astro.props;
+const { anchorBase = "", scene = false } = Astro.props;
 ---
 
-<header class="site-header" data-at-top>
+<header class="site-header" data-at-top data-scene-page={scene ? "" : undefined}>
   <div class="site-header__inner">
     <a class="site-header__brand" href={anchorBase === "" ? "#hello" : "/"}>
       {profile.name}
@@ -265,13 +267,17 @@ const { anchorBase = "" } = Astro.props;
   }
 
   /* Where the scene can still start (JS ran and motion is on: the pre-paint "js" / "motion-ok"
-     classes, a fine pointer and a header wide enough to show the toggles, on a page with the
-     scene) the Safelight keeps its slot from the first paint, invisible and out of the
-     accessibility tree until the full tier mounts. Revealing it then is a paint, not a reflow:
-     before, the button took its 133 px only on mount, which moved the Motion toggle and the
-     centred nav 66-133 px sideways after load (layout shift at 1440x900, TASK-20261112-14). */
+     classes; a fine pointer and a header wide enough to show the toggles; a page with the scene,
+     marked server-side with data-scene-page rather than :has(), which would make every DOM
+     change under <html> a style-invalidation candidate) the Safelight keeps its slot from the
+     first paint, invisible and out of the accessibility tree until the full tier mounts.
+     Revealing it then is a paint, not a reflow: before, the button took its 133 px only on
+     mount, which moved the Motion toggle and the centred nav 66-133 px sideways after load
+     (layout shift at 1440x900, TASK-20261112-14). */
   @media (min-width: 901px) and (pointer: fine) {
-    :global(html.js.motion-ok:has([data-scene]):not([data-tier="full"])) .site-header__safelight {
+    :global(html.js.motion-ok:not([data-tier="full"]))
+      .site-header[data-scene-page]
+      .site-header__safelight {
       display: inline-flex;
       visibility: hidden;
     }
