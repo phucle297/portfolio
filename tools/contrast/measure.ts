@@ -149,11 +149,18 @@ function collect(): Measured[] {
   const w = window as Window & { contrastKeys?: number };
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  // Fixed/sticky bars with text of their own draw over the copy: glyph boxes under them are skipped.
+  // Fixed/sticky bars with text of their own AND a painted background (header, footer) draw over
+  // the copy: glyph boxes under them are skipped. Transparent fixed layers are not occluders: on
+  // the full tier every section's pinned copy is a full-viewport `position: fixed` layer, and
+  // treating those as bars would drop all text (the first post-PR #3 run measured 0 elements).
   const bars = [...document.querySelectorAll<HTMLElement>("body *")]
     .filter((el) => {
       const s = getComputedStyle(el);
-      return (s.position === "fixed" || s.position === "sticky") && el.innerText.trim() !== "";
+      if (s.position !== "fixed" && s.position !== "sticky") return false;
+      if (el.innerText.trim() === "" || s.visibility !== "visible") return false;
+      const bg = s.backgroundColor;
+      const alpha = bg.startsWith("rgba(") ? Number(bg.slice(5, -1).split(",")[3]) : 1;
+      return s.backgroundImage !== "none" || (bg !== "transparent" && alpha > 0);
     })
     .map((el) => ({ el, box: el.getBoundingClientRect() }));
   const out = new Map<Element, Measured>();
@@ -581,4 +588,7 @@ print(
     ? "All text meets its contrast bar."
     : `${failures.length} element/viewport pair(s) below their bar.`,
 );
-process.exitCode = failures.length === 0 ? 0 : 1;
+// A run that measured nothing proves nothing: an empty viewport is a failure, never a pass.
+const empty = viewports.filter((name) => !sorted.some((s) => s.viewport === name));
+if (empty.length > 0) print(`No text measured at ${empty.join(", ")}: the run is invalid.`);
+process.exitCode = failures.length === 0 && empty.length === 0 ? 0 : 1;
