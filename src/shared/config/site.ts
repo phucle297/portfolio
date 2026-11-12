@@ -1,17 +1,20 @@
 /**
- * Site-wide metadata and navigation. Owner identity (name, role, contact) lives in
- * `@entities/profile`.
+ * Site-wide metadata and navigation. Owner identity and page copy live in `@entities/profile`.
  */
 export const siteConfig = {
   description:
-    "Portfolio of Phuc Le, a software engineer building fast, accessible and delightful web experiences.",
+    "Phúc Lê, Senior Frontend Developer in Ho Chi Minh City: React and TypeScript products, design systems and Feature-Sliced architecture. Freelance projects from $500 USD.",
   locale: "en",
-  themeColor: "#0b0d12",
+  themeColor: "#0E0A08",
   ogImage: "/og.png",
+  /** Section anchors, in page order (ids match `SECTION_IDS` in `@shared/lib/timeline`). */
   nav: [
-    { label: "About", href: "#about" },
-    { label: "Projects", href: "#projects" },
-    { label: "Contact", href: "#contact" },
+    { id: "hello", number: "01", label: "Hello" },
+    { id: "journey", number: "02", label: "Journey" },
+    { id: "work", number: "03", label: "Work" },
+    { id: "services", number: "04", label: "Services" },
+    { id: "process", number: "05", label: "Process" },
+    { id: "contact", number: "06", label: "Contact" },
   ],
 } as const;
 
