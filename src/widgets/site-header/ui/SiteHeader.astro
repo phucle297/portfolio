@@ -9,7 +9,7 @@ interface Props {
 const { anchorBase = "" } = Astro.props;
 ---
 
-<header class="site-header">
+<header class="site-header" data-at-top>
   <div class="site-header__inner">
     <a class="site-header__brand" href={anchorBase === "" ? "#hello" : "/"}>
       {profile.name}
@@ -135,7 +135,10 @@ const { anchorBase = "" } = Astro.props;
       border-color var(--t-ui) var(--ease-inout);
   }
 
-  .site-header[data-at-top] {
+  /* data-at-top ships in the HTML (pages load at the top), so the first paint already has the
+     right state; the scroll script keeps it current. Gated on html.js (set before first paint)
+     so that without JS, where nothing would clear it on scroll, the bar stays opaque. */
+  :global(html.js) .site-header[data-at-top] {
     border-bottom-color: transparent;
     background: linear-gradient(180deg, rgb(14 10 8 / 0.94) 0 72%, rgb(14 10 8 / 0));
   }

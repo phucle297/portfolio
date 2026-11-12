@@ -218,7 +218,41 @@ test("QA-7: the header is opaque once scrolled, so copy never shows through it",
     window.scrollTo(0, innerHeight * 2);
   });
   await expect(header).not.toHaveAttribute("data-at-top", "");
-  const bg = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
-  const alpha = Number(/rgba?\(([^)]+)\)/u.exec(bg)?.[1]?.split(",")[3] ?? "1");
+  // The bar fades in over --t-ui (background-color transition), so wait for the settled value.
+  await expect
+    .poll(
+      async () => {
+        const bg = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
+        return Number(/rgba?\(([^)]+)\)/u.exec(bg)?.[1]?.split(",")[3] ?? "1");
+      },
+      { timeout: 2000 },
+    )
+    .toBeGreaterThanOrEqual(0.95);
+});
+
+test("QA-8: the header's at-top state is in the HTML, and without JS the scrolled bar stays opaque", async ({
+  page,
+  browser,
+  request,
+}) => {
+  // Server-rendered: the first paint does not wait for the scroll script.
+  const html = await (await request.get("/")).text();
+  expect(html).toMatch(/<header class="site-header"[^>]*\bdata-at-top\b/u);
+  // With JS the gradient applies at the top from the first paint; the script clears it on scroll.
+  await page.goto("/");
+  const header = page.locator(".site-header");
+  await expect(header).toHaveAttribute("data-at-top", "");
+  const topBg = await header.evaluate((el) => getComputedStyle(el).backgroundImage);
+  expect(topBg).toContain("gradient");
+  // Without JS nothing clears the attribute, so the gradient is gated on html.js: opaque bar.
+  const off = await browser.newContext({ javaScriptEnabled: false });
+  const nojs = await off.newPage();
+  await nojs.goto("/");
+  const style = await nojs
+    .locator(".site-header")
+    .evaluate((el) => [getComputedStyle(el).backgroundImage, getComputedStyle(el).backgroundColor]);
+  expect(style[0]).toBe("none");
+  const alpha = Number(/rgba?\(([^)]+)\)/u.exec(style[1] ?? "")?.[1]?.split(",")[3] ?? "1");
   expect(alpha).toBeGreaterThanOrEqual(0.95);
+  await off.close();
 });
