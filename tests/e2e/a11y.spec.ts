@@ -227,13 +227,17 @@ const count = (nodes: readonly JudgedNode[], verdict: JudgedNode["verdict"]): nu
 async function analyze(page: Page, state: string): Promise<AxeResults> {
   await settle(page);
   const result = await new AxeBuilder({ page }).analyze();
-  const judgement = await judgeIncompleteContrast(page, result, state);
+  const fullTier = await page.evaluate(() => document.documentElement.dataset.tier === "full");
+  const judgement = await judgeIncompleteContrast(page, result, state, {
+    scroll: !fullTier,
+    settle,
+  });
   JUDGED.set(result, judgement);
   record(state, result, judgement);
   const { nodes } = judgement;
   const deferred = nodes.filter((n) => n.verdict === "deferred");
   process.stdout.write(
-    `contrast fallback · ${state}: ${nodes.length} incomplete → ${count(nodes, "pass")} pass, ${count(nodes, "fail")} fail, ${deferred.length} deferred to PF-04, ${count(nodes, "undecided")} undecided${deferred.length > 0 ? ` · deferred: ${deferred.map((n) => `${n.target} (${n.reason})`).join("; ")}` : ""}\n`,
+    `contrast fallback · ${state}: ${nodes.length} incomplete → ${count(nodes, "pass")} pass, ${count(nodes, "fail")} fail, ${deferred.length} deferred (live canvas: PF-04 / PF-23), ${count(nodes, "undecided")} undecided${deferred.length > 0 ? ` · deferred: ${deferred.map((n) => `${n.target} (${n.reason})`).join("; ")}` : ""}\n`,
   );
   return result;
 }
@@ -490,7 +494,7 @@ test.afterAll(() => {
     "",
     "Contrast pixel judge (axe color-contrast incomplete nodes; SwiftShader on the full tier):",
     "",
-    "| State | Incomplete | Pass | Fail | Deferred to PF-04 (live canvas) | Undecided |",
+    "| State | Incomplete | Pass | Fail | Deferred (live canvas: PF-04 / PF-23) | Undecided |",
     "|---|---|---|---|---|---|",
     ...contrastRows,
   ].join("\n");
