@@ -11,9 +11,10 @@ import HomeSection from "./HomeSection.astro";
     </h2>
     <p class="services__subline">{services.subline}</p>
   </div>
-  <ul class="services__list" role="list">
+  <!-- Pinned (full tier): the four services and the price card are five beats in one spot. -->
+  <ul class="services__list" role="list" data-beat="0 1 2 3">
     {services.items.map((item, i) => (
-      <li class="card" data-reveal>
+      <li class="card" data-beat={String(i)}>
         <article>
           <p class="eyebrow">0{i + 1}</p>
           <h3>{item.title}</h3>
@@ -22,7 +23,7 @@ import HomeSection from "./HomeSection.astro";
       </li>
     ))}
   </ul>
-  <div class="card services__price">
+  <div class="card services__price" data-beat="4">
     <div>
       <p class="eyebrow">{services.price.label}</p>
       <p class="services__value">{services.price.value}</p>
@@ -89,6 +90,55 @@ import HomeSection from "./HomeSection.astro";
   .services__note {
     color: var(--muted);
     font-size: 0.875rem;
+  }
+
+  /* ---------- Pinned (full tier): heading centred at the top; the four services and the
+     price card step through one card spot at the bottom left (design.md kf-04), clear of the
+     jugs and the price timer. ---------- */
+  :global(html[data-pin="on"]) .services__head {
+    gap: 0.6rem;
+  }
+
+  :global(html[data-pin="on"]) .services__list,
+  :global(html[data-pin="on"]) .services__price {
+    position: absolute;
+    bottom: 4.5rem;
+    left: var(--gutter);
+    width: min(21rem, 24vw);
+    margin: 0;
+  }
+
+  :global(html[data-pin="on"]) .services__list {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: end;
+  }
+
+  :global(html[data-pin="on"]) .services__list > li {
+    grid-area: 1 / 1;
+    border-color: rgb(255 194 75 / 0.55);
+    padding: 1rem 1.25rem;
+  }
+
+  :global(html[data-pin="on"]) .services__list h3 {
+    margin: 0.25rem 0 0.4rem;
+    font-size: 1.45rem;
+  }
+
+  :global(html[data-pin="on"]) .services__list p:last-child {
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  :global(html[data-pin="on"]) .services__price {
+    grid-template-columns: 1fr;
+    gap: 0.8rem;
+    padding: 1rem 1.25rem;
+    border-color: rgb(255 194 75 / 0.55);
+  }
+
+  :global(html[data-pin="on"]) .services__value {
+    font-size: min(2.2rem, 2.6vw);
   }
 
   @media (max-width: 1023px) {

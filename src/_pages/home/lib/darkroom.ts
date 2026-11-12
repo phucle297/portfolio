@@ -14,7 +14,7 @@ import {
   WebGLRenderer,
   type Texture,
 } from "three";
-import { evaluate, type SceneState } from "../model/evaluate";
+import { applySafelight, evaluate, type SceneState } from "../model/evaluate";
 import {
   drawAtlases,
   drawCanvas,
@@ -42,6 +42,8 @@ export interface RenderInfo {
 export interface Darkroom {
   readonly tier: Tier;
   set: (p: number) => void;
+  /** Header Safelight toggle; takes effect on the next `set`. */
+  setSafelight: (on: boolean) => void;
   render: () => RenderInfo;
   resize: (width: number, height: number) => void;
   state: () => SceneState;
@@ -114,9 +116,10 @@ export async function createDarkroom(
 
   let aspect = width / height;
   let current = evaluate(0);
+  let safelight = true;
   const set = (p: number): void => {
     current = evaluate(p, { portrait: config.portraitFraming && aspect < 1 });
-    graph.apply(current);
+    graph.apply(applySafelight(current, safelight));
     renderer.toneMappingExposure = graph.exposure();
   };
   const countObjects = (): number => {
@@ -142,6 +145,9 @@ export async function createDarkroom(
   return {
     tier,
     set,
+    setSafelight: (on) => {
+      safelight = on;
+    },
     render: () => {
       renderer.render(graph.scene, graph.camera);
       return info();
@@ -152,7 +158,7 @@ export async function createDarkroom(
       graph.camera.aspect = aspect;
       graph.camera.updateProjectionMatrix();
     },
-    state: () => current,
+    state: () => applySafelight(current, safelight),
     info,
     dispose: () => {
       graph.dispose();

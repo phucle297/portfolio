@@ -29,7 +29,16 @@ import {
   type Texture,
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { TILE_H, TILE_W, VESSEL_COUNT, TILE_COUNT } from "../model/keyframes";
+import {
+  CAP_SIZE,
+  LID_Y,
+  TILE_COUNT,
+  TILE_H,
+  TILE_W,
+  VESSEL_COUNT,
+  VESSEL_FLOOR,
+  VESSEL_WALL,
+} from "../model/keyframes";
 import type { Rgb, SceneState } from "../model/evaluate";
 import { createTileMaterial, type TileUniforms } from "./tile-material";
 
@@ -78,8 +87,8 @@ const setColor = (color: Color, [r, g, b]: Rgb): void => {
 
 /** One tray/jug body: four walls and a floor merged into a single geometry (1 draw call). */
 function vesselBody(): BufferGeometry {
-  const t = 0.03;
-  const f = 0.12;
+  const t = VESSEL_WALL;
+  const f = VESSEL_FLOOR;
   const parts: [number, number, number, number, number, number][] = [
     [0, 0, 0.5 - t / 2, 1, 1, t],
     [0, 0, -0.5 + t / 2, 1, 1, t],
@@ -134,7 +143,7 @@ export function buildSceneGraph(textures: GraphTextures, options: GraphOptions):
   const bodyGeometry = vesselBody();
   const lidGeometry = new PlaneGeometry(1, 1);
   const liquidShape = liquidGeometry(options.liquidSegments);
-  const capGeometry = new BoxGeometry(0.42, 0.28, 0.42);
+  const capGeometry = new BoxGeometry(...CAP_SIZE);
 
   const vessels: Vessel[] = Array.from({ length: VESSEL_COUNT }, () => {
     const group = new Group();
@@ -150,7 +159,7 @@ export function buildSceneGraph(textures: GraphTextures, options: GraphOptions):
       new MeshPhysicalMaterial({ color: DARK, roughness: 0.32, clearcoat: 1, transparent: true }),
     );
     lid.rotation.x = -PI / 2;
-    lid.position.y = 0.5;
+    lid.position.y = LID_Y;
     group.add(lid);
     const liquid = new Mesh(
       liquidShape,

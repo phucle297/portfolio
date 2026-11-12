@@ -241,6 +241,29 @@ frontmatter + `<script>` covers every import in the project.
   It ships `hidden` and appears only with JS and the Clipboard API, so without JS the mailto link
   and the selectable address remain.
 
+## Scroll, pinned copy and the morph timeline (M2)
+
+- **One timeline.** `src/shared/lib/timeline` holds the hold/morph table (holds 0–6 · 17–25 ·
+  36–46 · 57–63 · 73–79 · 92–100 %) and each morph's track windows. The scene's pure
+  `evaluate(p)` and the copy layer both read it, so the copy and the 3D scene can never drift.
+- **Native scroll, no Lenis/GSAP (0 KB).** The plan makes Lenis optional (≤ 5 KB) and design.md
+  budgets the island; native scroll plus one smoothing layer (an exponential catch-up, τ = 0.15 s,
+  the equivalent of ScrollTrigger `scrub`) meets the ACs, keeps keys, anchors, Tab and
+  find-in-page fully native, and costs nothing. The render loop runs only while catching up.
+- **Pinned copy (full tier, viewports ≥ 1200 × 760).** `lib/copy-layer.ts` sets
+  `html[data-pin="on"]`; each section's copy is pinned over the scene and scrubbed by the same
+  table: at rest during its hold, out over the first 35 % of the next morph (1 → 0, 0 → −24 px),
+  nothing mid-morph, in over the last 35 % of the previous one (+24 px → 0), eased. Long sections
+  step through "beats" (Journey 3, Services 5). Copy is never `display:none` /
+  `visibility:hidden`; focus inside any section scrolls to where that copy is shown and
+  `:focus-within` forces it opaque. Smaller viewports, the static tier and no-JS keep the normal
+  document flow (focusables have `scroll-margin-top: 96px`).
+- **Safelight toggle.** A header button (`aria-pressed`, stored in `localStorage.safelight`) dims
+  the safelight's face, glow and red light; it is shown only on the full tier.
+- **Smoothness check.** `tools/smooth/capture.mjs` renders 384 frames at 1280×800 through the test
+  hook; `tools/smooth/smooth.py` (the design's script) flags pops and green pixels and writes a
+  CSV; `tools/smooth/luma.py` checks the no-black floor (M2-AC7).
+
 ## Accessibility and reduced motion
 
 - `lang` attribute, skip link, `header`/`nav`/`main`/`footer` landmarks, a separate
