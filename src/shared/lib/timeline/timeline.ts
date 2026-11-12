@@ -180,8 +180,8 @@ export function copyWindow(index: number): readonly [number, number] {
   return [from, to];
 }
 
-/** Share of a beat's step spent crossfading into the next one (the rest it is fully shown). */
-const BEAT_FADE_SHARE = 0.65;
+/** Stretch of the hold (in p) over which each card is fully shown, when the hold is short. */
+const BEAT_SHOWN = 0.0035;
 /** Longest crossfade between two beats, in p. */
 const BEAT_FADE_MAX = 0.035;
 
@@ -195,21 +195,20 @@ interface BeatLayout {
 /**
  * Beats (cards stepped through while a section is pinned) are laid out inside the section's
  * hold, so every card is fully shown while the scene is at rest, never only during a morph
- * (QA B-7). Each beat gets the same fully-shown stretch of the hold, `step − fade`: the first
- * one from the hold start, the last one up to the hold end, the middle ones between two
- * crossfades. With `count` beats in a hold of length H and fade = .65·step: H = count·step − fade.
+ * (QA B-7). Each beat gets the same fully-shown stretch of the hold, `shown`: the first one
+ * from the hold start, the last one up to the hold end, the middle ones between two crossfades.
+ * The rest of the hold goes to the crossfades, as long as possible (a slow linear crossfade
+ * keeps the per-frame change small, M2-AC6): H = count·shown + (count − 1)·fade, with fade
+ * capped at .035 (longer holds give each card a longer stretch instead).
  * Outside the hold the first beat stays on while the copy enters and the last while it exits.
  */
 function beatLayout(index: number, count: number): BeatLayout {
   const hold = HOLDS[index];
   if (!hold) throw new Error(`No hold ${index}`);
   const [from, to] = hold;
-  let step = (to - from) / (count - BEAT_FADE_SHARE);
-  let fade = BEAT_FADE_SHARE * step;
-  if (fade > BEAT_FADE_MAX) {
-    fade = BEAT_FADE_MAX;
-    step = (to - from + fade) / count;
-  }
+  const fade = Math.min(BEAT_FADE_MAX, (to - from - count * BEAT_SHOWN) / (count - 1));
+  if (fade <= 0) throw new Error(`Hold ${index} is too short for ${count} beats`);
+  const step = (to - from + fade) / count;
   const first = from + step - fade / 2;
   return { boundaries: Array.from({ length: count - 1 }, (_, j) => first + j * step), fade };
 }

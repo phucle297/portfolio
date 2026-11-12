@@ -104,10 +104,12 @@ describe("beats", () => {
         }
         stretches.push(shown);
       }
-      // Each card is on for the same stretch of the hold: at least 4.5e-3 of p (well over one
-      // 1/383 smoothness-capture step) for the five Services cards in their .06 hold.
+      // Each card is on for the same stretch of the hold: at least 3.4e-3 of p (more than one
+      // 1/383 smoothness-capture step) for the five Services cards in their .06 hold; the rest
+      // of the hold goes to slow crossfades (M2-AC6: Services ≥ .01, Journey ≥ .03 of p).
+      expect(beatFade(index, count)).toBeGreaterThanOrEqual(index === 3 ? 0.01 : 0.03);
       for (const shown of stretches) {
-        expect(shown).toBeGreaterThan(0.0045);
+        expect(shown).toBeGreaterThan(0.0034);
         expect(shown).toBeCloseTo(stretches[0] ?? 0, 3);
       }
     }

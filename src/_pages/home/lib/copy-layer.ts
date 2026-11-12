@@ -23,10 +23,17 @@ import {
 /** Viewports where every section's pinned layout fits (smaller ones keep normal flow). */
 export const PIN_QUERY = "(min-width: 1200px) and (min-height: 760px)";
 
+interface BeatItem {
+  el: HTMLElement;
+  beats: number[];
+  /** Index (in the section's list) of the closest beat element containing this one. */
+  parent: number | null;
+}
+
 interface SectionCopy {
   index: number;
   body: HTMLElement;
-  beats: { el: HTMLElement; beats: number[] }[];
+  beats: BeatItem[];
   beatCount: number;
   lastOpacity: number;
   lastBeat: number;
@@ -48,10 +55,16 @@ function collect(): SectionCopy[] {
   return SECTIONS.flatMap((section, index): SectionCopy[] => {
     const body = document.querySelector<HTMLElement>(`#${section.id} [data-copy-body]`);
     if (!body) return [];
-    const beats = Array.from(body.querySelectorAll<HTMLElement>("[data-beat]")).map((el) => ({
-      el,
-      beats: (el.dataset.beat ?? "").split(/\s+/u).filter(Boolean).map(Number),
-    }));
+    const els = Array.from(body.querySelectorAll<HTMLElement>("[data-beat]"));
+    const beats = els.map((el): BeatItem => {
+      const holder = el.parentElement?.closest<HTMLElement>("[data-beat]");
+      const parent = holder && body.contains(holder) ? els.indexOf(holder) : -1;
+      return {
+        el,
+        beats: (el.dataset.beat ?? "").split(/\s+/u).filter(Boolean).map(Number),
+        parent: parent === -1 ? null : parent,
+      };
+    });
     const beatCount = beats.reduce(
       (max, item) => Math.max(max, ...item.beats.map((b) => b + 1)),
       1,
@@ -139,18 +152,27 @@ export function createCopyLayer(): CopyLayer {
         }
         section.lastBeat = -1;
       } else if (section.beatCount > 1 && opacity > 0) {
-        for (const item of section.beats) {
-          // An element in several beats (e.g. a list shown across two) stays opaque through
-          // the crossfade between them: neighbouring weights sum to 1.
-          const o = Math.min(
+        // Shown weight of each beat element: an element in several beats (e.g. a list shown
+        // across two) stays opaque through the crossfade between them (neighbouring weights
+        // sum to 1).
+        const weights = section.beats.map((item) =>
+          Math.min(
             1,
             item.beats.reduce(
               (sum, b) => sum + beatOpacity(p, section.index, b, section.beatCount),
               0,
             ),
-          );
+          ),
+        );
+        section.beats.forEach((item, i) => {
+          // Opacity multiplies down the tree: a card inside a beat list gets its weight relative
+          // to the list's, so what shows is its own weight, linear in p (not the product of
+          // two ramps, which jumps at one end of the crossfade).
+          const own = weights[i] ?? 0;
+          const holder = item.parent === null ? 1 : (weights[item.parent] ?? 0);
+          const o = holder > 1e-6 ? Math.min(1, own / holder) : 0;
           item.el.style.setProperty("--beat-o", o.toFixed(4));
-        }
+        });
         const beat = beatAt(p, section.index, section.beatCount);
         if (beat !== section.lastBeat) {
           section.lastBeat = beat;
