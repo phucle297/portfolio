@@ -5,7 +5,7 @@
  *   renders on SwiftShader);
  * - static tier at 390×844;
  * - reduced motion (1440×900);
- * - no JS (1440×900 and 390×844);
+ * - no JS (1440×900 and 390×844; page scripts blocked by CSP so axe itself can still run);
  * - the contact form showing all three errors.
  * Every violation (any impact) is written to test-results/a11y/ (override with A11Y_OUT) so minor
  * and moderate ones are visible too. The open mobile menu state is added by PF-11.
@@ -40,12 +40,25 @@ const scanned: string[] = [];
 
 async function open(
   browser: Browser,
-  options: BrowserContextOptions & { gpu?: boolean } = {},
+  options: BrowserContextOptions & { gpu?: boolean; noJs?: boolean } = {},
 ): Promise<Page> {
-  const { gpu = false, ...context } = options;
+  const { gpu = false, noJs = false, ...context } = options;
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, ...context });
   const page = await ctx.newPage();
-  if (context.javaScriptEnabled !== false) {
+  if (noJs) {
+    // "No JS" for the page, but not for axe: a context with JavaScript disabled also stops axe's own
+    // timers (the scan never finishes). Serving the document with `script-src 'none'` blocks every
+    // page script, inline or external, while the injected axe still runs. The site has no
+    // <noscript> content, so this renders exactly what a no-JS visitor gets (checked below).
+    await page.route("**/*", async (route) => {
+      if (route.request().resourceType() !== "document") return route.continue();
+      const response = await route.fetch();
+      return route.fulfill({
+        response,
+        headers: { ...response.headers(), "content-security-policy": "script-src 'none'" },
+      });
+    });
+  } else {
     // Hardware GPU spoofed for the full tier; otherwise answer "no hardware WebGL" (static tier).
     await page.route(/probe\.worker/u, (route) =>
       route.fulfill({
@@ -140,7 +153,9 @@ for (const viewport of [
   { width: 390, height: 844 },
 ]) {
   test(`no JS at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
-    const page = await open(browser, { javaScriptEnabled: false, viewport });
+    const page = await open(browser, { noJs: true, viewport });
+    // No page script ran: the inline pre-paint script never added its "js" class.
+    await expect(page.locator("html")).not.toHaveClass(/\bjs\b/u);
     expect(
       await scan(page, `no JS ${viewport.width}×${viewport.height}`),
       "serious/critical axe violations",
