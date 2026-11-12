@@ -137,15 +137,42 @@ test("QA-1: no element that ships `hidden` is displayed on load", async ({ page 
   );
   expect(shown).toEqual([]);
   await page.locator("#contact").scrollIntoViewIfNeeded();
-  await expect(page.locator("#contact-name-error")).toBeHidden();
-  await expect(page.locator("#contact-email-error")).toBeHidden();
-  await expect(page.locator("#contact-brief-error")).toBeHidden();
-  // Errors appear only after an invalid submit, and go again once fixed.
-  await page.locator(".contact__submit").click();
-  await expect(page.locator("#contact-name-error")).toBeVisible();
-  await page.locator("#contact-name").fill("Ada");
-  await page.locator(".contact__submit").click();
-  await expect(page.locator("#contact-name-error")).toBeHidden();
+  // Every contact-form error (name, email, brief), not just the first, is hidden on load,
+  // shows on an invalid submit and clears once its field is corrected.
+  const fields = ["name", "email", "brief"] as const;
+  const error = (name: string) => page.locator(`#contact-${name}-error`);
+  const input = (name: string) => page.locator(`#contact-${name}`);
+  const submit = page.locator(".contact__submit");
+  const each = (check: (name: (typeof fields)[number]) => Promise<void>) =>
+    Promise.all(fields.map(check));
+  await expect(page.locator("form .field__error")).toHaveCount(fields.length);
+  await each(async (name) => {
+    await expect(error(name)).toBeHidden();
+    await expect(input(name)).not.toHaveAttribute("aria-invalid", "true");
+  });
+  await submit.click();
+  await each(async (name) => {
+    await expect(error(name)).toBeVisible();
+    await expect(input(name)).toHaveAttribute("aria-invalid", "true");
+  });
+  // Correct one field at a time: only the fixed field's error clears.
+  await input("name").fill("Ada");
+  await input("email").fill("not-an-email");
+  await submit.click();
+  await expect(error("name")).toBeHidden();
+  await expect(error("email")).toBeVisible();
+  await expect(error("brief")).toBeVisible();
+  await input("email").fill("ada@example.com");
+  await submit.click();
+  await expect(error("email")).toBeHidden();
+  await expect(input("email")).toHaveAttribute("aria-invalid", "false");
+  await expect(error("brief")).toBeVisible();
+  await input("brief").fill("A small marketing site.");
+  await submit.click();
+  await each(async (name) => {
+    await expect(error(name)).toBeHidden();
+    await expect(input(name)).toHaveAttribute("aria-invalid", "false");
+  });
 });
 
 test("QA-5: copy-email button copies the address and announces it", async ({ browser }) => {
