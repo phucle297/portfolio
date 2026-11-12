@@ -435,4 +435,30 @@ const email = profile.email;
   :global(html[data-pin="on"]) .contact__note {
     font-size: 0.8125rem;
   }
+
+  /* Short pinned viewports (760–899 px tall): tighten the stack so the links under the form end
+     above the sticky footer and stay clickable (QA B-1; checked at 1200×760 and 1280×800). */
+  @media (max-height: 899px) {
+    :global(html[data-pin="on"]) .contact {
+      gap: 0.5rem;
+    }
+
+    :global(html[data-pin="on"]) .contact__intro .section-title {
+      font-size: min(6.5rem, 6.5vw, 6.5vh);
+    }
+
+    :global(html[data-pin="on"]) .contact__links a {
+      min-height: 1.75rem;
+    }
+
+    :global(html[data-pin="on"]) .contact__copy {
+      font-size: 0.875rem;
+      line-height: 1.45;
+    }
+
+    :global(html[data-pin="on"]) .contact__form {
+      gap: 0.4rem;
+      padding: 0.75rem 1rem;
+    }
+  }
 </style>

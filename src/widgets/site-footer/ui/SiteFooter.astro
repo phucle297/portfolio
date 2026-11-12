@@ -43,6 +43,13 @@ const cvLabel = profile.cvUrl ? hello.secondaryCta : hello.secondaryCtaFallback;
     pointer-events: none;
   }
 
+  /* Short pinned viewports: a one-row footer, so it never covers the Contact links (QA B-1). */
+  @media (max-height: 899px) {
+    :global(html[data-pin="on"]) .site-footer {
+      min-height: 3.5rem;
+    }
+  }
+
   :global(html[data-pin="on"]) .site-footer[data-footer-active] {
     pointer-events: auto;
   }

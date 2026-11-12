@@ -103,10 +103,14 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
   }
 
   /* Only the copy itself takes the pointer; empty space falls through to the page, so a click
-     there leaves keyboard scrolling (arrows) on the document instead of a fixed layer (M2-AC9). */
+     there leaves keyboard scrolling (arrows) on the document instead of a fixed layer (M2-AC9).
+     The copy is slotted from the section components (their own scope), so the descendant part
+     must be :global or it never matches (QA B-1). */
   :global(html[data-pin="on"])
     .home-section__body[data-copy-active]
-    :where(a, button, input, select, textarea, label, summary, p, h1, h2, h3, li, dl, .card) {
+    :global(
+      :where(a, button, input, select, textarea, label, summary, p, h1, h2, h3, li, dl, .card)
+    ) {
     pointer-events: auto;
   }
 
