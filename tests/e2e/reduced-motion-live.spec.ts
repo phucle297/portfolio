@@ -233,12 +233,54 @@ test.describe("PF-09 reduced motion switched on mid-visit (M3-AC2)", () => {
     expect((await probe(page)).contexts, "no WebGL context").toBe(0);
   });
 
-  test("switched on while the scene is compiling: it backs out and leaves no context", async ({
+  test("switched on while the scene mounts (atlas fonts loading): 3D backs out, never shows", async ({
     page,
   }) => {
     await instrument(page);
     await spoofHardwareGpu(page);
-    // Switch the moment the stage's WebGL context exists, i.e. inside mountStage (shader compile).
+    // Deterministic window inside mountStage(): the island's first await is loading its print
+    // fonts (Anton is loaded only by the island). Hold that load until reduced motion is on.
+    await page.exposeFunction("pf09FontsRequested", async () => {
+      await page.emulateMedia({ reducedMotion: "reduce" });
+    });
+    await page.addInitScript(() => {
+      const d = Object.getOwnPropertyDescriptor(FontFaceSet.prototype, "load");
+      const original: unknown = d?.value;
+      if (typeof original !== "function") return;
+      let held = false;
+      Object.defineProperty(FontFaceSet.prototype, "load", {
+        ...d,
+        value(this: FontFaceSet, ...args: unknown[]): unknown {
+          const loaded: unknown = Reflect.apply(original, this, args);
+          const notify: unknown = Reflect.get(window, "pf09FontsRequested");
+          if (held || !String(args[0]).includes("Anton") || typeof notify !== "function")
+            return loaded;
+          held = true;
+          // Resolves only after the test has switched the preference.
+          return Promise.all([loaded, Reflect.apply(notify, window, [])]).then(([fonts]) => fonts);
+        },
+      });
+    });
+    await page.goto("/");
+    await expect.poll(async () => (await probe(page)).switched, { timeout: 30_000 }).not.toBeNull();
+    await page.waitForTimeout(3000);
+    await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
+    await expect(page.locator("[data-scene] canvas")).toHaveCount(0);
+    await expect(page.locator("[data-scene]")).not.toHaveClass(/is-ready/);
+    const after = await probe(page);
+    expect(after.lost, "any context the half-mounted scene made is disposed").toBe(after.contexts);
+    const draws = after.draws;
+    await scrollThrough(page);
+    await page.waitForTimeout(500);
+    expect((await probe(page)).draws, "no rendering after backing out").toBe(draws);
+  });
+
+  test("switched on as the scene's WebGL context is created: no context or fade-in left", async ({
+    page,
+  }) => {
+    await instrument(page);
+    await spoofHardwareGpu(page);
+    // Switch the moment the stage's WebGL context exists (shader compile or just after mount).
     await page.exposeFunction("pf09ContextCreated", async () => {
       await page.emulateMedia({ reducedMotion: "reduce" });
     });
