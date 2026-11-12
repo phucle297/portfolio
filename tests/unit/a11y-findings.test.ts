@@ -4,6 +4,7 @@ import {
   FILED_FINDINGS,
   type FiledFinding,
   filedFindingsProblems,
+  RM_1440,
 } from "../e2e/a11y-findings";
 
 // Guard on the a11y spec's contrast exemptions (PR #12 reviewer condition): exactly the three
@@ -13,6 +14,7 @@ const extra: FiledFinding = {
   card: "PF-40",
   file: "src/_pages/home/ui/HelloSection.astro",
   note: "planted",
+  floors: { [RM_1440]: 1 },
 };
 
 /** A copy of the committed list with one entry's fields overridden. */
@@ -57,6 +59,28 @@ describe("FILED_FINDINGS guard", () => {
     expect(() => {
       assertFiledFindings(duped);
     }).toThrow(/duplicate entries/);
+  });
+
+  it("fails when a floor is lowered", () => {
+    expect(() => {
+      assertFiledFindings(
+        replaceAt(0, {
+          floors: {
+            [RM_1440]: 1,
+            "no JS 1440×900": 3.88,
+            "contact form, 3 errors, 1440×900": 2.74,
+          },
+        }),
+      );
+    }).toThrow(/floors must be exactly/);
+  });
+
+  it("fails when the exemption is widened to another state", () => {
+    const first = FILED_FINDINGS[1];
+    const widened = first ? { ...first.floors, "static tier 390×844": 4.01 } : {};
+    expect(() => {
+      assertFiledFindings(replaceAt(1, { floors: widened }));
+    }).toThrow(/floors must be exactly/);
   });
 
   it("fails when an entry does not reference PF-40", () => {

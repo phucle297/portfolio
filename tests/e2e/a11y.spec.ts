@@ -250,7 +250,7 @@ async function analyze(page: Page, state: string): Promise<AxeResults> {
   const filed = nodes.filter((n) => n.verdict === "finding");
   for (const n of filed)
     process.stdout.write(
-      `FILED FINDING (PF-40, filed under PF-03 AC3) · ${state}: ${n.target} "${n.text}" ${n.reason} · ${FILED_FINDINGS.find((f) => n.finding === f.selector)?.file ?? ""}\n`,
+      `FILED FINDING (PF-40, filed under PF-03 AC3; exempt only in: ${Object.keys(FILED_FINDINGS.find((f) => n.finding === f.selector)?.floors ?? {}).join(" | ")}) · ${state}: ${n.target} "${n.text}" ${n.reason} · ${FILED_FINDINGS.find((f) => n.finding === f.selector)?.file ?? ""}\n`,
     );
   process.stdout.write(
     `contrast fallback · ${state}: ${nodes.length} incomplete → ${count(nodes, "pass")} pass, ${count(nodes, "fail")} fail, ${deferred.length} deferred (live canvas: PF-04 / PF-23), ${count(nodes, "undecided")} undecided, ${filed.length} filed findings${deferred.length > 0 ? ` · deferred: ${deferred.map((n) => `${n.target} (${n.reason})`).join("; ")}` : ""}\n`,
@@ -387,6 +387,53 @@ test("full tier at 1440×900, at each of the 6 key scroll positions", async ({ b
   expect(blocking, "serious/critical axe violations and contrast failures").toEqual([]);
 });
 
+/**
+ * Regression (QA gate @4efd8f5, Medium): a looping NON-canvas backdrop behind copy on the full
+ * tier must never be deferred as "live canvas". QA's plant, verbatim: a 1.2 s #000→#fff colour
+ * sweep on a ::before behind `.hello__subtitle` (text #3a2a22, ~1.24:1 at worst). Before attempt 5
+ * this was deferred and the full-tier test passed; the judge must now leave it UNDECIDED (which
+ * fails a real run), because the backdrop keeps moving with the canvas hidden.
+ */
+const QA_SWEEP_PLANT =
+  '@keyframes qa-sweep { from { background-color: #000; } to { background-color: #fff; } } .hello__subtitle { color: #3a2a22 !important; position: relative; z-index: 0; } .hello__subtitle::before { content: ""; position: absolute; inset: 0; z-index: -1; animation: qa-sweep 1.2s linear infinite; }';
+
+test("regression: a looping non-canvas backdrop on the full tier fails, never deferred", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  const page = await open(browser, { gpu: true });
+  await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 90_000 });
+  await scrollToProgress(page, KEY_PROGRESS[0]);
+  await page.addStyleTag({ content: QA_SWEEP_PLANT });
+  await settle(page);
+  const result = await new AxeBuilder({ page }).analyze();
+  const state = "regression: QA sweep plant behind .hello__subtitle, full tier key 1";
+  const judgement = await judgeIncompleteContrast(page, result, state, {
+    scroll: false,
+    settle,
+    findings: [],
+  });
+  await page.context().close();
+  const subtitle = judgement.nodes.find((n) => n.target.includes("hello__subtitle"));
+  const axeViolation = result.violations
+    .filter((rule) => rule.id === "color-contrast")
+    .some((rule) => rule.nodes.some((node) => node.target.join(" ").includes("hello__subtitle")));
+  process.stdout.write(
+    `regression · QA sweep plant: ${subtitle ? `${subtitle.verdict} (${subtitle.reason})` : "not incomplete"}; axe violation: ${axeViolation}\n`,
+  );
+  // Must be a blocking outcome: axe's own violation, or the judge's fail / undecided.
+  expect(
+    axeViolation || subtitle?.verdict === "fail" || subtitle?.verdict === "undecided",
+    "the planted sweep behind .hello__subtitle must FAIL the run",
+  ).toBe(true);
+  expect(subtitle?.verdict, "never deferred as canvas").not.toBe("deferred");
+  expect(subtitle?.canvasBacked ?? false, "not canvas-backed").toBe(false);
+  // Nothing else may be deferred except rail numerals over the canvas (PF-23).
+  expect(
+    judgement.nodes.filter((n) => n.verdict === "deferred" && !n.railNumeral).map((n) => n.target),
+  ).toEqual([]);
+});
+
 test("static tier at 390×844", async ({ browser }) => {
   const page = await open(browser, {
     viewport: { width: 390, height: 844 },
@@ -513,7 +560,7 @@ test.afterAll(() => {
     "",
     "Contrast pixel judge (axe color-contrast incomplete nodes; SwiftShader on the full tier):",
     "",
-    "| State | Incomplete | Pass | Fail | Deferred (live canvas: PF-04 / PF-23) | Filed findings (PF-40, AC3) | Undecided |",
+    "| State | Incomplete | Pass | Fail | Deferred (live canvas: PF-04 / PF-23) | Filed findings (PF-40; reduced motion, no JS, contact form at 1440 only) | Undecided |",
     "|---|---|---|---|---|---|---|",
     ...contrastRows,
   ].join("\n");

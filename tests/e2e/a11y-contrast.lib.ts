@@ -45,10 +45,19 @@ export interface JudgedNode {
   /** Inside a section body that the copy layer marks active (`data-copy-active`). */
   inActiveSection: boolean;
   text: string;
+  /** Canvas in the hit stack under the glyphs and visibly showing through, still without it. */
   canvasBacked: boolean;
+  railNumeral: boolean;
   required: number;
   ratio: number | null;
+  ratioMin: number | null;
+  ratioP1: number | null;
   pixels: number;
+  unstable: number;
+  unstableHidden: number;
+  canvasVisible: number;
+  /** [hits, samples] of elementsFromPoint containing the canvas. */
+  stack: [number, number];
   verdict: "pass" | "fail" | "deferred" | "finding" | "undecided";
   /** The filed-finding selector this node matched, if any. */
   finding: string | null;
@@ -65,6 +74,26 @@ const HIDE_ID = "a11y-hide-glyphs";
 const HIDE_CSS = `*, *::before, *::after, *::marker, *::placeholder {
   -webkit-text-fill-color: transparent !important; text-decoration-color: transparent !important;
   text-shadow: none !important; caret-color: transparent !important; }`;
+
+/** Gap between the two shots of a pair: any backdrop change in it is motion. */
+const STILL_GAP_MS = 150;
+/** A backdrop pixel "changed" when a channel moved by more than this many levels. */
+const PIXEL_TOLERANCE = 3;
+/** More than this share of a node's pixels changing = the backdrop is not still. */
+const UNSTABLE_SHARE = 0.01;
+/** Deferral to the canvas needs the canvas in the hit stack at ≥ this share of sampled glyph pixels. */
+const CANVAS_STACK_SHARE = 0.95;
+/** …and visibly showing through (pixel changes when hidden) at ≥ this share of glyph pixels. */
+const CANVAS_VISIBLE_SHARE = 0.5;
+/** …and ≥ this share of the moving pixels must be pixels where the canvas shows through. */
+const MOTION_ON_CANVAS_SHARE = 0.99;
+/** The node's ratio is this percentile of its per-pixel ratios (see the PR body, attempt 5). */
+export const RATIO_PERCENTILE = 0.05;
+
+const HIDE_CANVAS_ID = "a11y-hide-canvas";
+const HIDE_CANVAS_CSS = "[data-scene] canvas { visibility: hidden !important; }";
+
+const share = (k: number, of: number): number => (of > 0 ? k / of : 0);
 
 const frames = (page: Page): Promise<void> =>
   page.evaluate(
@@ -87,7 +116,12 @@ export interface JudgeOptions {
   /** The spec's settle(), run after every scroll. */
   settle: (page: Page) => Promise<void>;
   /** Findings filed in the PR (PF-03 AC3, carded): a FAILING match is a "finding". */
-  findings: readonly { readonly selector: string; readonly card: string }[];
+  findings: readonly {
+    readonly selector: string;
+    readonly card: string;
+    /** Exempt only in these exact states, and only while the ratio stays ≥ the floor. */
+    readonly floors: Readonly<Record<string, number>>;
+  }[];
 }
 
 export async function judgeIncompleteContrast(
@@ -144,6 +178,20 @@ export async function judgeIncompleteContrast(
 
   const nodes: JudgedNode[] = raw.map((n) => {
     const required = n.large ? AA_LARGE : AA_NORMAL;
+    // Canvas-backed (attempt 5) = the canvas is in the hit stack under the glyphs AND visibly
+    // shows through behind them (those pixels change when the canvas is hidden), with the
+    // canvas-hidden backdrop still. Geometry alone (the canvas covers the viewport) is not enough.
+    const stillWithoutCanvas = n.unstableHidden <= n.pixels * UNSTABLE_SHARE;
+    const canvasBacked =
+      n.pixels > 0 &&
+      share(n.stackHits, n.stackSamples) >= CANVAS_STACK_SHARE &&
+      share(n.canvasVisible, n.pixels) >= CANVAS_VISIBLE_SHARE &&
+      stillWithoutCanvas;
+    const moving = n.unstable > n.pixels * UNSTABLE_SHARE;
+    const motionIsCanvas =
+      canvasBacked && share(n.unstableOnCanvas, n.unstable) >= MOTION_ON_CANVAS_SHARE;
+    const filed = options.findings.find((f) => f.selector === n.finding);
+    const floor = filed?.floors[state];
     let verdict: JudgedNode["verdict"];
     let reason: string;
     if (n.missing) {
@@ -152,22 +200,28 @@ export async function judgeIncompleteContrast(
     } else if (n.ratio === null || n.pixels === 0) {
       verdict = "undecided";
       reason = "no painted glyph pixels";
-    } else if (n.unstable > n.pixels * 0.01) {
-      verdict = n.canvasBacked ? "deferred" : "undecided";
-      reason = n.canvasBacked
-        ? `live canvas backdrop not still (${n.unstable}/${n.pixels} px changed): PF-04`
-        : `backdrop not still (${n.unstable}/${n.pixels} px changed)`;
+    } else if (moving && motionIsCanvas) {
+      verdict = "deferred";
+      reason = `live canvas backdrop not still (${n.unstable}/${n.pixels} px changed, still with the canvas hidden; canvas under ${n.stackHits}/${n.stackSamples} sampled glyph px): PF-04`;
+    } else if (moving) {
+      verdict = "undecided";
+      reason = stillWithoutCanvas
+        ? `backdrop not still (${n.unstable}/${n.pixels} px changed) and not shown to be the canvas (canvas visible at ${n.canvasVisible}/${n.pixels} px, in the hit stack at ${n.stackHits}/${n.stackSamples}, moving px on canvas ${n.unstableOnCanvas}/${n.unstable})`
+        : `backdrop not still and still moving with the canvas hidden (${n.unstableHidden}/${n.pixels} px changed): not the canvas`;
     } else if (n.ratio >= required) {
       verdict = "pass";
       reason = "";
-    } else if (n.finding !== null && !n.canvasBacked) {
+    } else if (filed !== undefined && floor !== undefined && !canvasBacked && n.ratio >= floor) {
       verdict = "finding";
-      reason = `${n.ratio.toFixed(2)}:1 < ${required}:1, filed finding (${options.findings.find((f) => f.selector === n.finding)?.card ?? "?"}, PF-03 AC3)`;
-    } else if (n.railNumeral && n.canvasBacked) {
+      reason = `${n.ratio.toFixed(2)}:1 < ${required}:1, filed finding (${filed.card}, PF-03 AC3; floor ${floor.toFixed(2)} in this state)`;
+    } else if (filed !== undefined && floor !== undefined && !canvasBacked) {
+      verdict = "fail";
+      reason = `${n.ratio.toFixed(2)}:1 < ${required}:1 and below its ${filed.card} floor ${floor.toFixed(2)}:1 (got worse than filed)`;
+    } else if (n.railNumeral && canvasBacked) {
       // Known, carded defect: the section-rail numerals over the live scene (backlog PF-23, found
       // by PF-04's tool). Listed in the output with the measured ratio, never silently passed.
       verdict = "deferred";
-      reason = `rail numeral over the live 3D canvas, ${n.ratio.toFixed(2)}:1 < ${required}:1: PF-23 (PF-04 follow-up)`;
+      reason = `rail numeral over the live 3D canvas (canvas visible at ${n.canvasVisible}/${n.pixels} px), ${n.ratio.toFixed(2)}:1 < ${required}:1: PF-23 (PF-04 follow-up)`;
     } else {
       verdict = "fail";
       reason = `${n.ratio.toFixed(2)}:1 < ${required}:1`;
@@ -178,10 +232,17 @@ export async function judgeIncompleteContrast(
       active: n.active,
       inActiveSection: n.inActiveSection,
       text: n.text,
-      canvasBacked: n.canvasBacked,
+      canvasBacked,
+      railNumeral: n.railNumeral,
       required,
       ratio: n.ratio,
+      ratioMin: n.ratioMin,
+      ratioP1: n.ratioP1,
       pixels: n.pixels,
+      unstable: n.unstable,
+      unstableHidden: n.unstableHidden,
+      canvasVisible: n.canvasVisible,
+      stack: [n.stackHits, n.stackSamples],
       verdict,
       reason,
       finding: n.finding,
@@ -217,13 +278,24 @@ interface Measured {
   active: boolean;
   inActiveSection: boolean;
   text: string;
-  canvasBacked: boolean;
   railNumeral: boolean;
   finding: string | null;
   large: boolean;
   ratio: number | null;
+  ratioMin: number | null;
+  ratioP1: number | null;
   pixels: number;
+  /** Pixels that changed between the two shots (canvas visible). */
   unstable: number;
+  /** Pixels that changed between the two shots taken with the canvas hidden. */
+  unstableHidden: number;
+  /** Pixels that change when the canvas is hidden: the canvas shows through there. */
+  canvasVisible: number;
+  /** Moving pixels (canvas visible) that are also canvas-showing pixels. */
+  unstableOnCanvas: number;
+  /** Sampled glyph pixels whose elementsFromPoint stack contains the canvas, of samples. */
+  stackHits: number;
+  stackSamples: number;
 }
 
 const missing = (selector: string): Measured => ({
@@ -233,13 +305,19 @@ const missing = (selector: string): Measured => ({
   active: false,
   inActiveSection: false,
   text: "",
-  canvasBacked: false,
   railNumeral: false,
   finding: null,
   large: false,
   ratio: null,
+  ratioMin: null,
+  ratioP1: null,
   pixels: 0,
   unstable: 0,
+  unstableHidden: 0,
+  canvasVisible: 0,
+  unstableOnCanvas: 0,
+  stackHits: 0,
+  stackSamples: 0,
 });
 
 /** Hide every glyph, take two screenshots, judge `selectors` on the pixels behind their text. */
@@ -257,18 +335,41 @@ async function measure(
     },
     { id: HIDE_ID, css: HIDE_CSS },
   );
-  await frames(page);
-  const first = (await page.screenshot({ scale: "css" })).toString("base64");
-  await frames(page);
-  await page.waitForTimeout(150);
-  const second = (await page.screenshot({ scale: "css" })).toString("base64");
-  await page.evaluate((id) => {
-    document.getElementById(id)?.remove();
-  }, HIDE_ID);
+  const shoot = async (): Promise<[string, string]> => {
+    await frames(page);
+    const a = (await page.screenshot({ scale: "css" })).toString("base64");
+    await frames(page);
+    await page.waitForTimeout(STILL_GAP_MS);
+    const b = (await page.screenshot({ scale: "css" })).toString("base64");
+    return [a, b];
+  };
+  const [first, second] = await shoot();
+  // Attempt 5 (QA Medium): the same pair again with the WebGL canvas hidden. Motion that is
+  // still there without the canvas is not the canvas; pixels that change when the canvas is
+  // hidden are pixels where the canvas actually shows through behind the glyphs.
+  const hasCanvas = await page.evaluate(
+    ({ id, css }) => {
+      if (document.documentElement.dataset.tier !== "full") return false;
+      if (!document.querySelector("[data-scene] canvas")) return false;
+      const style = document.createElement("style");
+      style.id = id;
+      style.textContent = css;
+      document.head.append(style);
+      return true;
+    },
+    { id: HIDE_CANVAS_ID, css: HIDE_CANVAS_CSS },
+  );
+  const [third, fourth] = hasCanvas ? await shoot() : [first, second];
+  await page.evaluate(
+    (ids) => {
+      for (const id of ids) document.getElementById(id)?.remove();
+    },
+    [HIDE_ID, HIDE_CANVAS_ID],
+  );
   await frames(page);
   return page.evaluate(
-    async ({ list, shots, filed }) => {
-      const [a, b] = await Promise.all(
+    async ({ list, shots, filed, percentile, tol }) => {
+      const [a, b, hidA, hidB] = await Promise.all(
         shots.map(async (b64) => {
           const bytes = Uint8Array.from(atob(b64), (c) => c.codePointAt(0) ?? 0);
           const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
@@ -279,7 +380,24 @@ async function measure(
           return ctx.getImageData(0, 0, bitmap.width, bitmap.height);
         }),
       );
-      if (!a || !b) throw new Error("decode failed");
+      if (!a || !b || !hidA || !hidB) throw new Error("decode failed");
+      const differs = (p: ImageData, q: ImageData, i: number): boolean =>
+        Math.abs((p.data[i] ?? 0) - (q.data[i] ?? 0)) > tol ||
+        Math.abs((p.data[i + 1] ?? 0) - (q.data[i + 1] ?? 0)) > tol ||
+        Math.abs((p.data[i + 2] ?? 0) - (q.data[i + 2] ?? 0)) > tol;
+      // Browser-normalised colour (oklch, lab, color(), color-mix, hsl, named, …) → sRGB 0–255 + alpha.
+      const probe = new OffscreenCanvas(1, 1).getContext("2d", { willReadFrequently: true });
+      if (!probe) throw new Error("no 2d context");
+      const toRgba = (css: string): [number, number, number, number] => {
+        probe.clearRect(0, 0, 1, 1);
+        probe.fillStyle = "#000";
+        probe.fillStyle = css;
+        probe.fillRect(0, 0, 1, 1);
+        const px = probe.getImageData(0, 0, 1, 1).data;
+        const al = px[3] ?? 0;
+        // getImageData un-premultiplies; at alpha 0 the channels are meaningless.
+        return al === 0 ? [0, 0, 0, 0] : [px[0] ?? 0, px[1] ?? 0, px[2] ?? 0, al / 255];
+      };
       const LIN = Array.from({ length: 256 }, (_, c) => {
         const v = c / 255;
         return v <= 0.039_28 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
@@ -306,24 +424,27 @@ async function measure(
             active: false,
             inActiveSection: false,
             text: "",
-            canvasBacked: false,
             railNumeral: false,
             finding: null,
             large: false,
             ratio: null,
+            ratioMin: null,
+            ratioP1: null,
             pixels: 0,
             unstable: 0,
+            unstableHidden: 0,
+            canvasVisible: 0,
+            unstableOnCanvas: 0,
+            stackHits: 0,
+            stackSamples: 0,
           };
         const style = getComputedStyle(el);
-        const rgba = (/rgba?\(([^)]+)\)/u.exec(style.color)?.[1] ?? "0,0,0,1")
-          .split(/[\s,/]+/u)
-          .filter(Boolean)
-          .map(Number);
+        const rgba = toRgba(style.color);
         let opacity = 1;
         for (let n: Element | null = el; n; n = n.parentElement)
           opacity *= Number(getComputedStyle(n).opacity);
-        const alpha = (rgba[3] ?? 1) * opacity;
-        const [tr = 0, tg = 0, tb = 0] = rgba;
+        const alpha = rgba[3] * opacity;
+        const [tr, tg, tb] = rgba;
         const size = Number.parseFloat(style.fontSize);
         const bold = Number(style.fontWeight) >= 700;
         const large = size >= 24 || (size >= 18.66 && bold);
@@ -381,15 +502,28 @@ async function measure(
         }
         const finding = filed.find((f) => el.matches(f)) ?? null;
         const railNumeral = el.matches("nav.rail a[data-section-link] > span[aria-hidden='true']");
-        let canvasBacked = false;
+        // Cross-check (attempt 5): is the canvas in the hit stack under the sampled glyph pixels?
+        // The scene is pointer-events:none, so hit-testing is enabled for the check only.
+        let stackHits = 0;
+        let stackSamples = 0;
         if (canvasLive && canvasEl) {
-          const c = canvasEl.getBoundingClientRect();
-          canvasBacked = boxes.some(
-            ([l, t, r, bo]) => l < c.right && c.left < r && t < c.bottom && c.top < bo,
-          );
+          const hit = document.createElement("style");
+          hit.textContent =
+            "[data-scene], [data-scene] canvas { pointer-events: auto !important; }";
+          document.head.append(hit);
+          for (const [l, t, r, bo] of boxes)
+            for (let y = t + 1; y < bo; y += 4)
+              for (let x = l + 1; x < r; x += 4) {
+                stackSamples += 1;
+                if (document.elementsFromPoint(x + 0.5, y + 0.5).includes(canvasEl)) stackHits += 1;
+              }
+          hit.remove();
         }
         const ratios: number[] = [];
         let unstable = 0;
+        let unstableHidden = 0;
+        let canvasVisible = 0;
+        let unstableOnCanvas = 0;
         const seen = new Set<number>();
         for (const [l, t, r, bo] of boxes)
           for (let y = t; y < bo; y += 1)
@@ -400,12 +534,13 @@ async function measure(
               const br = a.data[i] ?? 0;
               const bg = a.data[i + 1] ?? 0;
               const bb = a.data[i + 2] ?? 0;
-              if (
-                Math.abs(br - (b.data[i] ?? 0)) > 3 ||
-                Math.abs(bg - (b.data[i + 1] ?? 0)) > 3 ||
-                Math.abs(bb - (b.data[i + 2] ?? 0)) > 3
-              )
+              const onCanvas = differs(a, hidA, i) || differs(b, hidB, i);
+              if (onCanvas) canvasVisible += 1;
+              if (differs(a, b, i)) {
                 unstable += 1;
+                if (onCanvas) unstableOnCanvas += 1;
+              }
+              if (differs(hidA, hidB, i)) unstableHidden += 1;
               const fr = tr * alpha + br * (1 - alpha);
               const fg = tg * alpha + bg * (1 - alpha);
               const fb = tb * alpha + bb * (1 - alpha);
@@ -414,7 +549,11 @@ async function measure(
               ratios.push((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05));
             }
         ratios.sort((x, y) => x - y);
-        const ratio = ratios.length > 0 ? (ratios[Math.floor(ratios.length * 0.05)] ?? null) : null;
+        const ratio =
+          ratios.length > 0 ? (ratios[Math.floor(ratios.length * percentile)] ?? null) : null;
+        const ratioMin = ratios[0] ?? null;
+        const ratioP1 =
+          ratios.length > 0 ? (ratios[Math.floor(ratios.length * 0.01)] ?? null) : null;
         return {
           selector,
           missing: false,
@@ -422,16 +561,28 @@ async function measure(
           active,
           inActiveSection,
           text: (el.textContent ?? "").replaceAll(/\s+/gu, " ").trim().slice(0, 40),
-          canvasBacked,
           railNumeral,
           finding,
           large,
           ratio,
+          ratioMin,
+          ratioP1,
           pixels: ratios.length,
           unstable,
+          unstableHidden,
+          canvasVisible,
+          unstableOnCanvas,
+          stackHits,
+          stackSamples,
         };
       });
     },
-    { list: selectors, shots: [first, second], filed: findings },
+    {
+      list: selectors,
+      shots: [first, second, third, fourth],
+      filed: findings,
+      percentile: RATIO_PERCENTILE,
+      tol: PIXEL_TOLERANCE,
+    },
   );
 }
