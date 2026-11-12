@@ -15,7 +15,12 @@ for (const viewport of [
     await pageOff.goto("/");
     const lenOn = await pageOn.evaluate(() => document.body.innerText.length);
     const lenOff = await pageOff.evaluate(() => document.body.innerText.length);
-    expect(lenOff / lenOn).toBeGreaterThanOrEqual(0.95);
+    const ratio = lenOff / lenOn;
+    console.warn(`M1-AC9 ${viewport.name}: ${ratio.toFixed(5)} (${lenOff}/${lenOn})`);
+    expect(
+      ratio,
+      `no-JS/JS innerText ratio ${ratio.toFixed(5)} (${lenOff}/${lenOn})`,
+    ).toBeGreaterThanOrEqual(0.95);
     const sections = await pageOff.evaluate(
       (ids) =>
         ids.map((id) => {
