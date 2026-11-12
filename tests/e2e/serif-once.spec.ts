@@ -63,31 +63,28 @@ test.describe("PF-24 Instrument Serif is downloaded once", () => {
     expect(rendered, `${browserName} H1 glyphs not in Instrument Serif`).toBe(true);
   });
 
-  test("the document preloads match the Instrument Serif @font-face src URLs", async ({
+  test("the built HTML declares two Instrument Serif faces and does not preload them", async ({
     request,
   }) => {
     const html = await (await request.get("/")).text();
     const preloadTags = [...html.matchAll(/<link rel="preload"[^>]*>/g)].map((m) => m[0]);
     const serifTags = preloadTags.filter((tag) => /instrument-serif/i.test(tag));
-    expect(serifTags).toHaveLength(2);
-    expect(serifTags.every((tag) => tag.includes('as="font"') && tag.includes("crossorigin"))).toBe(
-      true,
-    );
-    const serifPreloads = serifTags.flatMap((tag) => {
-      const href = /href="([^"]+)"/.exec(tag)?.[1];
-      return href ? [href] : [];
-    });
-    expect(serifPreloads.every((href) => href.endsWith(".woff2"))).toBe(true);
+    // A crossorigin preload plus @font-face made WebKit issue a second no-cors GET per file.
+    expect(serifTags).toHaveLength(0);
 
     const faces = [...html.matchAll(/@font-face\{[^}]*font-family:Instrument Serif;[^}]*\}/gi)];
     expect(faces.length).toBe(2);
+    const srcs: string[] = [];
     for (const face of faces) {
       const block = face[0];
       expect(block).toMatch(/font-display:swap/);
       expect(block).not.toMatch(/unicode-range/);
       const src = /src:url\(([^)]+)\)/.exec(block)?.[1];
       expect(src).toBeTruthy();
-      expect(serifPreloads.some((href) => href === src)).toBe(true);
+      expect(src).toMatch(/instrument-serif-400(?:-italic)?\.[^/]+\.woff2$/);
+      srcs.push(src ?? "");
     }
+    expect(srcs.some((s) => s.includes("instrument-serif-400-italic"))).toBe(true);
+    expect(srcs.some((s) => /instrument-serif-400\.[^/]+\.woff2$/.test(s))).toBe(true);
   });
 });

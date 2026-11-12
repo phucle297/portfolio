@@ -1,6 +1,7 @@
 /**
- * PF-24 (M1-AC13): source-level guards that Instrument Serif is one file per style, preloaded
- * from the same files the stylesheet declares, with font-display: swap and no unicode-range.
+ * PF-24 (M1-AC13): source-level guards that Instrument Serif is one file per style, declared
+ * with font-display: swap and no unicode-range, and not preloaded (a preload plus the
+ * stylesheet made WebKit download each file twice).
  */
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -35,8 +36,11 @@ describe("PF-24 Instrument Serif source", () => {
     expect(css).toContain("instrument-serif-400-italic.woff2");
 
     const layout = read("src/app/layouts/BaseLayout.astro");
-    expect(layout).toContain("../fonts/instrument-serif-400.woff2?url");
-    expect(layout).toContain("../fonts/instrument-serif-400-italic.woff2?url");
     expect(layout).not.toContain("@fontsource/instrument-serif");
+    expect(layout).not.toMatch(
+      /rel=["']preload["'][\s\S]*instrument-serif|instrument-serif[\s\S]*rel=["']preload["']/,
+    );
+    expect(layout).not.toContain("serifWoff2");
+    expect(layout).not.toContain("serifItalicWoff2");
   });
 });
