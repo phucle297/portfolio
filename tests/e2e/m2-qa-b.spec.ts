@@ -13,10 +13,10 @@ interface B4Watch {
   /** `darkroomTest.rafs()` when the last scroll event ran: later ticks come after it. */
   rafsAtScroll: number;
   /**
-   * Stage ticks (rAF callbacks that advanced `darkroomTest.rafs()`): start time, rAF timestamp
-   * and tick number.
+   * Stage ticks (rAF callbacks that advanced `darkroomTest.rafs()`): callback start time and tick
+   * number.
    */
-  ticks: { at: number; ts: number; n: number; continues: boolean }[];
+  ticks: { at: number; n: number }[];
   stop: boolean;
 }
 declare global {
@@ -489,56 +489,28 @@ const B4_QUIET_MS = 2000;
 interface B4Verdict {
   gap: number;
   ticksAfterScroll: number;
-  lastInterval: number;
-  slowestBefore: number;
-  stall: number;
-  allowed: number;
 }
 
 /**
- * The stage (stage.ts) stops at the first tick where `now − input + 3 × slowest frame since the
- * input ≥ 1500 ms`. So the last tick starts ≤ 1500 ms after the last scroll whenever the final
- * frame interval is ≤ 3 × the slowest interval before it, i.e. on slow frames too (QA B-4,
- * PF-15 AC2). Only a host stall, a final interval longer than 3 × every frame before it, can push
- * the last tick past the budget, and then by at most that excess (`stall`). On a healthy or
- * steadily slow frame rate `stall` is 0 and the bound is exactly 1500 ms. Intervals use the rAF
- * timestamps, like the stage's own slowest-frame tracking.
+ * M2-AC10 / PF-15 AC2, as agreed for B-4 (TASK-20261113-19): "0 rAF after 1.5 s idle" means the
+ * last stage rAF callback *starts* ≤ 1500 ms after the last scroll event (definition 1). The
+ * time is taken at callback start, not when its draw work finishes or a poll notices it, so a
+ * slow draw on a loaded host does not count. The bound is strict 1500 ms, slow frames included:
+ * no host-stall allowance. Measured from scroll stop, not from settle.
  */
 function b4Verdict(w: B4Watch): B4Verdict {
-  const last = w.ticks.at(-1);
-  const gap = last ? last.at - w.lastScroll : Number.NaN;
-  // Frame intervals the stage sees after the last input (rAF timestamps, like its slowest-frame
-  // tracking): from the tick before, or one 60 fps frame for the first tick of a (re)started loop.
-  // The final interval is the wall-clock one (tick start to tick start), which is what can overrun.
-  const intervals: number[] = [];
-  let lastWall = 0;
   // "After" is by tick number, not time: performance.now() is coarse enough that the last scroll
   // event and the tick right after it can carry the same timestamp.
-  w.ticks.forEach((tick, i) => {
-    if (tick.n <= w.rafsAtScroll) return;
-    const prev = w.ticks[i - 1];
-    const continued = tick.continues && prev !== undefined;
-    intervals.push(continued ? tick.ts - prev.ts : 1000 / 60);
-    lastWall = continued ? tick.at - prev.at : 1000 / 60;
-  });
-  const lastInterval = lastWall;
-  const slowestBefore = Math.max(1000 / 60, ...intervals.slice(0, -1));
-  const stall = Math.max(0, lastInterval - 3 * slowestBefore);
-  return {
-    gap,
-    ticksAfterScroll: intervals.length,
-    lastInterval,
-    slowestBefore,
-    stall,
-    allowed: B4_BUDGET_MS + stall,
-  };
+  const after = w.ticks.filter((tick) => tick.n > w.rafsAtScroll);
+  const last = after.at(-1);
+  return { gap: last ? last.at - w.lastScroll : Number.NaN, ticksAfterScroll: after.length };
 }
 
 function b4Check(r: B4Watch & B4Verdict, label: string): void {
   const summary = JSON.stringify({ label, ...r, ticks: r.ticks.length });
   expect(r.lastScroll, summary).toBeGreaterThan(0);
   expect(r.ticksAfterScroll, summary).toBeGreaterThan(0);
-  expect(r.gap, summary).toBeLessThanOrEqual(r.allowed);
+  expect(r.gap, summary).toBeLessThanOrEqual(B4_BUDGET_MS);
 }
 
 test.describe("B-4 the render loop idles within 1.5 s of scrolling stopping", () => {
@@ -547,31 +519,23 @@ test.describe("B-4 the render loop idles within 1.5 s of scrolling stopping", ()
   test("last rAF callback ≤ 1.5 s after the last scroll event (wheel and a long jump)", async ({
     page,
   }) => {
-    // Time every stage tick where it starts (not when a poll notices it), so a slow draw or a
-    // late poll on a loaded host does not count against the stage.
+    // Time every stage tick where its callback starts (definition 1, see b4Verdict), not when a
+    // poll notices it, so a slow draw or a late poll on a loaded host does not count.
     await page.addInitScript(() => {
       const raf = window.requestAnimationFrame.bind(window);
-      // rafs() at the start of the stage tick that is running now, if any: a rAF requested while
-      // it has advanced is the loop continuing; any other request (a scroll) restarts the loop,
-      // whose first tick the stage counts as a 60 fps frame.
-      let running: number | undefined;
-      window.requestAnimationFrame = (callback) => {
-        const continues = running !== undefined && (window.darkroomTest?.rafs() ?? 0) !== running;
-        return raf((ts) => {
+      window.requestAnimationFrame = (callback) =>
+        raf((ts) => {
           const at = performance.now();
           const before = window.darkroomTest?.rafs() ?? 0;
-          running = before;
           try {
             callback(ts);
           } finally {
-            running = undefined;
             // Recorded even if the callback throws, so no tick goes uncounted.
             const w = window.b4Watch;
             const n = window.darkroomTest?.rafs() ?? 0;
-            if (w && !w.stop && n !== before) w.ticks.push({ at, ts, n, continues });
+            if (w && !w.stop && n !== before) w.ticks.push({ at, n });
           }
         });
-      };
     });
     await openScene(page);
     await scrollToP(page, 0.03);
