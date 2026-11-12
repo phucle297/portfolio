@@ -1,0 +1,20 @@
+---
+// Component preview: dev and PR previews only (see @pages/ui-preview gate). Production builds
+// get an empty path list, so no file is emitted and /ui-preview/ is the 404 page there.
+import { PreviewLayout } from "@app/layouts";
+import { UiPreviewPage, uiPreviewEnabled } from "@pages/ui-preview";
+
+export function getStaticPaths() {
+  const enabled = uiPreviewEnabled({
+    DEV: import.meta.env.DEV,
+    PUBLIC_UI_PREVIEW: import.meta.env["PUBLIC_UI_PREVIEW"],
+    GITHUB_EVENT_NAME: process.env["GITHUB_EVENT_NAME"],
+    GITHUB_REF: process.env["GITHUB_REF"],
+  });
+  return enabled ? [{ params: { slug: undefined } }] : [];
+}
+---
+
+<PreviewLayout title="Component library (preview)">
+  <UiPreviewPage />
+</PreviewLayout>

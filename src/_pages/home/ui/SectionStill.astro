@@ -4,6 +4,10 @@
  * (design.md §7, §8). Desktop: a 1440×900 still pinned behind the section. Mobile: a portrait
  * intro still or a 390×240 band. AVIF via astro:assets. Hidden on the full tier, where the live
  * canvas takes over (hidden lazy images are never fetched).
+ *
+ * With JS at ≥ 768 px the stills are viewport-fixed and cross-fade (320 ms, never black) to the
+ * still of the section under the scroll position; see `lib/still-crossfade.ts`. Without JS each
+ * still stays sticky inside its own section.
  */
 import { getImage } from "astro:assets";
 import type { ImageMetadata } from "astro";
@@ -43,7 +47,7 @@ const desktop = await getImage({
 const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, widths: [390] });
 ---
 
-<div class:list={["still", { "still--intro": index === 0 }]} aria-hidden="true">
+<div class:list={["still", { "still--intro": index === 0 }]} data-still={index} aria-hidden="true">
   <picture>
     <source
       media="(max-width: 767px)"
@@ -67,6 +71,12 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
   </picture>
 </div>
 
+<script>
+  import { initStillCrossfade } from "../lib/still-crossfade";
+
+  initStillCrossfade();
+</script>
+
 <style>
   .still {
     position: absolute;
@@ -88,29 +98,95 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
     object-fit: cover;
   }
 
+  /* Overlays per scene, from the design source (round7 darkroom-morph): the intro gets only an
+     edge fade (poster.html's .top on desktop, mobile.html's 110 px top fade on phones); sections
+     2-6 get dr.css's .veil on desktop and mobile.html's .band:after on phones (QA-PF02-1).
+     One addition: the design's fallback frame has no section rail, so the intro also darkens the
+     112 px right edge where the rail sits; without it the rail numerals over the lit tray drop to
+     4.37:1 (contrast:measure, static D, p 0). */
+  .still {
+    --still-veil:
+      radial-gradient(ellipse at center, rgb(14 10 8 / 0.55), rgb(14 10 8 / 0.82) 70%),
+      linear-gradient(
+        180deg,
+        rgb(14 10 8 / 0.9),
+        rgb(14 10 8 / 0) 18%,
+        rgb(14 10 8 / 0) 82%,
+        rgb(14 10 8 / 0.95)
+      );
+  }
+
+  .still--intro {
+    --still-veil:
+      linear-gradient(270deg, rgb(14 10 8 / 0.5), rgb(14 10 8 / 0) 112px),
+      linear-gradient(
+        180deg,
+        rgb(14 10 8 / 0.92),
+        rgb(14 10 8 / 0) 130px,
+        rgb(14 10 8 / 0) calc(100% - 160px),
+        rgb(14 10 8 / 0.92)
+      );
+  }
+
   .still::after {
     content: "";
     position: absolute;
     inset: 0;
-    background:
-      radial-gradient(ellipse at center, rgb(14 10 8 / 0.35), rgb(14 10 8 / 0.7) 75%),
-      linear-gradient(
-        180deg,
-        rgb(14 10 8 / 0.9),
-        rgb(14 10 8 / 0) 12%,
-        rgb(14 10 8 / 0) 88%,
-        rgb(14 10 8 / 0.95)
-      );
+    background: var(--still-veil);
   }
 
   :global(html[data-tier="full"]) .still {
     display: none;
   }
 
+  /* Static tier with JS, desktop and tablet: one viewport-fixed still at a time, cross-faded. */
+  @media (min-width: 768px) {
+    :global(html.js) .still picture {
+      position: fixed;
+      inset: 0;
+      display: none;
+      opacity: 0;
+    }
+
+    /* Displayed (so the lazy image loads) but transparent until shown: the shown still and its
+       neighbours, and the intro still before the script has picked a section. */
+    :global(html.js:not([data-still-active])) .still--intro picture,
+    :global(html.js) .still.is-near picture,
+    :global(html.js) .still.is-shown picture {
+      display: block;
+    }
+
+    /* Before the script picks the section, the intro still (the LCP image) is the one shown. */
+    :global(html.js:not([data-still-active])) .still--intro picture,
+    :global(html.js) .still.is-shown picture {
+      opacity: 1;
+    }
+
+    /* The cross-fade is a Web Animation (lib/still-crossfade.ts); no CSS transition may delay an
+       opacity change, not even the global reduced-motion 0.01ms one. */
+    :global(html.js) .still picture {
+      transition: none !important;
+    }
+
+    /* Fixed stills: the scene's overlay moves onto the fixed picture, so it spans the viewport the
+       way the design's section overlay spans a 900 px section. */
+    :global(html.js) .still::after {
+      display: none;
+    }
+
+    :global(html.js) .still picture::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: var(--still-veil);
+    }
+  }
+
   @media (max-width: 767px) {
     .still {
       position: relative;
       inset: auto;
+      --still-veil: linear-gradient(180deg, rgb(14 10 8 / 0.2), var(--bg));
     }
 
     .still picture {
@@ -126,6 +202,7 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
     .still--intro {
       position: absolute;
       inset: 0 0 auto;
+      --still-veil: linear-gradient(180deg, rgb(14 10 8 / 0.9), rgb(14 10 8 / 0) 110px);
     }
 
     .still--intro img {
