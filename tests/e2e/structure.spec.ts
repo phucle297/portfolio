@@ -129,7 +129,7 @@ test.describe("structure and copy", () => {
     }
   });
 
-  test("email switch: PUBLIC_EMAIL drives the contact link, the form action and the mailto", async ({
+  test("email switch: PUBLIC_EMAIL drives the contact link and the JS mailto submit", async ({
     page,
   }) => {
     await page.goto("/");
@@ -141,10 +141,9 @@ test.describe("structure and copy", () => {
     }
     const link = contact.locator(`[data-email] a[href="mailto:${PUBLIC_EMAIL}"]`);
     await expect(link).toHaveText(PUBLIC_EMAIL);
-    await expect(contact.locator("form[data-contact-form]")).toHaveAttribute(
-      "action",
-      `mailto:${PUBLIC_EMAIL}`,
-    );
+    // A mailto form action fails Lighthouse Best Practices over HTTPS (Chrome MixedContentWarning).
+    const action = await contact.locator("form[data-contact-form]").getAttribute("action");
+    expect((action ?? "").toLowerCase().startsWith("mailto:")).toBe(false);
     // Submitting a valid brief sends the browser to a prefilled mailto: for that address.
     const mailto = new Promise<string>((resolve) => {
       page.on("framenavigated", (frame) => {
