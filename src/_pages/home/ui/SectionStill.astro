@@ -100,7 +100,10 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
 
   /* Overlays per scene, from the design source (round7 darkroom-morph): the intro gets only an
      edge fade (poster.html's .top on desktop, mobile.html's 110 px top fade on phones); sections
-     2-6 get dr.css's .veil on desktop and mobile.html's .band:after on phones (QA-PF02-1). */
+     2-6 get dr.css's .veil on desktop and mobile.html's .band:after on phones (QA-PF02-1).
+     One addition: the design's fallback frame has no section rail, so the intro also darkens the
+     112 px right edge where the rail sits; without it the rail numerals over the lit tray drop to
+     4.37:1 (contrast:measure, static D, p 0). */
   .still {
     --still-veil:
       radial-gradient(ellipse at center, rgb(14 10 8 / 0.55), rgb(14 10 8 / 0.82) 70%),
@@ -114,13 +117,15 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
   }
 
   .still--intro {
-    --still-veil: linear-gradient(
-      180deg,
-      rgb(14 10 8 / 0.92),
-      rgb(14 10 8 / 0) 130px,
-      rgb(14 10 8 / 0) calc(100% - 160px),
-      rgb(14 10 8 / 0.92)
-    );
+    --still-veil:
+      linear-gradient(270deg, rgb(14 10 8 / 0.5), rgb(14 10 8 / 0) 112px),
+      linear-gradient(
+        180deg,
+        rgb(14 10 8 / 0.92),
+        rgb(14 10 8 / 0) 130px,
+        rgb(14 10 8 / 0) calc(100% - 160px),
+        rgb(14 10 8 / 0.92)
+      );
   }
 
   .still::after {
