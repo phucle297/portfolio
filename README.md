@@ -67,7 +67,8 @@ Lefthook is not installed, so it never breaks an install. Hooks are defined in `
 - **pre-commit** (staged files only): `oxfmt` formats staged files and re-stages them
   (`stage_fixed`), `oxlint` lints staged JS/TS/Astro files, and Steiger checks the architecture
   when anything under `src/` is staged.
-- **pre-push**: `typecheck` (TS 7), `astro check`, full `lint` (oxlint + Steiger), `build`.
+- **pre-push**: `typecheck` (TS 7), `astro check`, full `lint` (oxlint + Steiger),
+  `format:check` (oxfmt), `build`.
 
 Skip once with `LEFTHOOK=0 git commit …` (use sparingly).
 
