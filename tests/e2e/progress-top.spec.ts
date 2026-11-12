@@ -18,6 +18,19 @@ const openAt = async (page: Page, width: number, height: number): Promise<void> 
   await page.setViewportSize({ width, height });
   await page.goto("/");
   await expect(bar(page)).toBeVisible();
+  // Geometry is asserted on a painted frame. --header-bottom is measured in a ResizeObserver
+  // (after layout, before paint), not during HTML parse (QA L1), so on a loaded box `load` can
+  // fire before the first frame; what a user sees is the painted frame.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve();
+          });
+        });
+      }),
+  );
 };
 
 const geometry = async (page: Page): Promise<{ headerBottom: number; barTop: number }> =>
