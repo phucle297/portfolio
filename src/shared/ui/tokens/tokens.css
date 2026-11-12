@@ -1,0 +1,88 @@
+/*
+ * Darkroom design tokens: the one source every component uses (PF-28, M1-AC12).
+ *
+ * Colours and motion are design.md "Tokens" verbatim (round7 darkroom-morph, shared with round5).
+ * Type steps: mobile from design.md §8 (H1 56, H2 44, body 16/1.55); desktop, eyebrow and mono
+ * from the approved prototype (dr.css / sections.js: H1 124/.92, H2 104/.9, body 18, eyebrow 13
+ * mono +.2em, mono meta 12). design.md has no spacing table: the 4 px scale below is the SWE
+ * default (PF-28 PR), radii are the prototype's 12 / 18 / pill.
+ *
+ * tests/unit/tokens.test.ts fails if a value drifts from design.md, if a token is defined twice,
+ * or if a token value is hard-coded anywhere else in src/.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Type families */
+  --font-sans: "Be Vietnam Pro", "Be Vietnam Pro Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Instrument Serif", "Instrument Serif Fallback", ui-serif, Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  /* Colours */
+  --bg: #0e0a08;
+  --surface: #1a1210;
+  --surface-2: #251a16;
+  --line: #3a2a22;
+  --line-strong: #8a6d5d;
+  --text: #fff1e4;
+  --muted: #c9b4a2;
+  --accent: #ff7a3d;
+  --accent-2: #ffc24b;
+  --ink: #0e0a08;
+  --focus: #ffe1b5;
+  --error: #ff8ba8;
+
+  /* Scrims for text over the scene (design.md "Tokens") */
+  --scrim-desktop: linear-gradient(90deg, rgb(14 10 8 / 0.86) 0 38%, transparent 70%);
+  --scrim-card: rgb(14 10 8 / 0.78);
+
+  /* Type steps: size / line-height, desktop and mobile */
+  --type-h1-desktop: 7.75rem;
+  --type-h1-mobile: 3.5rem;
+  --leading-h1: 0.92;
+  --type-h2-desktop: 6.5rem;
+  --type-h2-mobile: 2.75rem;
+  --leading-h2: 0.9;
+  --type-body-desktop: 1.125rem;
+  --type-body-mobile: 1rem;
+  --leading-body: 1.55;
+  --type-eyebrow-desktop: 0.8125rem;
+  --type-eyebrow-mobile: 0.8125rem;
+  --tracking-eyebrow: 0.2em;
+  --type-mono-desktop: 0.75rem;
+  --type-mono-mobile: 0.75rem;
+
+  /* Spacing (4 px scale) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* Radii */
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-pill: 999px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-micro: 160ms;
+  --t-ui: 320ms;
+  --t-enter: 560ms;
+  --t-stagger: 60ms;
+
+  /* Accessibility baseline */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --tap-min: 44px;
+
+  /* Layout */
+  --container: 80rem;
+  --gutter: clamp(1.25rem, 4.4vw, 4rem);
+  --header-h: 5.5rem;
+  --footer-h: 6rem;
+}

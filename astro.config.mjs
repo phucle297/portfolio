@@ -10,7 +10,8 @@ export default defineConfig({
   site,
   output: "static",
   trailingSlash: "ignore",
-  integrations: [sitemap()],
+  // The dev / PR-preview component page is never listed (PF-28); prod does not build it at all.
+  integrations: [sitemap({ filter: (page) => !page.includes("/ui-preview/") })],
   build: {
     // Inline all CSS (it is small) so there are no render-blocking stylesheet requests.
     inlineStylesheets: "always",
