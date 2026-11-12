@@ -152,8 +152,12 @@ test.describe("PF-15 AC1 wheel and scrollbar match keyboard scrolling", () => {
     expect(drag.y).toBeGreaterThan(bar.max * 0.3);
     expect(drag.y).toBeLessThan(bar.max * 0.5);
 
-    // Keyboard scrolling back to the very same position: away by one arrow step and back.
-    await page.locator("body").click({ position: { x: 5, y: 500 } });
+    // Keyboard scrolling back to the very same position: away by one arrow step and back. No
+    // click to focus (clicking the copy would move focus into a section, and focus scrolls the
+    // pinned copy into view); dropping focus to the document lets the keys scroll the viewport.
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    });
     await page.keyboard.press("ArrowDown");
     const away = await snapshot(page);
     expect(away.y).not.toBe(drag.y);
