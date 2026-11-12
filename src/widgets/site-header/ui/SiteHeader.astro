@@ -27,13 +27,7 @@ const { anchorBase = "" } = Astro.props;
       </ul>
     </nav>
     <div class="site-header__actions">
-      <button
-        type="button"
-        class="site-header__toggle"
-        data-motion-toggle
-        aria-pressed="true"
-        hidden
-      >
+      <button type="button" class="site-header__toggle" data-motion-toggle aria-pressed="true">
         <span class="site-header__switch" aria-hidden="true"></span>
         Motion{" "}
         <span class="site-header__state" data-motion-state>
@@ -90,7 +84,6 @@ const { anchorBase = "" } = Astro.props;
   }
 
   if (toggle) {
-    toggle.hidden = false;
     toggle.addEventListener("click", () => {
       setUserMotion(!motionAllowed());
     });
@@ -186,6 +179,12 @@ const { anchorBase = "" } = Astro.props;
     font: 500 0.75rem/1 var(--font-mono);
     letter-spacing: 0.08em;
     white-space: nowrap;
+  }
+
+  /* The Motion toggle needs JS: without it (no "js" class from the inline head script) it is
+     not shown at all (QA-4). */
+  :global(html:not(.js)) .site-header__toggle {
+    display: none;
   }
 
   .site-header__toggle {

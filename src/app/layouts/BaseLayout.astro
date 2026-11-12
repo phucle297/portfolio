@@ -66,6 +66,9 @@ const imageUrl = new URL(image, Astro.site ?? Astro.url).href;
       // Enable motion-dependent styles only when JS runs and motion is allowed by both the OS
       // setting and the site's Motion toggle (localStorage "motion" = "off" switches it off).
       (function () {
+        // Marks "JS runs" before first paint, so JS-only controls (the Motion toggle) take their
+        // space from the start instead of shifting the header when a module script reveals them.
+        document.documentElement.classList.add("js");
         let off = false;
         try {
           off = localStorage.getItem("motion") === "off";
