@@ -13,10 +13,51 @@ import {
  * Guard for the cross-browser convention (PF-05): every e2e spec on disk runs on Firefox and WebKit
  * unless CHROMIUM_ONLY_SPECS opts it out with a reason. It asks Playwright itself (`--list`, no
  * browser, no server), so a config change that narrows the projects fails here.
+ *
+ * The inventory and pattern pins must fail if a spec is deleted or an opt-out is widened or added.
  */
 const root = resolve(import.meta.dirname, "../..");
 const e2eDir = join(root, "tests/e2e");
 const ENGINES = ["chromium", "firefox", "webkit"] as const;
+
+/** Pinned inventory of tests/e2e/*.spec.ts. Deleting a spec must fail this list. */
+const EXPECTED_SPECS: readonly string[] = [
+  "cross-browser.spec.ts",
+  "m2-keys.spec.ts",
+  "m2-qa-b.spec.ts",
+  "m2.spec.ts",
+  "owner-content.spec.ts",
+  "probe-cost-webgl-disabled.spec.ts",
+  "probe-cost.spec.ts",
+  "seo.spec.ts",
+  "serif-once.spec.ts",
+  "static.spec.ts",
+  "structure.spec.ts",
+  "tiers.spec.ts",
+];
+
+/** Pinned opt-out pattern sources, per engine group. Widening or adding a pattern must fail. */
+const EXPECTED_PATTERNS = {
+  chromiumOnlySpecs: [] as const,
+  chromiumOnlyTests: [
+    "/QA-5: copy-email button copies the address and announces it$/",
+    "/M1-AC13 fonts: design faces, no fallback in the names/",
+  ],
+  firefoxOnlySkip: ["/email switch: PUBLIC_EMAIL drives the contact link/"],
+  webkitOnlySkip: [
+    "/B-8: a reload while scrolled keeps the header opaque before its script runs/",
+    "/WebGL disabled: the worker finds no context and the page keeps its stills/",
+    "/m2-keys\\.spec\\.ts/",
+  ],
+} as const;
+
+const patternSources = (opts: readonly { pattern: RegExp }[]): string[] =>
+  opts.map((o) => String(o.pattern));
+
+const titleOptOuts = (engine: "firefox" | "webkit") => [
+  ...CHROMIUM_ONLY_TESTS,
+  ...(engine === "firefox" ? FIREFOX_ONLY_SKIP : WEBKIT_ONLY_SKIP),
+];
 
 const specsOnDisk = (): string[] =>
   readdirSync(e2eDir, { recursive: true, encoding: "utf8" })
@@ -71,6 +112,27 @@ describe("e2e projects: specs are cross-browser by default (PF-05)", () => {
   ];
   const specs = specsOnDisk();
 
+  it("pins the e2e spec inventory", () => {
+    expect(specs.map((f) => relative(e2eDir, f)).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      ...EXPECTED_SPECS,
+    ]);
+  });
+
+  it("pins opt-out patterns and the engines they apply to", () => {
+    expect(patternSources(CHROMIUM_ONLY_SPECS), "CHROMIUM_ONLY_SPECS").toEqual([
+      ...EXPECTED_PATTERNS.chromiumOnlySpecs,
+    ]);
+    expect(patternSources(CHROMIUM_ONLY_TESTS), "CHROMIUM_ONLY_TESTS").toEqual(
+      EXPECTED_PATTERNS.chromiumOnlyTests,
+    );
+    expect(patternSources(FIREFOX_ONLY_SKIP), "FIREFOX_ONLY_SKIP").toEqual(
+      EXPECTED_PATTERNS.firefoxOnlySkip,
+    );
+    expect(patternSources(WEBKIT_ONLY_SKIP), "WEBKIT_ONLY_SKIP").toEqual(
+      EXPECTED_PATTERNS.webkitOnlySkip,
+    );
+  });
+
   it("finds the e2e specs and all three projects", () => {
     expect(specs.length).toBeGreaterThan(0);
     expect(
@@ -82,8 +144,20 @@ describe("e2e projects: specs are cross-browser by default (PF-05)", () => {
     expect(files("chromium").toSorted((a, b) => a.localeCompare(b))).toEqual(specs);
   });
 
+  /** True when every Chromium test in the file is dropped by this engine's title opt-outs. */
+  const allTestsDropped = (file: string, engine: "firefox" | "webkit"): boolean => {
+    const tests = listed.filter((t) => t.project === "chromium" && t.file === file);
+    if (tests.length === 0) return false;
+    const allowed = titleOptOuts(engine);
+    return tests.every(
+      (t) =>
+        t.title.includes("@chromium-only") ||
+        allowed.some((o) => o.pattern.test(`${relative(e2eDir, t.file)} ${t.title}`)),
+    );
+  };
+
   it.each(["firefox", "webkit"])("runs every spec that is not opted out on %s", (engine) => {
-    const expected = specs.filter((f) => !optedOut(f));
+    const expected = specs.filter((f) => !optedOut(f) && !allTestsDropped(f, engine));
     const missing = expected
       .filter((f) => !files(engine).includes(f))
       .map((f) => relative(root, f));
@@ -91,7 +165,7 @@ describe("e2e projects: specs are cross-browser by default (PF-05)", () => {
       [],
     );
     const leaked = files(engine)
-      .filter(optedOut)
+      .filter((f) => optedOut(f) || allTestsDropped(f, engine))
       .map((f) => relative(root, f));
     expect(leaked, `opted-out specs still listed on ${engine}`).toEqual([]);
   });

@@ -7,9 +7,13 @@
  * - a whole spec that needs the WebGL scene (or Chromium-only APIs): add it to CHROMIUM_ONLY_SPECS;
  * - a single test: tag it `@chromium-only` (`test("…", { tag: "@chromium-only" }, …)`) and say
  *   why in a comment next to it;
- * - tests in files this card may not edit (PR #3's list): a title pattern in CHROMIUM_ONLY_TESTS.
+ * - a title pattern in CHROMIUM_ONLY_TESTS (all non-Chromium engines) or FIREFOX_ONLY_SKIP /
+ *   WEBKIT_ONLY_SKIP (one engine). Prefer a title pattern over a whole-file opt-out.
  * Chromium stays the full suite. SwiftShader stands in for a GPU there; full tier on real Firefox
  * and Safari is the manual matrix.
+ *
+ * The unit guard pins the spec inventory and the exact patterns and engines below. Widening or
+ * adding a pattern, or deleting a spec, must fail that test.
  */
 export interface OptOut {
   /** Matched against the absolute spec path (specs) or the full test title (tests). */
@@ -22,30 +26,12 @@ export interface OptOut {
 /** Tag for single tests that stay on Chromium. */
 export const CHROMIUM_ONLY_TAG = "@chromium-only";
 
-export const CHROMIUM_ONLY_SPECS: readonly OptOut[] = [
-  {
-    pattern: /[\\/]m2(-[\w-]+)?\.spec\.ts$/,
-    reason:
-      "M2 pinned copy, scrub and render loop on the full tier: needs the SwiftShader-backed scene",
-  },
-  {
-    pattern: /[\\/]probe-cost(-[\w-]+)?\.spec\.ts$/,
-    reason:
-      "probe cost per branch measured with Chromium flags (--disable-webgl) and a spoofed worker on SwiftShader",
-  },
-];
+/** Whole-file opt-outs on Firefox and WebKit. Empty: remaining skips are title- or engine-specific. */
+export const CHROMIUM_ONLY_SPECS: readonly OptOut[] = [];
 
 export const CHROMIUM_ONLY_TESTS: readonly OptOut[] = [
   {
-    pattern: /tiers\.spec\.ts full tier /,
-    reason:
-      "full-tier scene, render loop and canvas placement need the SwiftShader stand-in; cross-browser.spec.ts checks Firefox/WebKit choose and mount the full tier",
-  },
-  {
-    pattern: /hardware GPU, motion allowed: the scene chunk loads/,
-    reason: "full-tier scene chunk; covered on Firefox/WebKit by cross-browser.spec.ts",
-  },
-  {
+    // Exact title: the sibling "when the clipboard write fails…" case runs on every engine.
     pattern: /QA-5: copy-email button copies the address and announces it$/,
     reason:
       "grants clipboard permissions, which only Chromium supports; cross-browser.spec.ts stubs the clipboard",
@@ -68,13 +54,25 @@ export const FIREFOX_ONLY_SKIP: readonly OptOut[] = [
 /**
  * Playwright's WebKit restores the scroll position of a reload only once the page has loaded, so a
  * test that holds the module scripts never sees the restored scroll it sets up. Real Safari is
- * part of the manual matrix (AC2).
+ * part of the manual matrix (AC2). m2-keys and the WebGL-disabled probe need Chromium launch
+ * flags that Playwright WebKit cannot apply; Firefox ran both.
  */
 export const WEBKIT_ONLY_SKIP: readonly OptOut[] = [
   {
     pattern: /B-8: a reload while scrolled keeps the header opaque before its script runs/,
     reason:
       "Playwright WebKit restores the scroll of a reload only after load; with the scripts held, scrollY stays 0 (deterministic, 3/3 runs)",
+  },
+  {
+    pattern: /WebGL disabled: the worker finds no context and the page keeps its stills/,
+    reason:
+      "launches with --disable-webgl --disable-3d-apis, which Playwright WebKit cannot apply; Firefox ran this file",
+  },
+  {
+    // The whole file: every case needs the SwiftShader-backed scene and Chrome launch flags.
+    pattern: /m2-keys\.spec\.ts/,
+    reason:
+      "needs the SwiftShader-backed full-tier scene and Chrome flags (--enable-unsafe-swiftshader, --disable-smooth-scrolling); Playwright WebKit has no equivalent; Firefox ran this file",
   },
 ];
 
