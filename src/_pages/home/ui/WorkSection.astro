@@ -63,6 +63,36 @@ import HomeSection from "./HomeSection.astro";
     text-decoration: none;
   }
 
+  /* ---------- Pinned (full tier): heading top left, the four prints' cards along the bottom,
+     under the drying line. ---------- */
+  :global(html[data-pin="on"]) .work__cases {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin-top: auto;
+  }
+
+  :global(html[data-pin="on"]) .work__case {
+    padding: 0.9rem 1.1rem;
+  }
+
+  :global(html[data-pin="on"]) .work__case .eyebrow {
+    font-size: 0.6875rem;
+  }
+
+  :global(html[data-pin="on"]) .work__case h3 {
+    margin: 0.3rem 0;
+    font-size: 1.45rem;
+  }
+
+  :global(html[data-pin="on"]) .work__copy {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
+
+  :global(html[data-pin="on"]) .work__tags {
+    margin-top: 0.6rem;
+  }
+
   @media (max-width: 767px) {
     .work__cases {
       grid-template-columns: 1fr;

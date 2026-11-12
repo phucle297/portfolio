@@ -4,10 +4,12 @@ import HomeSection from "./HomeSection.astro";
 ---
 
 <HomeSection id="process" index={4} labelledBy="process-title">
-  <p class="eyebrow">{process.eyebrow}</p>
-  <h2 id="process-title" class="display section-title">
-    {process.title} <em>{process.titleAccent}</em>
-  </h2>
+  <div class="process__head">
+    <p class="eyebrow">{process.eyebrow}</p>
+    <h2 id="process-title" class="display section-title">
+      {process.title} <em>{process.titleAccent}</em>
+    </h2>
+  </div>
   <ol class="process__steps" role="list">
     {process.steps.map((step, i) => (
       <li class="card" data-reveal>
@@ -58,6 +60,45 @@ import HomeSection from "./HomeSection.astro";
   .process__steps p:last-child {
     color: var(--muted);
     font-size: 0.9375rem;
+  }
+
+  /* ---------- Pinned (full tier): heading centred, the four steps in a row under it, above
+     the four trays. ---------- */
+  .process__head {
+    display: grid;
+    gap: 1rem;
+  }
+
+  :global(html[data-pin="on"]) .process__head {
+    gap: 0.6rem;
+    text-align: center;
+  }
+
+  :global(html[data-pin="on"]) .process__steps {
+    width: min(100%, 72rem);
+    margin: 1.1rem auto 0;
+    gap: 0.9rem;
+  }
+
+  :global(html[data-pin="on"]) .process__steps > li {
+    padding: 0.9rem 1.1rem;
+  }
+
+  :global(html[data-pin="on"]) .process__num {
+    width: 2rem;
+    height: 2rem;
+    margin-bottom: 0.4rem;
+    font-size: 0.75rem;
+  }
+
+  :global(html[data-pin="on"]) .process__steps h3 {
+    margin: 0.2rem 0 0.4rem;
+    font-size: 1.35rem;
+  }
+
+  :global(html[data-pin="on"]) .process__steps p:last-child {
+    font-size: 0.8125rem;
+    line-height: 1.45;
   }
 
   @media (max-width: 1023px) {
