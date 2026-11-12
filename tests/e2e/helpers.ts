@@ -46,3 +46,54 @@ export async function scrollThrough(page: Page): Promise<void> {
 }
 
 export const SECTION_IDS = ["hello", "journey", "work", "services", "process", "contact"];
+
+/** Run async steps strictly one after another (browser state is shared, so order matters). */
+export async function inSequence<T>(
+  items: readonly T[],
+  step: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  await items.reduce<Promise<void>>(
+    (previous, item, index) => previous.then(() => step(item, index)),
+    Promise.resolve(),
+  );
+}
+
+/** Full tier with the test hook (`?scene-test`) on a spoofed hardware GPU. */
+export async function openScene(page: Page): Promise<void> {
+  await spoofHardwareGpu(page);
+  await page.goto("/?scene-test");
+  await page.waitForFunction(() => window.darkroomTest !== undefined, null, { timeout: 20_000 });
+}
+
+/** Scroll to progress p and wait until the scene (and the copy layer) has caught up. */
+export async function scrollToP(page: Page, p: number): Promise<void> {
+  await page.evaluate((target) => {
+    const max = document.documentElement.scrollHeight - innerHeight;
+    window.scrollTo({ top: target * max, behavior: "instant" });
+  }, p);
+  await settle(page);
+}
+
+/** Wait until the page has stopped scrolling (keyboard / wheel scrolls animate) and the scene has caught up. */
+export async function settle(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      new Promise<boolean>((resolve) => {
+        const y = scrollY;
+        setTimeout(() => {
+          resolve(scrollY === y);
+        }, 250);
+      }),
+    null,
+    { timeout: 15_000 },
+  );
+  await page.waitForFunction(
+    () => {
+      const max = document.documentElement.scrollHeight - innerHeight;
+      const shown = window.darkroomTest?.shown() ?? -1;
+      return Math.abs(shown - scrollY / max) < 2e-4;
+    },
+    null,
+    { timeout: 15_000 },
+  );
+}

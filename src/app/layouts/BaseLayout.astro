@@ -68,7 +68,8 @@ const imageUrl = new URL(image, Astro.site ?? Astro.url).href;
       (function () {
         // Marks "JS runs" before first paint, so JS-only controls (the Motion toggle) take their
         // space from the start instead of shifting the header when a module script reveals them.
-        document.documentElement.classList.add("js");
+        const root = document.documentElement;
+        root.classList.add("js");
         let off = false;
         try {
           off = localStorage.getItem("motion") === "off";
@@ -76,7 +77,34 @@ const imageUrl = new URL(image, Astro.site ?? Astro.url).href;
           off = false;
         }
         if (!off && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-          document.documentElement.classList.add("motion-ok");
+          root.classList.add("motion-ok");
+        }
+        // The header softens into a see-through gradient only at the very top (SiteHeader).
+        // html[data-scrolled] keeps it opaque over the copy before the header's module script
+        // runs (QA B-8): from any scroll away from the top, and on reloads, history navigations
+        // and #anchor links, where the browser restores or jumps to a scrolled position later
+        // in the load (not always with a scroll event), until the page has loaded.
+        const nav = performance.getEntriesByType("navigation")[0];
+        let restoring =
+          location.hash !== "" ||
+          (nav instanceof PerformanceNavigationTiming &&
+            (nav.type === "reload" || nav.type === "back_forward"));
+        const syncScrolled = function () {
+          root.toggleAttribute("data-scrolled", restoring || window.scrollY >= 8);
+        };
+        syncScrolled();
+        window.addEventListener("scroll", syncScrolled, { passive: true });
+        if (restoring) {
+          window.addEventListener(
+            "load",
+            function () {
+              requestAnimationFrame(function () {
+                restoring = false;
+                syncScrolled();
+              });
+            },
+            { once: true },
+          );
         }
       })();
     </script>

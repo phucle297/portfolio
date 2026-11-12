@@ -4,7 +4,7 @@
  */
 import { BufferGeometry, Material, Mesh, Sprite, Texture, type Object3D } from "three";
 import { describe, expect, it } from "vitest";
-import { evaluate } from "../../src/_pages/home/model/evaluate";
+import { applySafelight, evaluate } from "../../src/_pages/home/model/evaluate";
 import { buildSceneGraph } from "../../src/_pages/home/lib/scene-graph";
 
 function inventory(root: Object3D): { objects: number; geometries: number; materials: number } {
@@ -55,5 +55,25 @@ describe("scene graph", () => {
     }
     expect(graph.scene.children.length).toBe(childCount);
     expect(inventory(graph.scene)).toEqual(before);
+  });
+
+  it("M2-AC7: never hides an object that would still be visible (opacity > .01)", () => {
+    const graph = buildSceneGraph(textures(), { liquidSegments: [48, 36] });
+    const bad: string[] = [];
+    for (let i = 0; i <= 2000; i += 1) {
+      const p = i / 2000;
+      for (const on of [true, false]) {
+        graph.apply(applySafelight(evaluate(p), on));
+        graph.scene.traverse((o) => {
+          if (o.visible) return;
+          // A cap scaled to ~0 has nothing to show; it is hidden by size, not cut.
+          if (Math.max(o.scale.x, o.scale.y, o.scale.z) <= 0.001) return;
+          const material = "material" in o && o.material instanceof Material ? o.material : null;
+          if (material && material.opacity > 0.01)
+            bad.push(`p=${p} ${o.type} ${o.name} opacity ${material.opacity}`);
+        });
+      }
+    }
+    expect(bad.slice(0, 10)).toEqual([]);
   });
 });
