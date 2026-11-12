@@ -107,7 +107,7 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            if grep -qE "10007|does not exist" wrangler.log; then
+            if grep -qiE "10007|does not (yet )?exist" wrangler.log; then
               echo "::notice title=Preview skipped::The portfolio Worker does not exist yet. Previews start after the first production deploy (merge to main)."
               echo "state=no-worker" >> "$GITHUB_OUTPUT"
               exit 0
