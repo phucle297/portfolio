@@ -10,7 +10,8 @@ import { inSequence, openScene, scrollToP, settle } from "./helpers";
 
 interface B4Watch {
   lastScroll: number;
-  lastRaf: number;
+  /** Stage ticks (rAF callbacks that advanced `darkroomTest.rafs()`): start time and rAF timestamp. */
+  ticks: { at: number; ts: number }[];
   stop: boolean;
 }
 declare global {
@@ -475,60 +476,136 @@ test.describe("B-5 focus never lands mid-morph", () => {
   });
 });
 
+/** M2-AC10 idle budget: 0 rAF callbacks later than this after the last scroll event. */
+const B4_BUDGET_MS = 1500;
+/** M2-AC10: after stopping, 0 rAF callbacks in the next 2 s. */
+const B4_QUIET_MS = 2000;
+
+interface B4Verdict {
+  gap: number;
+  ticksAfterScroll: number;
+  lastInterval: number;
+  slowestBefore: number;
+  stall: number;
+  allowed: number;
+}
+
+/**
+ * The stage (stage.ts) stops at the first tick where `now − input + 3 × slowest frame since the
+ * input ≥ 1500 ms`. So the last tick starts ≤ 1500 ms after the last scroll whenever the final
+ * frame interval is ≤ 3 × the slowest interval before it, i.e. on slow frames too (QA B-4,
+ * PF-15 AC2). Only a host stall, a final interval longer than 3 × every frame before it, can push
+ * the last tick past the budget, and then by at most that excess (`stall`). On a healthy or
+ * steadily slow frame rate `stall` is 0 and the bound is exactly 1500 ms. Intervals use the rAF
+ * timestamps, like the stage's own slowest-frame tracking.
+ */
+function b4Verdict(w: B4Watch): B4Verdict {
+  const last = w.ticks.at(-1);
+  const gap = last ? last.at - w.lastScroll : Number.NaN;
+  // Intervals the stage sees after the last input: every tick after the scroll, measured from the
+  // tick before it (the stage's first tick after an idle stop counts as one 60 fps frame; the
+  // watch starts while the loop is idle).
+  const intervals: number[] = [];
+  w.ticks.forEach((tick, i) => {
+    if (tick.at <= w.lastScroll) return;
+    const prev = w.ticks[i - 1];
+    intervals.push(prev ? tick.ts - prev.ts : 1000 / 60);
+  });
+  const lastInterval = intervals.at(-1) ?? 0;
+  const slowestBefore = Math.max(1000 / 60, ...intervals.slice(0, -1));
+  const stall = Math.max(0, lastInterval - 3 * slowestBefore);
+  return {
+    gap,
+    ticksAfterScroll: intervals.length,
+    lastInterval,
+    slowestBefore,
+    stall,
+    allowed: B4_BUDGET_MS + stall,
+  };
+}
+
+function b4Check(r: B4Watch & B4Verdict, label: string): void {
+  const summary = JSON.stringify({ label, ...r, ticks: r.ticks.length });
+  expect(r.lastScroll, summary).toBeGreaterThan(0);
+  expect(r.ticksAfterScroll, summary).toBeGreaterThan(0);
+  expect(r.gap, summary).toBeLessThanOrEqual(r.allowed);
+}
+
 test.describe("B-4 the render loop idles within 1.5 s of scrolling stopping", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
 
   test("last rAF callback ≤ 1.5 s after the last scroll event (wheel and a long jump)", async ({
     page,
   }) => {
+    // Time every stage tick where it starts (not when a poll notices it), so a slow draw or a
+    // late poll on a loaded host does not count against the stage.
+    await page.addInitScript(() => {
+      const raf = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (callback) =>
+        raf((ts) => {
+          const at = performance.now();
+          const before = window.darkroomTest?.rafs() ?? 0;
+          callback(ts);
+          const w = window.b4Watch;
+          if (w && !w.stop && (window.darkroomTest?.rafs() ?? 0) !== before)
+            w.ticks.push({ at, ts });
+        });
+    });
     await openScene(page);
     await scrollToP(page, 0.03);
     // Measured from the last scroll event (scroll stop), not from "caught up".
     const watch = async (): Promise<void> => {
       await page.evaluate(() => {
-        const w: B4Watch = { lastScroll: 0, lastRaf: 0, stop: false };
+        const w: B4Watch = { lastScroll: 0, ticks: [], stop: false };
         window.b4Watch = w;
         window.addEventListener("scroll", () => {
           w.lastScroll = performance.now();
         });
-        let seen = window.darkroomTest?.rafs() ?? 0;
-        const poll = (): void => {
-          const n = window.darkroomTest?.rafs() ?? 0;
-          if (n !== seen) {
-            seen = n;
-            w.lastRaf = performance.now();
-          }
-          if (!w.stop) setTimeout(poll, 10);
-        };
-        poll();
       });
     };
-    const result = async (): Promise<B4Watch & { gap: number }> => {
-      await page.waitForTimeout(3500);
-      return page.evaluate(() => {
-        const w = window.b4Watch;
-        if (!w) throw new Error("no watch");
-        w.stop = true;
-        return { ...w, gap: w.lastRaf - w.lastScroll };
+    const result = async (label: string): Promise<B4Watch & B4Verdict> => {
+      // Watch ≥ 3.5 s after the last scroll and until the loop has been quiet for 2 s; a loop
+      // that never idles never gets there and fails here.
+      await page
+        .waitForFunction(
+          ({ quiet, min }) => {
+            const w = window.b4Watch;
+            if (!w || w.lastScroll === 0) return false;
+            const now = performance.now();
+            const lastTick = w.ticks.at(-1)?.at ?? 0;
+            return now - w.lastScroll >= min && now - Math.max(lastTick, w.lastScroll) >= quiet;
+          },
+          { quiet: B4_QUIET_MS, min: 3500 },
+          { timeout: 20_000, polling: 100 },
+        )
+        .catch(() => {
+          throw new Error(`${label}: the render loop did not go quiet for ${B4_QUIET_MS} ms`);
+        });
+      const w = await page.evaluate(() => {
+        const watched = window.b4Watch;
+        if (!watched) throw new Error("no watch");
+        watched.stop = true;
+        return { lastScroll: watched.lastScroll, ticks: watched.ticks, stop: true };
       });
+      const verdict = { ...w, ...b4Verdict(w) };
+      test.info().annotations.push({
+        type: `B-4 ${label}`,
+        description: JSON.stringify({ ...verdict, ticks: w.ticks.length }),
+      });
+      return verdict;
     };
+
     await watch();
     await page.mouse.move(800, 500);
     await inSequence([1, 2, 3, 4, 5], async () => {
       await page.mouse.wheel(0, 900);
     });
-    const wheel = await result();
-    expect(wheel.lastScroll).toBeGreaterThan(0);
-    expect(wheel.lastRaf).toBeGreaterThan(wheel.lastScroll);
-    expect(wheel.gap, JSON.stringify(wheel)).toBeLessThanOrEqual(1500);
+    b4Check(await result("wheel"), "wheel");
 
     await watch();
     await page.evaluate(() => {
       window.scrollTo({ top: 0, behavior: "instant" });
     });
-    const jump = await result();
-    expect(jump.lastScroll).toBeGreaterThan(0);
-    expect(jump.lastRaf).toBeGreaterThan(jump.lastScroll);
-    expect(jump.gap, JSON.stringify(jump)).toBeLessThanOrEqual(1500);
+    b4Check(await result("jump"), "jump");
   });
 });
