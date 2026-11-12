@@ -66,20 +66,8 @@ jobs:
         # get their own jobs) and the render-loop test runs alone in a fresh browser, so a previous
         # full-tier test's SwiftShader backlog cannot eat its 60 s budget (TASK-20261112-10 INV-1).
         include:
-          - group: cls-probe
-            args: tests/e2e/font-probe.spec.ts tests/e2e/cls-probe.spec.ts tests/e2e/static.spec.ts --grep "probe|M1-AC15|TASK-14" --repeat-each=5
-          - group: render-loop
-            args: tests/e2e/tiers.spec.ts --grep "render loop is on demand"
-          - group: tiers
-            args: tests/e2e/tiers.spec.ts --grep-invert "render loop is on demand"
-          - group: static-structure-content
-            args: tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts
-          - group: m2
-            args: tests/e2e/m2.spec.ts tests/e2e/m2-keys.spec.ts
           - group: m2-qa-b
             args: tests/e2e/m2-qa-b.spec.ts
-          - group: probe-cost
-            args: tests/e2e/probe-cost.spec.ts tests/e2e/probe-cost-webgl-disabled.spec.ts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup

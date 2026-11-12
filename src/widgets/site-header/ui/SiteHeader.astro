@@ -39,6 +39,7 @@ const { anchorBase = "" } = Astro.props;
         class="site-header__toggle site-header__safelight"
         data-safelight-toggle
         aria-pressed="true"
+        hidden
       >
         <span class="site-header__bulb" aria-hidden="true">
           ●
@@ -105,12 +106,13 @@ const { anchorBase = "" } = Astro.props;
     render();
   }
 
-  // Safelight: only meaningful while the 3D scene runs (CSS shows it on the full tier only).
+  // Safelight: only meaningful while the 3D scene runs (CSS hides it on the static tier).
   const safelight = document.querySelector<HTMLButtonElement>("[data-safelight-toggle]");
   if (safelight) {
     const renderSafelight = (): void => {
       safelight.setAttribute("aria-pressed", String(safelightOn()));
     };
+    safelight.hidden = false;
     safelight.addEventListener("click", () => {
       setSafelight(!safelightOn());
     });
@@ -262,19 +264,6 @@ const { anchorBase = "" } = Astro.props;
   /* Safelight only exists while the 3D scene runs. */
   :global(html:not([data-tier="full"])) .site-header__safelight {
     display: none;
-  }
-
-  /* Where the scene can still start (JS ran and motion is on: the pre-paint "js" / "motion-ok"
-     classes, a fine pointer and a header wide enough to show the toggles, on a page with the
-     scene) the Safelight keeps its slot from the first paint, invisible and out of the
-     accessibility tree until the full tier mounts. Revealing it then is a paint, not a reflow:
-     before, the button took its 133 px only on mount, which moved the Motion toggle and the
-     centred nav 66-133 px sideways after load (layout shift at 1440x900, TASK-20261112-14). */
-  @media (min-width: 901px) and (pointer: fine) {
-    :global(html.js.motion-ok:has([data-scene]):not([data-tier="full"])) .site-header__safelight {
-      display: inline-flex;
-      visibility: hidden;
-    }
   }
 
   .site-header__bulb {
