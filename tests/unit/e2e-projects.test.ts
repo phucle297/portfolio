@@ -31,6 +31,7 @@ const EXPECTED_SPECS: readonly string[] = [
   "probe-cost.spec.ts",
   "seo.spec.ts",
   "serif-once.spec.ts",
+  "static-stills.spec.ts",
   "static.spec.ts",
   "structure.spec.ts",
   "tiers.spec.ts",
