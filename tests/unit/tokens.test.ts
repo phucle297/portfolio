@@ -34,6 +34,9 @@ const DESIGN = {
   "--t-ui": "320ms",
   "--t-enter": "560ms",
   "--t-stagger": "60ms",
+  // design.md: scene morphs run 900–1400 ms.
+  "--t-scene": "900ms",
+  "--t-scene-max": "1400ms",
   "--scrim-desktop": "linear-gradient(90deg, rgb(14 10 8 / 0.86) 0 38%, transparent 70%)",
   "--scrim-card": "rgb(14 10 8 / 0.78)",
   // design.md §8 (mobile) and the approved prototype (desktop): px / 16 = rem.
@@ -42,10 +45,34 @@ const DESIGN = {
   "--type-body-mobile": "1rem",
   "--leading-body": "1.55",
   "--type-h1-desktop": "7.75rem",
-  "--type-h2-desktop": "6.5rem",
+  "--type-h2-desktop": "6rem",
+  "--leading-h2": "0.95",
   "--type-body-desktop": "1.125rem",
   "--type-eyebrow-desktop": "0.8125rem",
   "--type-mono-desktop": "0.75rem",
+  "--tracking-display": "-0.02em",
+  "--tracking-meta": "0.12em",
+  // design.md "Spacing scale" (--space-N = N × 4 px) and radii.
+  "--space-1": "0.25rem",
+  "--space-2": "0.5rem",
+  "--space-3": "0.75rem",
+  "--space-4": "1rem",
+  "--space-5": "1.25rem",
+  "--space-6": "1.5rem",
+  "--space-7": "1.75rem",
+  "--space-8": "2rem",
+  "--space-10": "2.5rem",
+  "--space-12": "3rem",
+  "--space-14": "3.5rem",
+  "--space-16": "4rem",
+  "--space-20": "5rem",
+  "--space-30": "7.5rem",
+  "--space-35": "8.75rem",
+  "--radius-xs": "6px",
+  "--radius-sm": "12px",
+  "--radius-md": "18px",
+  "--radius-pill": "999px",
+  "--gutter": "clamp(var(--space-5), 4.4vw, var(--space-16))",
 } as const;
 
 /** The token groups PF-28 AC1 requires. */
@@ -68,6 +95,7 @@ const REQUIRED = [
   "space-1",
   "space-4",
   "space-8",
+  "radius-xs",
   "radius-sm",
   "radius-md",
   "radius-pill",
@@ -77,6 +105,10 @@ const REQUIRED = [
   "t-ui",
   "t-enter",
   "t-stagger",
+  "t-scene",
+  "t-scene-max",
+  "tracking-display",
+  "tracking-meta",
 ]
   .concat(
     ["h1", "h2", "body", "eyebrow", "mono"].flatMap((s) => [
@@ -155,7 +187,7 @@ describe("design tokens (PF-28)", () => {
     const motion = [
       /cubic-bezier\(\s*0?\.16\s*,\s*1\s*,\s*0?\.3\s*,\s*1\s*\)/u,
       /cubic-bezier\(\s*0?\.65\s*,\s*0\s*,\s*0?\.35\s*,\s*1\s*\)/u,
-      /(?<![\w.])(160|320|560|60)ms\b/u,
+      /(?<![\w.])(160|320|560|60|900|1400)ms\b/u,
     ];
     const found = others.flatMap((f) => {
       if (HARD_CODED_OK[rel(f)]) return [];

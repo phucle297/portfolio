@@ -4,8 +4,9 @@
  * Colours and motion are design.md "Tokens" verbatim (round7 darkroom-morph, shared with round5).
  * Type steps: mobile from design.md §8 (H1 56, H2 44, body 16/1.55); desktop, eyebrow and mono
  * from the approved prototype (dr.css / sections.js: H1 124/.92, H2 104/.9, body 18, eyebrow 13
- * mono +.2em, mono meta 12). design.md has no spacing table: the 4 px scale below is the SWE
- * default (PF-28 PR), radii are the prototype's 12 / 18 / pill.
+ * mono +.2em, mono meta 12). spacing (--space-N = N × 4 px), tracking, --radius-xs
+ * (film frames, focus ring) and --t-scene(-max) are per Designer's PF-28 token review; radii
+ * otherwise are the prototype's 12 / 18 / pill.
  *
  * tests/unit/tokens.test.ts fails if a value drifts from design.md, if a token is defined twice,
  * or if a token value is hard-coded anywhere else in src/.
@@ -40,29 +41,39 @@
   --type-h1-desktop: 7.75rem;
   --type-h1-mobile: 3.5rem;
   --leading-h1: 0.92;
-  --type-h2-desktop: 6.5rem;
+  --type-h2-desktop: 6rem;
   --type-h2-mobile: 2.75rem;
-  --leading-h2: 0.9;
+  --leading-h2: 0.95;
   --type-body-desktop: 1.125rem;
   --type-body-mobile: 1rem;
   --leading-body: 1.55;
   --type-eyebrow-desktop: 0.8125rem;
   --type-eyebrow-mobile: 0.8125rem;
   --tracking-eyebrow: 0.2em;
+  --tracking-display: -0.02em;
+  --tracking-meta: 0.12em;
   --type-mono-desktop: 0.75rem;
   --type-mono-mobile: 0.75rem;
 
-  /* Spacing (4 px scale) */
+  /* Spacing: --space-N = N × 4 px */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
-  --space-5: 1.5rem;
-  --space-6: 2rem;
-  --space-7: 3rem;
-  --space-8: 4rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-7: 1.75rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-14: 3.5rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-30: 7.5rem;
+  --space-35: 8.75rem;
 
   /* Radii */
+  --radius-xs: 6px;
   --radius-sm: 12px;
   --radius-md: 18px;
   --radius-pill: 999px;
@@ -74,6 +85,8 @@
   --t-ui: 320ms;
   --t-enter: 560ms;
   --t-stagger: 60ms;
+  --t-scene: 900ms;
+  --t-scene-max: 1400ms;
 
   /* Accessibility baseline */
   --focus-ring-width: 2px;
@@ -82,7 +95,7 @@
 
   /* Layout */
   --container: 80rem;
-  --gutter: clamp(1.25rem, 4.4vw, 4rem);
+  --gutter: clamp(var(--space-5), 4.4vw, var(--space-16));
   --header-h: 5.5rem;
   --footer-h: 6rem;
 }

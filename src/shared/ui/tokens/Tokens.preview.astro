@@ -26,9 +26,9 @@ const type = [
   { name: "eyebrow", sample: "01 · Service", family: "mono" },
   { name: "mono", sample: "PRINT 03 · 2026", family: "mono" },
 ];
-const spaces = [1, 2, 3, 4, 5, 6, 7, 8];
-const radii = ["sm", "md", "pill"];
-const motion = ["micro", "ui", "enter"];
+const spaces = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 30, 35];
+const radii = ["xs", "sm", "md", "pill"];
+const motion = ["micro", "ui", "enter", "scene", "scene-max"];
 ---
 
 <div class="tokens" data-ground={ground}>
@@ -91,7 +91,7 @@ const motion = ["micro", "ui", "enter"];
   }
 
   h3 {
-    margin: var(--space-5) 0 0;
+    margin: var(--space-6) 0 0;
     font-family: var(--font-mono);
     font-size: var(--type-eyebrow-mobile);
     font-weight: 500;
@@ -123,8 +123,8 @@ const motion = ["micro", "ui", "enter"];
 
   .swatch,
   .radius {
-    width: var(--space-8);
-    height: var(--space-7);
+    width: var(--space-16);
+    height: var(--space-12);
     border: 1px solid var(--line-strong);
     border-radius: var(--radius-sm);
   }
