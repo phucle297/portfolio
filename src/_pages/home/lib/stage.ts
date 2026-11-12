@@ -3,7 +3,9 @@
  * `set(p)`; rendering is on demand only (scroll, resize, catch-up easing), never while the tab is
  * hidden, and it stops as soon as the scene has caught up with the scroll position.
  */
+import { onSafelightChange, safelightOn } from "@shared/lib/motion";
 import { clamp } from "@shared/lib/timeline";
+import { createCopyLayer } from "./copy-layer";
 import { createDarkroom, type Darkroom, type RenderInfo } from "./darkroom";
 import type { Tier } from "./tiers";
 
@@ -22,6 +24,14 @@ export interface StageTestHook {
   info: () => RenderInfo;
   /** Number of frames rendered since mount. */
   frames: () => number;
+  /** Number of requestAnimationFrame callbacks run since mount (M2-AC10). */
+  rafs: () => number;
+  /** The progress the scene and the copy layer currently show (smoothed scroll progress). */
+  shown: () => number;
+  /** Whether the pinned copy layout is on. */
+  pinned: () => boolean;
+  /** Whether the safelight is on. */
+  safelight: () => boolean;
   tier: Tier;
 }
 
@@ -57,20 +67,26 @@ export async function mountStage(
     throw error;
   }
 
+  const copy = createCopyLayer();
+  let safelight = safelightOn();
+  darkroom.setSafelight(safelight);
   let shown = scrollProgress();
   let raf = 0;
   let last = 0;
   let frames = 0;
+  let rafs = 0;
   let disposed = false;
 
   const draw = (): RenderInfo => {
     darkroom.set(shown);
+    copy.update(shown);
     frames += 1;
     return darkroom.render();
   };
 
   const tick = (now: number): void => {
     raf = 0;
+    rafs += 1;
     if (disposed || document.hidden) return;
     const target = scrollProgress();
     const dt = last ? Math.min(0.1, (now - last) / 1000) : 1 / 60;
@@ -106,6 +122,11 @@ export async function mountStage(
   window.addEventListener("scroll", request, { passive: true });
   window.addEventListener("resize", onResize, { passive: true });
   document.addEventListener("visibilitychange", onVisibility);
+  const offSafelight = onSafelightChange(() => {
+    safelight = safelightOn();
+    darkroom.setSafelight(safelight);
+    if (!document.hidden) draw();
+  });
 
   draw();
   // Fade in over the poster after the first frame.
@@ -122,6 +143,10 @@ export async function mountStage(
       state: () => darkroom.state(),
       info: () => darkroom.info(),
       frames: () => frames,
+      rafs: () => rafs,
+      shown: () => shown,
+      pinned: () => copy.pinned(),
+      safelight: () => safelight,
       tier,
     };
   }
@@ -134,6 +159,8 @@ export async function mountStage(
       window.removeEventListener("scroll", request);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
+      offSafelight();
+      copy.dispose();
       host.classList.remove("is-ready");
       darkroom.dispose();
       window.setTimeout(() => {

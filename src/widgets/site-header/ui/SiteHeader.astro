@@ -34,6 +34,18 @@ const { anchorBase = "" } = Astro.props;
           on
         </span>
       </button>
+      <button
+        type="button"
+        class="site-header__toggle site-header__safelight"
+        data-safelight-toggle
+        aria-pressed="true"
+        hidden
+      >
+        <span class="site-header__bulb" aria-hidden="true">
+          ●
+        </span>
+        Safelight
+      </button>
       <a class="site-header__pill" href={`${anchorBase}#contact`}>
         <span class="site-header__dot" aria-hidden="true"></span>
         Open for freelance
@@ -46,7 +58,10 @@ const { anchorBase = "" } = Astro.props;
   import {
     motionAllowed,
     onMotionChange,
+    onSafelightChange,
     prefersReducedMotion,
+    safelightOn,
+    setSafelight,
     setUserMotion,
   } from "@shared/lib/motion";
 
@@ -89,6 +104,20 @@ const { anchorBase = "" } = Astro.props;
     });
     onMotionChange(render);
     render();
+  }
+
+  // Safelight: only meaningful while the 3D scene runs (CSS hides it on the static tier).
+  const safelight = document.querySelector<HTMLButtonElement>("[data-safelight-toggle]");
+  if (safelight) {
+    const renderSafelight = (): void => {
+      safelight.setAttribute("aria-pressed", String(safelightOn()));
+    };
+    safelight.hidden = false;
+    safelight.addEventListener("click", () => {
+      setSafelight(!safelightOn());
+    });
+    onSafelightChange(renderSafelight);
+    renderSafelight();
   }
 </script>
 
@@ -225,6 +254,21 @@ const { anchorBase = "" } = Astro.props;
   .site-header__toggle[aria-pressed="true"] .site-header__switch::after {
     transform: translateX(12px);
     background: var(--ink);
+  }
+
+  /* Safelight only exists while the 3D scene runs. */
+  :global(html:not([data-tier="full"])) .site-header__safelight {
+    display: none;
+  }
+
+  .site-header__bulb {
+    color: var(--muted);
+    transition: color var(--t-micro) var(--ease-out);
+  }
+
+  .site-header__safelight[aria-pressed="true"] .site-header__bulb {
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent);
   }
 
   .site-header__pill {
