@@ -6,8 +6,8 @@
 # missing (not added yet, or a fork PR) the deploy jobs skip with a notice instead of failing.
 # The deploy jobs only consume the `site-dist` artifact, so the `build` job can later be replaced
 # by CI's (PR #4) build artifact without touching them.
-# Rollback: see docs/deploy.md (roll back to a prod version id from `wrangler deployments list`,
-# never one from `wrangler versions list`; the durable fix is a revert on main).
+# Rollback: roll back only to a prod (`main <sha>`) version id, never a `pr-<N>` preview version;
+# see docs/deploy.md for how to find one. The durable fix is a revert on main.
 name: Deploy
 
 on:
