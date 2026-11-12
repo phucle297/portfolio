@@ -159,6 +159,11 @@ const email = profile.email;
         {form.submit}
       </button>
       <p class="contact__note">{form.note}</p>
+      {email ? (
+        <p class="contact__nojs-note" data-contact-nojs-note>
+          {form.noJsNote}
+        </p>
+      ) : null}
       <p class="contact__status" role="status" aria-live="polite" data-form-status></p>
       <template data-form-messages>
         <span data-msg="success">{form.success}</span>
@@ -255,17 +260,6 @@ const email = profile.email;
   .contact__form {
     display: grid;
     gap: 0.9rem;
-  }
-
-  /* No-JS: hide the form so it cannot submit or post back. html.js is set before first
-     paint, so with JS the form is in the layout from the start and does not shift in.
-     The visible mailto: link in .contact__links is the no-JS path. */
-  :global(html:not(.js)) .contact {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  :global(html:not(.js)) .contact__form {
-    display: none;
   }
 
   .contact__modes {
@@ -371,9 +365,16 @@ const email = profile.email;
   }
 
   .contact__note,
+  .contact__nojs-note,
   .contact__status {
     color: var(--muted);
     font-size: 0.8125rem;
+  }
+
+  /* html.js is set in the head before first paint, so with JS this note is never
+     in the layout and does not shift the form. Without JS it stays visible. */
+  :global(html.js) .contact__nojs-note {
+    display: none;
   }
 
   .contact__status:empty {

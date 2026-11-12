@@ -280,7 +280,14 @@ test.describe("PF-13 contact form", () => {
     await context.close();
   });
 
-  test("without JS the form cannot submit or post back, and the mailto link is shown", async ({
+  test("with JS the no-JS mailto note is not in the layout", async ({ page }) => {
+    await page.goto("/");
+    await page.locator("#contact").scrollIntoViewIfNeeded();
+    await expect(page.locator("[data-contact-nojs-note]")).toBeHidden();
+    await expect(page.locator("form[data-contact-form]")).toBeVisible();
+  });
+
+  test("without JS the form is visible, cannot post back, and the mailto note and link are shown", async ({
     browser,
   }) => {
     const context = await browser.newContext({ javaScriptEnabled: false });
@@ -288,7 +295,7 @@ test.describe("PF-13 contact form", () => {
     const documentRequests: string[] = [];
     page.on("request", (request) => {
       const url = request.url();
-      if (url.startsWith("mailto:")) documentRequests.push(url);
+      if (url.startsWith("mailto:")) documentRequests.push(`mailto ${url}`);
       const method = request.method();
       if (method === "POST" || method === "PUT") documentRequests.push(`${method} ${url}`);
     });
@@ -307,18 +314,21 @@ test.describe("PF-13 contact form", () => {
       return;
     }
 
-    const mailtoLink = page.locator(`#contact a[href="mailto:${PUBLIC_EMAIL}"]`);
-    await expect(mailtoLink).toBeVisible();
-    await expect(mailtoLink).toHaveText(PUBLIC_EMAIL);
-
     const form = page.locator("form[data-contact-form]");
-    await expect(form).toBeHidden();
+    await expect(form).toBeVisible();
     const action = await form.getAttribute("action");
     expect((action ?? "").toLowerCase().startsWith("mailto:")).toBe(false);
     await expect(form.locator('button[type="submit"]')).toBeDisabled();
 
-    // The control is not visible and is disabled, so a visitor cannot submit.
-    // A forced click (if the driver allows it) must not navigate or post back.
+    const note = page.locator("[data-contact-nojs-note]");
+    await expect(note).toBeVisible();
+    await expect(note).toHaveText(contact.form.noJsNote);
+
+    const mailtoLink = page.locator(`#contact a[href="mailto:${PUBLIC_EMAIL}"]`);
+    await expect(mailtoLink).toBeVisible();
+    await expect(mailtoLink).toHaveText(PUBLIC_EMAIL);
+
+    // Inert + disabled submit + no action: a forced click must not post back.
     const urlBefore = page.url();
     try {
       await form.locator('button[type="submit"]').click({ force: true });
@@ -327,7 +337,7 @@ test.describe("PF-13 contact form", () => {
     }
     await page.waitForTimeout(400);
     expect(page.url()).toBe(urlBefore);
-    expect(documentRequests).toEqual([]);
+    expect(documentRequests.filter((item) => !item.startsWith("mailto "))).toEqual([]);
 
     await context.close();
   });
