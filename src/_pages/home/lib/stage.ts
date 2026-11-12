@@ -12,6 +12,14 @@ import type { Tier } from "./tiers";
 /** Time constant of the scroll catch-up (≈ GSAP `scrub: .6`): ~98 % caught up after 0.6 s. */
 const CATCH_UP_SECONDS = 0.15;
 const SETTLE_EPSILON = 1e-4;
+/**
+ * Idle budget after the last scroll (or resize): rendering must have stopped this long after
+ * scrolling stops, even when frames are slow (M2-AC10, QA B-4). Each frame looks three of the
+ * slowest frame times seen since the input ahead and, if that would overrun the budget, snaps
+ * the scene to the scroll position and stops. On a 60 fps GPU that happens at ~1.45 s, when
+ * < 0.01 % of the jump is left, so the snap is invisible.
+ */
+const IDLE_BUDGET_MS = 1500;
 const FADE_IN_MS = 560;
 
 export interface StageHandle {
@@ -73,6 +81,8 @@ export async function mountStage(
   let shown = scrollProgress();
   let raf = 0;
   let last = 0;
+  let inputAt = 0;
+  let slowestFrameMs = 0;
   let frames = 0;
   let rafs = 0;
   let disposed = false;
@@ -89,11 +99,15 @@ export async function mountStage(
     rafs += 1;
     if (disposed || document.hidden) return;
     const target = scrollProgress();
-    const dt = last ? Math.min(0.1, (now - last) / 1000) : 1 / 60;
+    const frameMs = last ? now - last : 1000 / 60;
+    const dt = Math.min(0.1, frameMs / 1000);
+    slowestFrameMs = Math.max(slowestFrameMs, frameMs);
     last = now;
     const step = 1 - Math.exp(-dt / CATCH_UP_SECONDS);
     shown += (target - shown) * step;
-    const settled = Math.abs(target - shown) < SETTLE_EPSILON;
+    const settled =
+      Math.abs(target - shown) < SETTLE_EPSILON ||
+      performance.now() - inputAt + 3 * slowestFrameMs >= IDLE_BUDGET_MS;
     if (settled) shown = target;
     draw();
     if (!settled) raf = requestAnimationFrame(tick);
@@ -101,6 +115,8 @@ export async function mountStage(
   };
 
   const request = (): void => {
+    inputAt = performance.now();
+    slowestFrameMs = 0;
     if (!raf && !disposed && !document.hidden) raf = requestAnimationFrame(tick);
   };
 
