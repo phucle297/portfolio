@@ -1,10 +1,11 @@
 // @ts-check
-import { defineConfig } from "astro/config";
 import sitemap from "@astrojs/sitemap";
+import { defineConfig } from "astro/config";
+import { DEFAULT_SITE_URL } from "./src/shared/config/site.ts";
 
 // Public origin used for canonical URLs, Open Graph and the sitemap.
-// Override at build time with SITE_URL=https://your.domain npm run build
-const site = process.env.SITE_URL ?? "https://phucle297.github.io";
+// Override at build time with SITE_URL=https://your.domain bun run build
+const site = process.env.SITE_URL ?? DEFAULT_SITE_URL;
 
 export default defineConfig({
   site,
