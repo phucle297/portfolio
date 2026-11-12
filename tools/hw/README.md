@@ -23,6 +23,7 @@ Some build-plan claims need a real GPU. The shared build box only has SwiftShade
    - Leave the machine alone while it runs: about 3 minutes, plus about 10 for the contrast run.
    - `--only frames,hidden` or `--skip contrast` pick items. `--lh-runs` and `--probe-runs` change the repeat counts.
    - `CHROME_PATH` points at a specific Chrome; otherwise Playwright's `chrome` channel is used.
+   - Chrome runs with stock flags (no `--ignore-gpu-blocklist`), so the tier is the one a visitor's Chrome would pick. Lighthouse (via `npx lighthouse@13.6.0`) and the contrast script start their own Chrome after the kit's browser has closed, so only one browser runs at a time.
 4. **Check the header line.** The script prints the WebGL renderer. If it names SwiftShader, llvmpipe or "software", the run is **not hardware evidence**: every item reads `UNVERIFIED`. Fix the GPU setup (for example `chrome://gpu`, or turn hardware acceleration on in Chrome settings) and run again.
 5. **Evidence.** Everything lands in `test-results/hw/<time>-<device>/`, which is gitignored:
    - `SUMMARY.md` and `summary.json`: one row per item with PASS / FAIL / UNVERIFIED / NOT RUN, its numbers and its evidence files;
@@ -36,3 +37,4 @@ Some build-plan claims need a real GPU. The shared build box only has SwiftShade
 
 - `--spoof-probe` answers the probe "hardware GPU", so the full-tier paths run on SwiftShader.
 - Every row is `UNVERIFIED` or `NOT RUN`, by design. `--spoof-probe` also forces `UNVERIFIED`, whatever the renderer says.
+- Headless Chrome never hides a tab, so `hidden` reads `NOT RUN` there. Lighthouse cannot be spoofed, so on a GPU-less machine it measures the static tier and reads `UNVERIFIED`.

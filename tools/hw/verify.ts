@@ -11,7 +11,7 @@
  * item is reported "UNVERIFIED" whatever its numbers: they are proxies, not hardware evidence.
  * Exit: 0 all PASS on hardware, 1 any FAIL, 2 anything unverified or not run.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { cpus, platform, release, totalmem } from "node:os";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve as resolvePath } from "node:path";
@@ -26,6 +26,27 @@ async function eachInOrder<T>(
     (previous, item, index) => previous.then(() => fn(item, index)),
     Promise.resolve(),
   );
+}
+
+/** Async child process: the preview server lives in this process, so a blocking spawnSync would starve it. */
+function runChild(
+  command: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+): Promise<{ status: number | null; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { cwd: root, env, stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (error) => {
+      resolve({ status: null, stderr: String(error) });
+    });
+    child.on("close", (status) => {
+      resolve({ status, stderr });
+    });
+  });
 }
 import {
   SOFTWARE_RENDERER,
@@ -109,9 +130,9 @@ const browser: Browser = await chromium.launch({
     ? { executablePath: process.env.CHROME_PATH }
     : { channel: "chrome" }),
   headless,
-  args: headless
-    ? ["--ignore-gpu-blocklist", "--enable-unsafe-swiftshader"]
-    : ["--ignore-gpu-blocklist"],
+  // Headed (the real run) uses stock flags so the tier is the one a visitor's Chrome picks;
+  // the headless smoke needs SwiftShader enabled to have WebGL at all.
+  args: headless ? ["--ignore-gpu-blocklist", "--enable-unsafe-swiftshader"] : [],
 });
 const DESKTOP: BrowserContextOptions = { viewport: { width: 1440, height: 900 } };
 const isScene = (u: string): boolean => /\/_astro\/stage\.[\w-]+\.js/.test(u);
@@ -263,63 +284,6 @@ if (wanted("frames")) {
     });
   }
   await close();
-}
-
-// ---- §3 full-tier Lighthouse (desktop) --------------------------------------------------------
-if (wanted("lighthouse")) {
-  const scores: { perf: number; a11y: number; bp: number; seo: number; full: boolean }[] = [];
-  const files: string[] = [];
-  for (let i = 1; i <= lhRuns; i += 1) {
-    const prefix = join(out, `lighthouse-desktop-r${i}`);
-    const flags = [
-      "--ignore-gpu-blocklist",
-      ...(headless ? ["--headless=new", "--no-sandbox", "--disable-dev-shm-usage"] : []),
-    ].join(" ");
-    const r = spawnSync(
-      "npx",
-      [
-        "--yes",
-        "lighthouse@13.6.0",
-        url("/"),
-        "--preset=desktop",
-        "--quiet",
-        `--chrome-flags=${flags}`,
-        "--output=json",
-        "--output=html",
-        `--output-path=${prefix}`,
-      ],
-      {
-        cwd: root,
-        encoding: "utf8",
-        env: { ...process.env, CHROME_PATH: process.env.CHROME_PATH ?? chromium.executablePath() },
-      },
-    );
-    const jsonFile = `${prefix}.report.json`;
-    if (r.status !== 0 || !existsSync(jsonFile)) {
-      print(`Lighthouse run ${i} failed: ${r.stderr.slice(-400)}`);
-      continue;
-    }
-    const report = lighthouseSummary(JSON.parse(readFileSync(jsonFile, "utf8")));
-    scores.push({
-      perf: report.perf,
-      a11y: report.a11y,
-      bp: report.bp,
-      seo: report.seo,
-      full: report.requests.some(isScene),
-    });
-    files.push(relative(out, jsonFile), relative(out, `${prefix}.report.html`));
-  }
-  const m = (k: "perf" | "a11y" | "bp" | "seo"): number => median(scores.map((s) => s[k]));
-  const allFull = scores.length > 0 && scores.every((s) => s.full);
-  const passed = allFull && m("perf") >= 90 && m("a11y") >= 95 && m("bp") >= 95 && m("seo") >= 95;
-  save("lighthouse.json", { runs: scores });
-  rows.push({
-    id: "lighthouse",
-    ac: "§3 full-tier LH",
-    result: verdict(scores.length > 0, passed, hardware && allFull),
-    numbers: `${scores.length}/${lhRuns} runs · median Perf ${fmt(m("perf"), 0)} (≥ 90) · A11y ${fmt(m("a11y"), 0)} · BP ${fmt(m("bp"), 0)} · SEO ${fmt(m("seo"), 0)} (≥ 95) · full tier in ${scores.filter((s) => s.full).length}/${scores.length} runs`,
-    evidence: ["lighthouse.json", ...files],
-  });
 }
 
 // ---- M3-AC2 reduced motion on a GPU: zero three.js ------------------------------------------
@@ -490,35 +454,6 @@ if (wanted("probe")) {
   });
 }
 
-// ---- M3-AC5 full-tier contrast (PF-04's script) ----------------------------------------------
-if (wanted("contrast")) {
-  const script = join(root, "tools/contrast/measure.ts");
-  if (existsSync(script)) {
-    const r = spawnSync(
-      process.execPath,
-      [script, "--gpu", "--viewports", "D,D2", "--tier", "full", "--out", join(out, "contrast")],
-      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: process.env },
-    );
-    writeFileSync(join(out, "contrast.log"), `${r.stdout}\n${r.stderr}`);
-    const tail = r.stdout.trim().split("\n").slice(-4).join(" · ");
-    rows.push({
-      id: "contrast",
-      ac: "M3-AC5 (full tier)",
-      result: verdict(r.status === 0 || r.status === 1, r.status === 0, hardware),
-      numbers: tail || `exit ${r.status}`,
-      evidence: ["contrast.log", "contrast/summary.md", "contrast/contrast.csv"],
-    });
-  } else {
-    rows.push({
-      id: "contrast",
-      ac: "M3-AC5 (full tier)",
-      result: "NOT RUN",
-      numbers: "tools/contrast/measure.ts missing (PF-04 not merged yet)",
-      evidence: [],
-    });
-  }
-}
-
 // ---- M2-AC10 a real hidden tab renders nothing ---------------------------------------------
 if (wanted("hidden")) {
   const { page, close: closeHidden } = await fresh();
@@ -578,6 +513,94 @@ if (wanted("hidden")) {
 }
 
 await browser.close();
+
+// Lighthouse and the contrast script launch their own Chrome: close ours first so only one
+// browser runs at a time (and the GPU is not shared between two processes).
+// ---- §3 full-tier Lighthouse (desktop) --------------------------------------------------------
+if (wanted("lighthouse")) {
+  const scores: { perf: number; a11y: number; bp: number; seo: number; full: boolean }[] = [];
+  const files: string[] = [];
+  const runIndexes = Array.from({ length: lhRuns }, (_, k) => k + 1);
+  // No --ignore-gpu-blocklist here: Lighthouse should see the tier a visitor's Chrome picks.
+  const flags = headless ? "--headless=new --no-sandbox --disable-dev-shm-usage" : "";
+  const lhEnv = {
+    ...process.env,
+    CHROME_PATH: process.env.CHROME_PATH ?? chromium.executablePath(),
+  };
+  await eachInOrder(runIndexes, async (i) => {
+    const prefix = join(out, `lighthouse-desktop-r${i}`);
+    const r = await runChild(
+      "npx",
+      [
+        "--yes",
+        "lighthouse@13.6.0",
+        url("/"),
+        "--preset=desktop",
+        "--quiet",
+        ...(flags ? [`--chrome-flags=${flags}`] : []),
+        "--output=json",
+        "--output=html",
+        `--output-path=${prefix}`,
+      ],
+      lhEnv,
+    );
+    const jsonFile = `${prefix}.report.json`;
+    if (r.status !== 0 || !existsSync(jsonFile)) {
+      print(`Lighthouse run ${i} failed: ${r.stderr.slice(-400)}`);
+      return;
+    }
+    const report = lighthouseSummary(JSON.parse(readFileSync(jsonFile, "utf8")));
+    scores.push({
+      perf: report.perf,
+      a11y: report.a11y,
+      bp: report.bp,
+      seo: report.seo,
+      full: report.requests.some(isScene),
+    });
+    files.push(relative(out, jsonFile), relative(out, `${prefix}.report.html`));
+  });
+  const m = (k: "perf" | "a11y" | "bp" | "seo"): number => median(scores.map((s) => s[k]));
+  const allFull = scores.length > 0 && scores.every((s) => s.full);
+  const passed = allFull && m("perf") >= 90 && m("a11y") >= 95 && m("bp") >= 95 && m("seo") >= 95;
+  save("lighthouse.json", { runs: scores });
+  rows.push({
+    id: "lighthouse",
+    ac: "§3 full-tier LH",
+    result: verdict(scores.length > 0, passed, hardware && allFull),
+    numbers: `${scores.length}/${lhRuns} runs · median Perf ${fmt(m("perf"), 0)} (≥ 90) · A11y ${fmt(m("a11y"), 0)} · BP ${fmt(m("bp"), 0)} · SEO ${fmt(m("seo"), 0)} (≥ 95) · full tier in ${scores.filter((s) => s.full).length}/${scores.length} runs`,
+    evidence: ["lighthouse.json", ...files],
+  });
+}
+
+// ---- M3-AC5 full-tier contrast (PF-04's script) ----------------------------------------------
+if (wanted("contrast")) {
+  const script = join(root, "tools/contrast/measure.ts");
+  if (existsSync(script)) {
+    const r = spawnSync(
+      process.execPath,
+      [script, "--gpu", "--viewports", "D,D2", "--tier", "full", "--out", join(out, "contrast")],
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: process.env },
+    );
+    writeFileSync(join(out, "contrast.log"), `${r.stdout}\n${r.stderr}`);
+    const tail = r.stdout.trim().split("\n").slice(-4).join(" · ");
+    rows.push({
+      id: "contrast",
+      ac: "M3-AC5 (full tier)",
+      result: verdict(r.status === 0 || r.status === 1, r.status === 0, hardware),
+      numbers: tail || `exit ${r.status}`,
+      evidence: ["contrast.log", "contrast/summary.md", "contrast/contrast.csv"],
+    });
+  } else {
+    rows.push({
+      id: "contrast",
+      ac: "M3-AC5 (full tier)",
+      result: "NOT RUN",
+      numbers: "tools/contrast/measure.ts missing (PF-04 not merged yet)",
+      evidence: [],
+    });
+  }
+}
+
 await stopServer();
 
 const md = [
@@ -588,10 +611,12 @@ const md = [
   "",
   "| item | AC | result | numbers | evidence |",
   "|---|---|---|---|---|",
-  ...rows.map(
-    (r) =>
-      `| ${r.id} | ${r.ac} | ${r.result === "PASS" ? "PASS" : `**${r.result}**`} | ${r.numbers.replaceAll("|", "\\|")} | ${r.evidence.join(", ")} |`,
-  ),
+  ...rows
+    .toSorted((a, b) => ITEMS.findIndex((x) => x === a.id) - ITEMS.findIndex((x) => x === b.id))
+    .map(
+      (r) =>
+        `| ${r.id} | ${r.ac} | ${r.result === "PASS" ? "PASS" : `**${r.result}**`} | ${r.numbers.replaceAll("|", "\\|")} | ${r.evidence.join(", ")} |`,
+    ),
   "",
 ];
 writeFileSync(join(out, "SUMMARY.md"), md.join("\n"));
