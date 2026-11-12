@@ -23,16 +23,15 @@ import WorkSection from "./WorkSection.astro";
 <ContactSection />
 
 <!--
-  Progress fill: CSS scroll timeline is the default (works with and without JS). A tiny inline
-  fallback (rAF-throttled, transform only, no header layout reads on scroll) runs only when
-  the timeline API is missing. No module import, so this does not add to the initial JS budget.
+  Progress fill: CSS scroll timeline is the default (works with and without JS). With JS, a tiny inline fallback (rAF-throttled, transform only, no header layout reads
+  on scroll) always drives the fill so it works even if the timeline API is missing or
+  inert. No module import, so this does not add to the initial JS budget.
 -->
 <script is:inline>
   (function () {
     const fill = document.querySelector("[data-progress]");
     const root = fill && fill.parentElement;
     if (!fill || !root) return;
-    if (window.CSS && CSS.supports("animation-timeline", "scroll()")) return;
     let max = 0;
     let queued = false;
     const measure = function () {
@@ -108,10 +107,14 @@ import WorkSection from "./WorkSection.astro";
     transform-origin: 0 50%;
   }
 
-  /* CSS scroll timeline is the default driver (static and full, with or without JS). */
+  /* CSS scroll timeline drives the fill without JS. Longhands (not the animation shorthand)
+     so the bundler cannot drop animation-duration; scroll-driven animations need `auto`. */
   @supports (animation-timeline: scroll()) {
     .home-progress span {
-      animation: home-progress-fill linear both;
+      animation-name: home-progress-fill;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
       animation-timeline: scroll();
     }
   }
