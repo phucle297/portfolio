@@ -67,7 +67,7 @@ jobs:
         # full-tier test's SwiftShader backlog cannot eat its 60 s budget (TASK-20261112-10 INV-1).
         include:
           - group: static-structure-content
-            args: tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts tests/e2e/seo.spec.ts
+            args: tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts
           - group: cls-probe
             args: tests/e2e/cls-probe.spec.ts tests/e2e/static.spec.ts --grep "probe|M1-AC15|TASK-14" --repeat-each=3
     steps:
