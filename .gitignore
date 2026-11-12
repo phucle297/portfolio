@@ -4,6 +4,7 @@ node_modules/
 # build output
 dist/
 .astro/
+.wrangler/
 
 # logs
 npm-debug.log*
@@ -30,6 +31,3 @@ lighthouse/
 # test output
 test-results/
 playwright-report/
-
-# wrangler
-.wrangler/
