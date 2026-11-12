@@ -545,10 +545,14 @@ test.describe("B-4 the render loop idles within 1.5 s of scrolling stopping", ()
         raf((ts) => {
           const at = performance.now();
           const before = window.darkroomTest?.rafs() ?? 0;
-          callback(ts);
-          const w = window.b4Watch;
-          if (w && !w.stop && (window.darkroomTest?.rafs() ?? 0) !== before)
-            w.ticks.push({ at, ts });
+          try {
+            callback(ts);
+          } finally {
+            // Recorded even if the callback throws, so no tick goes uncounted.
+            const w = window.b4Watch;
+            if (w && !w.stop && (window.darkroomTest?.rafs() ?? 0) !== before)
+              w.ticks.push({ at, ts });
+          }
         });
     });
     await openScene(page);
