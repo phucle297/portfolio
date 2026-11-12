@@ -31,6 +31,20 @@ for (const viewport of [
       expect(section.stills).toBe(1);
     }
     await expect(pageOff.locator("form input, form textarea, form select")).toHaveCount(6);
+    // QA-1 / QA-4: elements that ship `hidden` stay hidden without JS (no display rule beats it).
+    const errorsShown = (page: typeof pageOn) =>
+      page.evaluate(
+        () =>
+          Array.from(document.querySelectorAll(".field__error")).filter(
+            (el) => getComputedStyle(el).display !== "none",
+          ).length,
+      );
+    expect(await errorsShown(pageOn)).toBe(0);
+    expect(await errorsShown(pageOff)).toBe(0);
+    await expect(pageOff.locator(".field__error")).toHaveCount(3);
+    await expect(pageOff.locator("[data-motion-toggle]")).toBeHidden();
+    await expect(pageOff.locator("[data-copy-email]")).toBeHidden();
+    await expect(pageOff.locator("#contact a[href^='mailto:']")).toBeVisible();
     await on.close();
     await off.close();
   });
@@ -112,4 +126,72 @@ test("LCP still is discoverable, eager and high priority", async ({ page }) => {
   const img = page.locator("#hello .still img");
   await expect(img).toHaveAttribute("fetchpriority", "high");
   await expect(img).toHaveAttribute("loading", "eager");
+});
+
+test("QA-1: no element that ships `hidden` is displayed on load", async ({ page }) => {
+  await page.goto("/");
+  const shown = await page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>("[hidden]"))
+      .filter((el) => getComputedStyle(el).display !== "none")
+      .map((el) => el.outerHTML.slice(0, 80)),
+  );
+  expect(shown).toEqual([]);
+  await page.locator("#contact").scrollIntoViewIfNeeded();
+  await expect(page.locator("#contact-name-error")).toBeHidden();
+  await expect(page.locator("#contact-email-error")).toBeHidden();
+  await expect(page.locator("#contact-brief-error")).toBeHidden();
+  // Errors appear only after an invalid submit, and go again once fixed.
+  await page.locator(".contact__submit").click();
+  await expect(page.locator("#contact-name-error")).toBeVisible();
+  await page.locator("#contact-name").fill("Ada");
+  await page.locator(".contact__submit").click();
+  await expect(page.locator("#contact-name-error")).toBeHidden();
+});
+
+test("QA-5: copy-email button copies the address and announces it", async ({ browser }) => {
+  const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
+  const page = await context.newPage();
+  await page.goto("/");
+  const button = page.locator("[data-copy-email]");
+  await expect(button).toBeVisible();
+  await expect(button).toHaveText("Copy email");
+  const email = await button.getAttribute("data-copy-email");
+  await button.click();
+  await expect(page.locator("[data-copy-status]")).toHaveText("Email copied.");
+  await expect(button).toHaveText("Email copied.");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(email);
+  await expect(button).toHaveText("Copy email", { timeout: 4000 });
+  await expect(page.locator("[data-copy-status]")).toHaveText("");
+  await context.close();
+});
+
+test("QA-5: when the clipboard write fails, the address is selected and the failure announced", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("denied")) },
+    });
+  });
+  await page.goto("/");
+  await page.locator("[data-copy-email]").click();
+  await expect(page.locator("[data-copy-status]")).toContainText("Couldn't copy");
+  const selected = await page.evaluate(() => window.getSelection()?.toString() ?? "");
+  expect(selected).toBe(await page.locator("[data-copy-email]").getAttribute("data-copy-email"));
+});
+
+test("QA-7: the header is opaque once scrolled, so copy never shows through it", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const header = page.locator(".site-header");
+  await expect(header).toHaveAttribute("data-at-top", "");
+  await page.evaluate(() => {
+    window.scrollTo(0, innerHeight * 2);
+  });
+  await expect(header).not.toHaveAttribute("data-at-top", "");
+  const bg = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const alpha = Number(/rgba?\(([^)]+)\)/u.exec(bg)?.[1]?.split(",")[3] ?? "1");
+  expect(alpha).toBeGreaterThanOrEqual(0.95);
 });

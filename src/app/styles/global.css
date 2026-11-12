@@ -5,8 +5,7 @@
 @import "@fontsource/be-vietnam-pro/600.css";
 @import "@fontsource/instrument-serif/400.css";
 @import "@fontsource/instrument-serif/400-italic.css";
-@import "@fontsource/ibm-plex-mono/400.css";
-@import "@fontsource/ibm-plex-mono/500.css";
+@import "./fonts-plex-mono.css";
 @import "@fontsource/anton/400.css";
 
 /* Metric-matched local fallbacks keep layout stable while the web fonts swap in. */
@@ -71,6 +70,12 @@
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+/* `hidden` always wins over component display rules (QA-1, QA-4: .field__error and the Motion
+   toggle set display:flex, which used to override the attribute). */
+[hidden] {
+  display: none !important;
 }
 
 html {
