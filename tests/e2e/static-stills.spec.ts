@@ -490,23 +490,50 @@ test("reviewer side-by-side against fallback-poster.png and mobile-full.png", as
     isMobile: true,
     hasTouch: true,
   });
-  // Load every lazy band before the full-page shot.
-  for (const id of SECTIONS) {
-    // oxlint-disable-next-line no-await-in-loop -- sequential by design
-    await phone.locator(`#${id} .still img`).scrollIntoViewIfNeeded();
-  }
+  // Scroll through slowly so every reveal-on-scroll card has run and every lazy band has loaded,
+  // then return to the top: a full-page shot taken from a scrolled position wraps around and
+  // drops Contact, and unrevealed cards are missing from it (QA-PF02-3).
+  const total = await phone.evaluate(() => document.documentElement.scrollHeight);
+  const stops = Array.from({ length: Math.ceil(total / 500) + 1 }, (_, k) => k * 500);
+  await stops.reduce(
+    (previous, y) =>
+      previous.then(async () => {
+        await phone.evaluate((top) => {
+          window.scrollTo(0, top);
+        }, y);
+        return phone.waitForTimeout(120);
+      }),
+    Promise.resolve(),
+  );
+  await expect
+    .poll(() =>
+      phone.evaluate(() => ({
+        unrevealed: document.querySelectorAll("[data-reveal]:not([data-revealed])").length,
+        unloaded: [...document.querySelectorAll<HTMLImageElement>(".still img")].filter(
+          (img) => !img.complete || img.naturalWidth === 0,
+        ).length,
+      })),
+    )
+    .toEqual({ unrevealed: 0, unloaded: 0 });
+  await phone.evaluate(() => {
+    window.scrollTo(0, 0);
+  });
   await phone.waitForTimeout(500);
   const full = await phone.screenshot({ fullPage: true });
   await phone.context().close();
   const mobile = process.env.MOBILE_FULL;
-  const height = (await sharp(full).metadata()).height ?? 0;
-  const ref = mobile
-    ? await sharp(mobile)
-        .resize(390, height, { fit: "contain", background: "#0e0a08" })
-        .png()
-        .toBuffer()
-    : null;
-  await sharp({ create: { width: 800, height, channels: 3, background: "#0e0a08" } })
+  // Both at native 390 px width, top-aligned, so rows line up section by section.
+  const ref = mobile ? await sharp(mobile).png().toBuffer() : null;
+  const pageHeight = (await sharp(full).metadata()).height ?? 0;
+  const refHeight = ref ? ((await sharp(ref).metadata()).height ?? 0) : 0;
+  await sharp({
+    create: {
+      width: 800,
+      height: Math.max(pageHeight, refHeight),
+      channels: 3,
+      background: "#0e0a08",
+    },
+  })
     .composite([
       ...(ref ? [{ input: ref, left: 0, top: 0 }] : []),
       { input: full, left: 410, top: 0 },

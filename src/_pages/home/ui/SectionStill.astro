@@ -98,19 +98,36 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
     object-fit: cover;
   }
 
+  /* Overlays per scene, from the design source (round7 darkroom-morph): the intro gets only an
+     edge fade (poster.html's .top on desktop, mobile.html's 110 px top fade on phones); sections
+     2-6 get dr.css's .veil on desktop and mobile.html's .band:after on phones (QA-PF02-1). */
+  .still {
+    --still-veil:
+      radial-gradient(ellipse at center, rgb(14 10 8 / 0.55), rgb(14 10 8 / 0.82) 70%),
+      linear-gradient(
+        180deg,
+        rgb(14 10 8 / 0.9),
+        rgb(14 10 8 / 0) 18%,
+        rgb(14 10 8 / 0) 82%,
+        rgb(14 10 8 / 0.95)
+      );
+  }
+
+  .still--intro {
+    --still-veil: linear-gradient(
+      180deg,
+      rgb(14 10 8 / 0.92),
+      rgb(14 10 8 / 0) 130px,
+      rgb(14 10 8 / 0) calc(100% - 160px),
+      rgb(14 10 8 / 0.92)
+    );
+  }
+
   .still::after {
     content: "";
     position: absolute;
     inset: 0;
-    background:
-      radial-gradient(ellipse at center, rgb(14 10 8 / 0.35), rgb(14 10 8 / 0.7) 75%),
-      linear-gradient(
-        180deg,
-        rgb(14 10 8 / 0.9),
-        rgb(14 10 8 / 0) 12%,
-        rgb(14 10 8 / 0) 88%,
-        rgb(14 10 8 / 0.95)
-      );
+    background: var(--still-veil);
   }
 
   :global(html[data-tier="full"]) .still {
@@ -146,7 +163,8 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
       transition: none !important;
     }
 
-    /* The section-edge fade only hides the seam of sticky stills; fixed stills have no seam. */
+    /* Fixed stills: the scene's overlay moves onto the fixed picture, so it spans the viewport the
+       way the design's section overlay spans a 900 px section. */
     :global(html.js) .still::after {
       display: none;
     }
@@ -155,7 +173,7 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
       content: "";
       position: absolute;
       inset: 0;
-      background: radial-gradient(ellipse at center, rgb(14 10 8 / 0.35), rgb(14 10 8 / 0.7) 75%);
+      background: var(--still-veil);
     }
   }
 
@@ -163,6 +181,7 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
     .still {
       position: relative;
       inset: auto;
+      --still-veil: linear-gradient(180deg, rgb(14 10 8 / 0.2), var(--bg));
     }
 
     .still picture {
@@ -178,6 +197,7 @@ const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, wid
     .still--intro {
       position: absolute;
       inset: 0 0 auto;
+      --still-veil: linear-gradient(180deg, rgb(14 10 8 / 0.9), rgb(14 10 8 / 0) 110px);
     }
 
     .still--intro img {
