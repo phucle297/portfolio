@@ -35,6 +35,7 @@ const EXPECTED_SPECS: readonly string[] = [
   "static.spec.ts",
   "structure.spec.ts",
   "tiers.spec.ts",
+  "ui-preview.spec.ts",
 ];
 
 /** Pinned opt-out pattern sources, per engine group. Widening or adding a pattern must fail. */
