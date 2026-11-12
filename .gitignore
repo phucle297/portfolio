@@ -30,3 +30,6 @@ lighthouse/
 # test output
 test-results/
 playwright-report/
+
+# wrangler
+.wrangler/
