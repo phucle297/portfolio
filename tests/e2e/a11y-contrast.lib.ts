@@ -49,7 +49,9 @@ export interface JudgedNode {
   required: number;
   ratio: number | null;
   pixels: number;
-  verdict: "pass" | "fail" | "deferred" | "undecided";
+  verdict: "pass" | "fail" | "deferred" | "finding" | "undecided";
+  /** The filed-finding selector this node matched, if any. */
+  finding: string | null;
   reason: string;
 }
 
@@ -84,6 +86,8 @@ export interface JudgeOptions {
   scroll: boolean;
   /** The spec's settle(), run after every scroll. */
   settle: (page: Page) => Promise<void>;
+  /** Stable selectors of findings filed in the PR (PF-03 AC3): a FAILING match is a "finding". */
+  findings: readonly string[];
 }
 
 export async function judgeIncompleteContrast(
@@ -109,7 +113,7 @@ export async function judgeIncompleteContrast(
     for (const m of list)
       if (m.pixels > 0 || !measured.has(m.selector)) measured.set(m.selector, m);
   };
-  keep(await measure(page, targets));
+  keep(await measure(page, targets, options.findings));
   if (options.scroll) {
     const start = await page.evaluate(() => [window.scrollX, window.scrollY]);
     const tried = new Set<string>();
@@ -128,7 +132,7 @@ export async function judgeIncompleteContrast(
       await options.settle(page);
       const pending = targets.filter((t) => (measured.get(t)?.pixels ?? 0) === 0);
       // oxlint-disable-next-line no-await-in-loop -- one scroll position at a time
-      keep(await measure(page, pending));
+      keep(await measure(page, pending, options.findings));
     }
     await page.evaluate(([x = 0, y = 0]) => {
       window.scrollTo({ left: x, top: y, behavior: "instant" });
@@ -155,6 +159,9 @@ export async function judgeIncompleteContrast(
     } else if (n.ratio >= required) {
       verdict = "pass";
       reason = "";
+    } else if (n.finding !== null && !n.canvasBacked) {
+      verdict = "finding";
+      reason = `${n.ratio.toFixed(2)}:1 < ${required}:1, filed finding (PF-03 AC3, PR #3 file, wave 2)`;
     } else if (n.railNumeral && n.canvasBacked) {
       // Known, carded defect: the section-rail numerals over the live scene (backlog PF-23, found
       // by PF-04's tool). Listed in the output with the measured ratio, never silently passed.
@@ -176,6 +183,7 @@ export async function judgeIncompleteContrast(
       pixels: n.pixels,
       verdict,
       reason,
+      finding: n.finding,
     };
   });
   const failures = nodes
@@ -210,6 +218,7 @@ interface Measured {
   text: string;
   canvasBacked: boolean;
   railNumeral: boolean;
+  finding: string | null;
   large: boolean;
   ratio: number | null;
   pixels: number;
@@ -225,6 +234,7 @@ const missing = (selector: string): Measured => ({
   text: "",
   canvasBacked: false,
   railNumeral: false,
+  finding: null,
   large: false,
   ratio: null,
   pixels: 0,
@@ -232,7 +242,11 @@ const missing = (selector: string): Measured => ({
 });
 
 /** Hide every glyph, take two screenshots, judge `selectors` on the pixels behind their text. */
-async function measure(page: Page, selectors: string[]): Promise<Measured[]> {
+async function measure(
+  page: Page,
+  selectors: string[],
+  findings: readonly string[],
+): Promise<Measured[]> {
   await page.evaluate(
     ({ id, css }) => {
       const style = document.createElement("style");
@@ -252,7 +266,7 @@ async function measure(page: Page, selectors: string[]): Promise<Measured[]> {
   }, HIDE_ID);
   await frames(page);
   return page.evaluate(
-    async ({ list, shots }) => {
+    async ({ list, shots, filed }) => {
       const [a, b] = await Promise.all(
         shots.map(async (b64) => {
           const bytes = Uint8Array.from(atob(b64), (c) => c.codePointAt(0) ?? 0);
@@ -293,6 +307,7 @@ async function measure(page: Page, selectors: string[]): Promise<Measured[]> {
             text: "",
             canvasBacked: false,
             railNumeral: false,
+            finding: null,
             large: false,
             ratio: null,
             pixels: 0,
@@ -363,6 +378,7 @@ async function measure(page: Page, selectors: string[]): Promise<Measured[]> {
           const bo = Math.min(Math.ceil(r.bottom - pb), Math.floor(cb));
           if (ri - l >= 1 && bo - t >= 1) boxes.push([l, t, ri, bo]);
         }
+        const finding = filed.find((f) => el.matches(f)) ?? null;
         const railNumeral = el.matches("nav.rail a[data-section-link] > span[aria-hidden='true']");
         let canvasBacked = false;
         if (canvasLive && canvasEl) {
@@ -407,6 +423,7 @@ async function measure(page: Page, selectors: string[]): Promise<Measured[]> {
           text: (el.textContent ?? "").replaceAll(/\s+/gu, " ").trim().slice(0, 40),
           canvasBacked,
           railNumeral,
+          finding,
           large,
           ratio,
           pixels: ratios.length,
@@ -414,6 +431,6 @@ async function measure(page: Page, selectors: string[]): Promise<Measured[]> {
         };
       });
     },
-    { list: selectors, shots: [first, second] },
+    { list: selectors, shots: [first, second], filed: findings },
   );
 }

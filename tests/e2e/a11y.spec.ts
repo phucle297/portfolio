@@ -68,7 +68,8 @@ const AA_NORMAL = 4.5;
  * 2. Every `[data-reveal]` block that is in view by the reveal's own measure (≥ 15 % of its
  *    AREA inside the viewport and its clipping ancestors, as Motion's `inView({ amount: .15 })`
  *    / IntersectionObserver count it) has finished ITS OWN reveal: it carries `data-revealed`
- *    and its own computed opacity is 1. Ancestor opacity is deliberately not multiplied in: on
+ *    (only while `motion-ok` is on, the only case where the reveal hides anything) and its own
+ *    computed opacity is 1. Ancestor opacity is deliberately not multiplied in: on
  *    the full tier (M2) every section body stays pinned in the viewport and the copy layer
  *    scrubs inactive bodies to opacity 0, so a revealed card can sit under a 0-opacity body
  *    forever (attempt 2 timed out on exactly that at p .03).
@@ -115,7 +116,12 @@ async function settle(page: Page): Promise<void> {
         }
         const area = Math.max(0, right - left) * Math.max(0, bottom - top);
         if (area / Math.max(1, rect.width * rect.height) < 0.15) return false;
-        return !el.hasAttribute("data-revealed") || Number(style.opacity) < 1;
+        // The reveal only hides blocks while <html> has `motion-ok` (JS on, motion allowed); without
+        // JS or under reduced motion nothing is hidden, so only the block's own opacity counts.
+        const hiddenByReveal =
+          document.documentElement.classList.contains("motion-ok") &&
+          !el.hasAttribute("data-revealed");
+        return hiddenByReveal || Number(style.opacity) < 1;
       });
       const sig = JSON.stringify([
         window.scrollX,
@@ -214,6 +220,30 @@ function record(state: string, result: AxeResults, judgement: Judgement): void {
   );
 }
 
+/**
+ * Contrast findings filed in the PR under PF-03 AC3 ("a violation that lives in a PR #3 file is
+ * filed as a finding in the PR, not fixed here, and fixed in wave 2"). Matched by stable
+ * selector and only off the full tier (backdrop = the Services poster still, not the canvas).
+ * Each is printed with its measured ratio in every run; anything else that fails, fails.
+ */
+const FILED_FINDINGS = [
+  {
+    selector: ".services__subline",
+    file: "src/_pages/home/ui/ServicesSection.astro",
+    note: "Services sub-line over the Services still (static tier, 1440)",
+  },
+  {
+    selector: ".services__head > .eyebrow",
+    file: "src/_pages/home/ui/ServicesSection.astro",
+    note: "Services eyebrow over the Services still (static tier, 1440)",
+  },
+  {
+    selector: "#services-title > em",
+    file: "src/_pages/home/ui/ServicesSection.astro",
+    note: "Services title accent (#FF7A3D) over the Services still (static tier, 1440)",
+  },
+] as const;
+
 /** Pixel-judge verdicts per scanned result (see a11y-contrast.lib.ts). */
 const JUDGED = new WeakMap<AxeResults, Judgement>();
 
@@ -231,13 +261,19 @@ async function analyze(page: Page, state: string): Promise<AxeResults> {
   const judgement = await judgeIncompleteContrast(page, result, state, {
     scroll: !fullTier,
     settle,
+    findings: fullTier ? [] : FILED_FINDINGS.map((f) => f.selector),
   });
   JUDGED.set(result, judgement);
   record(state, result, judgement);
   const { nodes } = judgement;
   const deferred = nodes.filter((n) => n.verdict === "deferred");
+  const filed = nodes.filter((n) => n.verdict === "finding");
+  for (const n of filed)
+    process.stdout.write(
+      `FILED FINDING (PF-03 AC3, fix in wave 2) · ${state}: ${n.target} "${n.text}" ${n.reason} · ${FILED_FINDINGS.find((f) => n.finding === f.selector)?.file ?? ""}\n`,
+    );
   process.stdout.write(
-    `contrast fallback · ${state}: ${nodes.length} incomplete → ${count(nodes, "pass")} pass, ${count(nodes, "fail")} fail, ${deferred.length} deferred (live canvas: PF-04 / PF-23), ${count(nodes, "undecided")} undecided${deferred.length > 0 ? ` · deferred: ${deferred.map((n) => `${n.target} (${n.reason})`).join("; ")}` : ""}\n`,
+    `contrast fallback · ${state}: ${nodes.length} incomplete → ${count(nodes, "pass")} pass, ${count(nodes, "fail")} fail, ${deferred.length} deferred (live canvas: PF-04 / PF-23), ${count(nodes, "undecided")} undecided, ${filed.length} filed findings${deferred.length > 0 ? ` · deferred: ${deferred.map((n) => `${n.target} (${n.reason})`).join("; ")}` : ""}\n`,
   );
   return result;
 }
@@ -477,7 +513,10 @@ test.afterAll(() => {
       ? raw.filter((x): x is JudgedNode => x !== null && typeof x === "object")
       : [];
     const deferred = nodes.filter((n) => n.verdict === "deferred").map((n) => n.target);
-    return `| ${String(state)} | ${nodes.length} | ${count(nodes, "pass")} | ${count(nodes, "fail")} | ${deferred.length}${deferred.length > 0 ? `: ${deferred.join("<br>")}` : ""} | ${count(nodes, "undecided")} |`;
+    const filed = nodes
+      .filter((n) => n.verdict === "finding")
+      .map((n) => `${n.target} ${n.ratio?.toFixed(2) ?? "?"}:1`);
+    return `| ${String(state)} | ${nodes.length} | ${count(nodes, "pass")} | ${count(nodes, "fail")} | ${deferred.length}${deferred.length > 0 ? `: ${deferred.join("<br>")}` : ""} | ${filed.length}${filed.length > 0 ? `: ${filed.join("<br>")}` : ""} | ${count(nodes, "undecided")} |`;
   });
   const rows = findings.map(
     (f) =>
@@ -494,8 +533,8 @@ test.afterAll(() => {
     "",
     "Contrast pixel judge (axe color-contrast incomplete nodes; SwiftShader on the full tier):",
     "",
-    "| State | Incomplete | Pass | Fail | Deferred (live canvas: PF-04 / PF-23) | Undecided |",
-    "|---|---|---|---|---|---|",
+    "| State | Incomplete | Pass | Fail | Deferred (live canvas: PF-04 / PF-23) | Filed findings (AC3, wave 2) | Undecided |",
+    "|---|---|---|---|---|---|---|",
     ...contrastRows,
   ].join("\n");
   mkdirSync(OUT, { recursive: true });
