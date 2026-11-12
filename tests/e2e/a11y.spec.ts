@@ -23,6 +23,12 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AxeBuilder } from "@axe-core/playwright";
 import {
+  axeDecidedInActiveSection,
+  judgeIncompleteContrast,
+  type JudgedNode,
+  type Judgement,
+} from "./a11y-contrast.lib";
+import {
   expect,
   test,
   type Browser,
@@ -191,8 +197,8 @@ async function open(
   return page;
 }
 
-/** Persist one state's violations (any impact) for the report written in afterAll. */
-function record(state: string, result: AxeResults): void {
+/** Persist one state's violations (any impact) and contrast verdicts for the afterAll report. */
+function record(state: string, result: AxeResults, judgement: Judgement): void {
   const findings: Finding[] = result.violations.map((v) => ({
     state,
     id: v.id,
@@ -202,26 +208,48 @@ function record(state: string, result: AxeResults): void {
   }));
   mkdirSync(STATES_DIR, { recursive: true });
   const slug = state.replaceAll(/[^\w]+/gu, "-").replaceAll(/^-|-$/gu, "");
-  writeFileSync(join(STATES_DIR, `${slug}.json`), JSON.stringify({ state, findings }, null, 1));
+  writeFileSync(
+    join(STATES_DIR, `${slug}.json`),
+    JSON.stringify({ state, findings, contrast: judgement.nodes }, null, 1),
+  );
 }
 
-/** Settle, scan the whole page, record every violation; returns the raw result. */
+/** Pixel-judge verdicts per scanned result (see a11y-contrast.lib.ts). */
+const JUDGED = new WeakMap<AxeResults, Judgement>();
+
+const count = (nodes: readonly JudgedNode[], verdict: JudgedNode["verdict"]): number =>
+  nodes.filter((n) => n.verdict === verdict).length;
+
+/**
+ * Settle, scan the whole page, judge every color-contrast "incomplete" node on the real pixels
+ * (attempt 4), record everything; returns the raw result.
+ */
 async function analyze(page: Page, state: string): Promise<AxeResults> {
   await settle(page);
   const result = await new AxeBuilder({ page }).analyze();
-  record(state, result);
+  const judgement = await judgeIncompleteContrast(page, result, state);
+  JUDGED.set(result, judgement);
+  record(state, result, judgement);
+  const { nodes } = judgement;
+  const deferred = nodes.filter((n) => n.verdict === "deferred");
+  process.stdout.write(
+    `contrast fallback · ${state}: ${nodes.length} incomplete → ${count(nodes, "pass")} pass, ${count(nodes, "fail")} fail, ${deferred.length} deferred to PF-04, ${count(nodes, "undecided")} undecided${deferred.length > 0 ? ` · deferred: ${deferred.map((n) => `${n.target} (${n.reason})`).join("; ")}` : ""}\n`,
+  );
   return result;
 }
 
-const blockingOf = (state: string, result: AxeResults): string[] =>
-  result.violations
+/** Serious/critical axe violations plus every pixel-judge failure or undecided node. */
+const blockingOf = (state: string, result: AxeResults): string[] => [
+  ...result.violations
     .filter((v) => BLOCKING.has(v.impact ?? ""))
     .map(
       (v) =>
         `${state}: ${v.impact}: ${v.id} (${v.help}) at ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`,
-    );
+    ),
+  ...(JUDGED.get(result)?.failures ?? []),
+];
 
-/** Scan and return the serious/critical violations. */
+/** Scan and return the blocking findings. */
 async function scan(page: Page, state: string): Promise<string[]> {
   return blockingOf(state, await analyze(page, state));
 }
@@ -311,16 +339,32 @@ test("full tier at 1440×900, at each of the 6 key scroll positions", async ({ b
   const page = await open(browser, { gpu: true });
   await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 90_000 });
   const blocking: string[] = [];
+  const activeDecided: string[] = [];
   for (const [i, p] of KEY_PROGRESS.entries()) {
     // oxlint-disable-next-line no-await-in-loop -- one scroll position at a time
     await scrollToProgress(page, p);
     // oxlint-disable-next-line no-await-in-loop -- one scroll position at a time
     await expect(page.locator("html")).toHaveAttribute("data-tier", "full");
+    const state = `full tier, key ${i + 1} (p = ${p})`;
     // oxlint-disable-next-line no-await-in-loop -- one scroll position at a time
-    blocking.push(...(await scan(page, `full tier, key ${i + 1} (p = ${p})`)));
+    const result = await analyze(page, state);
+    blocking.push(...blockingOf(state, result));
+    // The ACTIVE section's copy must actually be judged at every position (attempt 4): by axe
+    // itself or by the pixel judge, never left to "incomplete".
+    const judged =
+      JUDGED.get(result)?.nodes.filter(
+        (n) => n.inActiveSection && (n.verdict === "pass" || n.verdict === "fail"),
+      ).length ?? 0;
+    // oxlint-disable-next-line no-await-in-loop -- one scroll position at a time
+    const byAxe = await axeDecidedInActiveSection(page, result);
+    activeDecided.push(`${state}: ${judged} by pixel judge + ${byAxe} by axe`);
+    if (judged + byAxe === 0) blocking.push(`${state}: no contrast verdict for the active section`);
   }
   await page.context().close();
-  expect(blocking, "serious/critical axe violations").toEqual([]);
+  test
+    .info()
+    .annotations.push({ type: "active section decided", description: activeDecided.join(" · ") });
+  expect(blocking, "serious/critical axe violations and contrast failures").toEqual([]);
 });
 
 test("static tier at 390×844", async ({ browser }) => {
@@ -419,6 +463,18 @@ test.afterAll(() => {
     };
   });
   const findings = states.flatMap((s) => s.findings);
+  const contrastRows = files.map((f) => {
+    const parsed: unknown = JSON.parse(readFileSync(join(STATES_DIR, f), "utf8"));
+    const state: unknown =
+      parsed !== null && typeof parsed === "object" ? Reflect.get(parsed, "state") : "";
+    const raw: unknown =
+      parsed !== null && typeof parsed === "object" ? Reflect.get(parsed, "contrast") : [];
+    const nodes = Array.isArray(raw)
+      ? raw.filter((x): x is JudgedNode => x !== null && typeof x === "object")
+      : [];
+    const deferred = nodes.filter((n) => n.verdict === "deferred").map((n) => n.target);
+    return `| ${String(state)} | ${nodes.length} | ${count(nodes, "pass")} | ${count(nodes, "fail")} | ${deferred.length}${deferred.length > 0 ? `: ${deferred.join("<br>")}` : ""} | ${count(nodes, "undecided")} |`;
+  });
   const rows = findings.map(
     (f) =>
       `| ${f.state} | ${f.impact} | ${f.id} | ${f.help} | ${f.targets.slice(0, 3).join("<br>")}${f.targets.length > 3 ? ` (+${f.targets.length - 3})` : ""} |`,
@@ -431,6 +487,12 @@ test.afterAll(() => {
     "| State | Impact | Rule | Help | Targets |",
     "|---|---|---|---|---|",
     ...rows,
+    "",
+    "Contrast pixel judge (axe color-contrast incomplete nodes; SwiftShader on the full tier):",
+    "",
+    "| State | Incomplete | Pass | Fail | Deferred to PF-04 (live canvas) | Undecided |",
+    "|---|---|---|---|---|---|",
+    ...contrastRows,
   ].join("\n");
   mkdirSync(OUT, { recursive: true });
   writeFileSync(join(OUT, "a11y.md"), `${md}\n`);
