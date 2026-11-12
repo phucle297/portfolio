@@ -5,12 +5,18 @@
  * (B-7), and every control is shown and takes the click in its hold. Full tier (`?scene-test`, SwiftShader standing in for the GPU), pinned layout.
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { beatProgress, HOLDS, KEY_PROGRESS, SECTIONS } from "../../src/shared/lib/timeline";
+import { beatAt, beatProgress, HOLDS, KEY_PROGRESS, SECTIONS } from "../../src/shared/lib/timeline";
 import { inSequence, openScene, scrollToP, settle } from "./helpers";
 
 interface B4Watch {
   lastScroll: number;
-  lastRaf: number;
+  /** `darkroomTest.rafs()` when the last scroll event ran: later ticks come after it. */
+  rafsAtScroll: number;
+  /**
+   * Stage ticks (rAF callbacks that advanced `darkroomTest.rafs()`): callback start time and tick
+   * number.
+   */
+  ticks: { at: number; n: number }[];
   stop: boolean;
 }
 declare global {
@@ -246,86 +252,167 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
+/** One B-7 card result: max opacity seen inside the hold, max outside it, and the p it peaked at. */
+interface SweepCard {
+  label: string;
+  inHold: number;
+  outside: number;
+  at: number;
+}
+
+/**
+ * B-7 sweep of one section: continuous scrolling from just before the hold to just after, one
+ * scroll step per frame (the scene and copy follow their smoothed p), every card sampled each
+ * frame. Δp 4e-4 per frame where cards step (≥ 10 samples per card's fully-shown stretch), 2e-3
+ * elsewhere. Each section's sweep starts with its own scrollToP, so sections are independent and
+ * run as separate tests (TASK-20261113-16: one 6-section test took 3-5 min on SwiftShader and
+ * hit its 300 s cap).
+ */
+async function sweepSection(
+  page: Page,
+  index: number,
+  positions: readonly number[],
+): Promise<SweepCard[]> {
+  const section = SECTIONS[index];
+  if (!section) throw new Error(`no section ${index}`);
+  const hold = HOLDS[index] ?? [0, 0];
+  await scrollToP(page, positions[0] ?? Math.max(0, hold[0] - 0.006));
+  return page.evaluate(
+    async ({ id, ps, holdFrom, holdTo }) => {
+      const body = document.querySelector(`#${id} [data-copy-body]`);
+      if (!body) return [];
+      const beatEls = Array.from(body.querySelectorAll<HTMLElement>("[data-beat]"));
+      const els: Element[] = beatEls.length ? beatEls : [body];
+      const best = els.map(() => ({ inHold: 0, outside: 0, at: -1 }));
+      const max = document.documentElement.scrollHeight - innerHeight;
+      for (const p of ps) {
+        window.scrollTo({ top: p * max, behavior: "instant" });
+        // oxlint-disable-next-line no-await-in-loop -- one sample per frame, in order
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            resolve();
+          });
+        });
+        const shown = window.darkroomTest?.shown() ?? -1;
+        const scrolled = scrollY / max;
+        els.forEach((el, i) => {
+          let o = 1;
+          for (let n: Element | null = el; n; n = n.parentElement)
+            o *= Number(getComputedStyle(n).opacity);
+          const entry = best[i];
+          if (!entry) return;
+          const inHold =
+            shown >= holdFrom && shown <= holdTo && scrolled >= holdFrom && scrolled <= holdTo;
+          if (inHold && o > entry.inHold) {
+            entry.inHold = o;
+            entry.at = shown;
+          } else if (!inHold) entry.outside = Math.max(entry.outside, o);
+        });
+      }
+      return els.map((el, i) => ({
+        label: `${el.tagName.toLowerCase()}.${el.className.split(" ")[0] ?? ""}[data-beat="${el.getAttribute("data-beat") ?? "-"}"]`,
+        inHold: best[i]?.inHold ?? 0,
+        outside: best[i]?.outside ?? 0,
+        at: best[i]?.at ?? -1,
+      }));
+    },
+    { id: section.id, ps: positions, holdFrom: hold[0], holdTo: hold[1] },
+  );
+}
+
+/**
+ * The scroll positions of section `index`'s sweep, computed exactly as the original single loop
+ * did (`for (let p = from; p <= to; p += dp)`, same float accumulation): from just before the
+ * hold to just after, Δp 4e-4 where cards step (≥ 10 samples per card's fully-shown stretch),
+ * 2e-3 elsewhere.
+ */
+function sweepPositions(index: number, stepped: boolean): number[] {
+  const hold = HOLDS[index] ?? [0, 0];
+  const from = Math.max(0, hold[0] - 0.006);
+  const to = Math.min(1, hold[1] + 0.006);
+  const dp = stepped ? 4e-4 : 2e-3;
+  const ps: number[] = [];
+  for (let p = from; p <= to; p += dp) ps.push(p);
+  return ps;
+}
+
+/**
+ * Sections whose sweep is split into one test per beat. Journey is 230 frames and took 105-211 s
+ * alone on ubuntu-24.04 + SwiftShader at 1600×1000 (TASK-20261113-16 diag run 43274462813),
+ * too close to the 300 s cap. A chunk is every sweep position where `beatAt` is that beat, so the
+ * chunks partition the positions exactly, and each beat's fully-shown stretch (which ends half a
+ * crossfade before the handover) lies inside its own chunk.
+ */
+const SPLIT_BY_BEAT: ReadonlyMap<string, number> = new Map([["journey", 3]]);
+
+/**
+ * Cards B-7 samples in each section, in sweep order: every [data-beat] element (with its first
+ * beat), or the copy body (beat 0) when it has none.
+ */
+async function cardInventory(page: Page): Promise<number[][]> {
+  return page.evaluate(
+    (ids) =>
+      ids.map((id) => {
+        const body = document.querySelector(`#${id} [data-copy-body]`);
+        if (!body) return [];
+        const beats = Array.from(body.querySelectorAll<HTMLElement>("[data-beat]"));
+        if (!beats.length) return [0];
+        return beats.map((el) => Number((el.dataset.beat ?? "0").split(/\s+/u)[0]));
+      }),
+    SECTIONS.map((s) => s.id),
+  );
+}
+
 test.describe("B-7 every copy card is fully shown inside its section's hold while scrolling", () => {
   for (const viewport of [VIEWPORTS[0], VIEWPORTS[2]]) {
-    test(`scroll sweep at ${viewport?.width}×${viewport?.height}`, async ({ page }) => {
-      test.setTimeout(300_000);
-      await page.setViewportSize(viewport ?? { width: 1600, height: 1000 });
+    const size = viewport ?? { width: 1600, height: 1000 };
+    const at = `${size.width}×${size.height}`;
+
+    test(`card inventory at ${at}`, async ({ page }) => {
+      await page.setViewportSize(size);
       await openScene(page);
       await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
-      const failures: string[] = [];
-      let cards = 0;
-      await inSequence(SECTIONS, async (section, index) => {
-        const hold = HOLDS[index] ?? [0, 0];
-        // Continuous scrolling from just before the hold to just after: one scroll step per
-        // frame (the scene and copy follow their smoothed p), every card sampled each frame.
-        // Δp 4e-4 per frame where cards step (≥ 10 samples per card's fully-shown stretch),
-        // 2e-3 elsewhere.
-        const stepped =
-          (await page.locator(`#${section.id} [data-copy-body] [data-beat]`).count()) > 0;
-        await scrollToP(page, Math.max(0, hold[0] - 0.006));
-        const result = await page.evaluate(
-          async ({ id, from, to, holdFrom, holdTo, dp }) => {
-            const body = document.querySelector(`#${id} [data-copy-body]`);
-            if (!body) return [];
-            const beatEls = Array.from(body.querySelectorAll<HTMLElement>("[data-beat]"));
-            const els: Element[] = beatEls.length ? beatEls : [body];
-            const best = els.map(() => ({ inHold: 0, outside: 0, at: -1 }));
-            const max = document.documentElement.scrollHeight - innerHeight;
-            for (let p = from; p <= to; p += dp) {
-              window.scrollTo({ top: p * max, behavior: "instant" });
-              // oxlint-disable-next-line no-await-in-loop -- one sample per frame, in order
-              await new Promise<void>((resolve) => {
-                requestAnimationFrame(() => {
-                  resolve();
-                });
-              });
-              const shown = window.darkroomTest?.shown() ?? -1;
-              const scrolled = scrollY / max;
-              els.forEach((el, i) => {
-                let o = 1;
-                for (let n: Element | null = el; n; n = n.parentElement)
-                  o *= Number(getComputedStyle(n).opacity);
-                const entry = best[i];
-                if (!entry) return;
-                const inHold =
-                  shown >= holdFrom &&
-                  shown <= holdTo &&
-                  scrolled >= holdFrom &&
-                  scrolled <= holdTo;
-                if (inHold && o > entry.inHold) {
-                  entry.inHold = o;
-                  entry.at = shown;
-                } else if (!inHold) entry.outside = Math.max(entry.outside, o);
-              });
-            }
-            return els.map((el, i) => ({
-              label: `${el.tagName.toLowerCase()}.${el.className.split(" ")[0] ?? ""}[data-beat="${el.getAttribute("data-beat") ?? "-"}"]`,
-              inHold: best[i]?.inHold ?? 0,
-              outside: best[i]?.outside ?? 0,
-              at: best[i]?.at ?? -1,
-            }));
-          },
-          {
-            id: section.id,
-            from: Math.max(0, hold[0] - 0.006),
-            to: Math.min(1, hold[1] + 0.006),
-            holdFrom: hold[0],
-            holdTo: hold[1],
-            dp: stepped ? 4e-4 : 2e-3,
-          },
-        );
-        for (const card of result) {
-          cards += 1;
-          if ((card.inHold ?? 0) < 0.999)
-            failures.push(
-              `${section.id} ${card.label}: max opacity in hold ${card.inHold?.toFixed(3)} (outside ${card.outside?.toFixed(3)})`,
-            );
-        }
-      });
+      const cards = (await cardInventory(page)).reduce((n, section) => n + section.length, 0);
       // 6 sections; Journey and Services step through their cards.
       expect(cards).toBeGreaterThanOrEqual(13);
-      expect(failures).toEqual([]);
+    });
+
+    SECTIONS.forEach((section, index) => {
+      const beats = SPLIT_BY_BEAT.get(section.id);
+      const chunks: (number | undefined)[] = beats
+        ? Array.from({ length: beats }, (_, b) => b)
+        : [undefined];
+      for (const chunk of chunks) {
+        const name = chunk === undefined ? section.id : `${section.id} beat ${chunk}`;
+        test(`scroll sweep at ${at}: ${name}`, async ({ page }) => {
+          test.setTimeout(300_000);
+          await page.setViewportSize(size);
+          await openScene(page);
+          await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
+          const cardBeats = (await cardInventory(page))[index] ?? [];
+          const stepped =
+            (await page.locator(`#${section.id} [data-copy-body] [data-beat]`).count()) > 0;
+          const all = sweepPositions(index, stepped);
+          const count = Math.max(...cardBeats) + 1;
+          const positions =
+            chunk === undefined ? all : all.filter((p) => beatAt(p, index, count) === chunk);
+          expect(positions.length).toBeGreaterThan(0);
+          const result = await sweepSection(page, index, positions);
+          // Every card of the section was sampled.
+          expect(result).toHaveLength(cardBeats.length);
+          expect(result.length).toBeGreaterThanOrEqual(1);
+          // A split section asserts each card in the chunk of its own (first) beat; together the
+          // chunks assert every card once, over exactly the positions of the unsplit sweep.
+          const failures = result
+            .filter((_, i) => chunk === undefined || cardBeats[i] === chunk)
+            .filter((card) => (card.inHold ?? 0) < 0.999)
+            .map(
+              (card) =>
+                `${section.id} ${card.label}: max opacity in hold ${card.inHold?.toFixed(3)} (outside ${card.outside?.toFixed(3)})`,
+            );
+          expect(failures).toEqual([]);
+        });
+      }
     });
   }
 });
@@ -394,60 +481,123 @@ test.describe("B-5 focus never lands mid-morph", () => {
   });
 });
 
+/** M2-AC10 idle budget: 0 rAF callbacks later than this after the last scroll event. */
+const B4_BUDGET_MS = 1500;
+/** M2-AC10: after stopping, 0 rAF callbacks in the next 2 s. */
+const B4_QUIET_MS = 2000;
+
+interface B4Verdict {
+  gap: number;
+  ticksAfterScroll: number;
+}
+
+/**
+ * M2-AC10 / PF-15 AC2, as agreed for B-4 (TASK-20261113-19): "0 rAF after 1.5 s idle" means the
+ * last stage rAF callback *starts* ≤ 1500 ms after the last scroll event (definition 1). The
+ * time is taken at callback start, not when its draw work finishes or a poll notices it, so a
+ * slow draw on a loaded host does not count. The bound is strict 1500 ms, slow frames included:
+ * no host-stall allowance. Measured from scroll stop, not from settle.
+ */
+function b4Verdict(w: B4Watch): B4Verdict {
+  // "After" is by tick number, not time: performance.now() is coarse enough that the last scroll
+  // event and the tick right after it can carry the same timestamp.
+  const after = w.ticks.filter((tick) => tick.n > w.rafsAtScroll);
+  const last = after.at(-1);
+  return { gap: last ? last.at - w.lastScroll : Number.NaN, ticksAfterScroll: after.length };
+}
+
+function b4Check(r: B4Watch & B4Verdict, label: string): void {
+  const summary = JSON.stringify({ label, ...r, ticks: r.ticks.length });
+  expect(r.lastScroll, summary).toBeGreaterThan(0);
+  expect(r.ticksAfterScroll, summary).toBeGreaterThan(0);
+  expect(r.gap, summary).toBeLessThanOrEqual(B4_BUDGET_MS);
+}
+
 test.describe("B-4 the render loop idles within 1.5 s of scrolling stopping", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
 
   test("last rAF callback ≤ 1.5 s after the last scroll event (wheel and a long jump)", async ({
     page,
   }) => {
+    // Time every stage tick where its callback starts (definition 1, see b4Verdict), not when a
+    // poll notices it, so a slow draw or a late poll on a loaded host does not count.
+    await page.addInitScript(() => {
+      const raf = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (callback) =>
+        raf((ts) => {
+          const at = performance.now();
+          const before = window.darkroomTest?.rafs() ?? 0;
+          try {
+            callback(ts);
+          } finally {
+            // Recorded even if the callback throws, so no tick goes uncounted.
+            const w = window.b4Watch;
+            const n = window.darkroomTest?.rafs() ?? 0;
+            if (w && !w.stop && n !== before) w.ticks.push({ at, n });
+          }
+        });
+    });
     await openScene(page);
     await scrollToP(page, 0.03);
     // Measured from the last scroll event (scroll stop), not from "caught up".
     const watch = async (): Promise<void> => {
       await page.evaluate(() => {
-        const w: B4Watch = { lastScroll: 0, lastRaf: 0, stop: false };
+        const w: B4Watch = { lastScroll: 0, rafsAtScroll: 0, ticks: [], stop: false };
         window.b4Watch = w;
         window.addEventListener("scroll", () => {
           w.lastScroll = performance.now();
+          w.rafsAtScroll = window.darkroomTest?.rafs() ?? 0;
         });
-        let seen = window.darkroomTest?.rafs() ?? 0;
-        const poll = (): void => {
-          const n = window.darkroomTest?.rafs() ?? 0;
-          if (n !== seen) {
-            seen = n;
-            w.lastRaf = performance.now();
-          }
-          if (!w.stop) setTimeout(poll, 10);
+      });
+    };
+    const result = async (label: string): Promise<B4Watch & B4Verdict> => {
+      // Watch ≥ 3.5 s after the last scroll and until the loop has been quiet for 2 s; a loop
+      // that never idles never gets there and fails here.
+      await page
+        .waitForFunction(
+          ({ quiet, min }) => {
+            const w = window.b4Watch;
+            if (!w || w.lastScroll === 0) return false;
+            const now = performance.now();
+            const lastTick = w.ticks.at(-1)?.at ?? 0;
+            return now - w.lastScroll >= min && now - Math.max(lastTick, w.lastScroll) >= quiet;
+          },
+          { quiet: B4_QUIET_MS, min: 3500 },
+          { timeout: 20_000, polling: 100 },
+        )
+        .catch(() => {
+          throw new Error(`${label}: the render loop did not go quiet for ${B4_QUIET_MS} ms`);
+        });
+      const w = await page.evaluate(() => {
+        const watched = window.b4Watch;
+        if (!watched) throw new Error("no watch");
+        watched.stop = true;
+        return {
+          lastScroll: watched.lastScroll,
+          rafsAtScroll: watched.rafsAtScroll,
+          ticks: watched.ticks,
+          stop: true,
         };
-        poll();
       });
-    };
-    const result = async (): Promise<B4Watch & { gap: number }> => {
-      await page.waitForTimeout(3500);
-      return page.evaluate(() => {
-        const w = window.b4Watch;
-        if (!w) throw new Error("no watch");
-        w.stop = true;
-        return { ...w, gap: w.lastRaf - w.lastScroll };
+      const verdict = { ...w, ...b4Verdict(w) };
+      test.info().annotations.push({
+        type: `B-4 ${label}`,
+        description: JSON.stringify({ ...verdict, ticks: w.ticks.length }),
       });
+      return verdict;
     };
+
     await watch();
     await page.mouse.move(800, 500);
     await inSequence([1, 2, 3, 4, 5], async () => {
       await page.mouse.wheel(0, 900);
     });
-    const wheel = await result();
-    expect(wheel.lastScroll).toBeGreaterThan(0);
-    expect(wheel.lastRaf).toBeGreaterThan(wheel.lastScroll);
-    expect(wheel.gap, JSON.stringify(wheel)).toBeLessThanOrEqual(1500);
+    b4Check(await result("wheel"), "wheel");
 
     await watch();
     await page.evaluate(() => {
       window.scrollTo({ top: 0, behavior: "instant" });
     });
-    const jump = await result();
-    expect(jump.lastScroll).toBeGreaterThan(0);
-    expect(jump.lastRaf).toBeGreaterThan(jump.lastScroll);
-    expect(jump.gap, JSON.stringify(jump)).toBeLessThanOrEqual(1500);
+    b4Check(await result("jump"), "jump");
   });
 });

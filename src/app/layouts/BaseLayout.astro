@@ -13,6 +13,8 @@ interface Props {
   image?: string;
   /** Prefix for section anchors in the header: "" on the home page, "/" elsewhere. */
   anchorBase?: string;
+  /** The page mounts the 3D scene (home), so the header reserves the Safelight's slot. */
+  scene?: boolean;
 }
 
 const {
@@ -20,6 +22,7 @@ const {
   description = siteConfig.description,
   image = siteConfig.ogImage,
   anchorBase = "/",
+  scene = false,
 } = Astro.props;
 
 const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url).href;
@@ -111,7 +114,7 @@ const jsonLdJson = JSON.stringify(jsonLd).replaceAll("<", "\\u003c");
   </head>
   <body>
     <SkipLink />
-    <SiteHeader anchorBase={anchorBase} />
+    <SiteHeader anchorBase={anchorBase} scene={scene} />
     <script is:inline>
       // Measure the header's real bottom so the progress bar (and anything else that uses
       // --header-bottom) is flush under it, including a restored scroll position where

@@ -1,0 +1,32 @@
+---
+// Layout for dev-only tool pages (the component preview): the global tokens and base styles, the
+// skip link, and noindex. No site header, footer, scene or client entry, so it ships no JS.
+import "../styles/global.css";
+import { siteConfig } from "@shared/config";
+import { SkipLink } from "@shared/ui";
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang={siteConfig.locale} data-tier="static">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>{title}</title>
+    <meta name="theme-color" content={siteConfig.themeColor} />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <SkipLink />
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+  </body>
+</html>
