@@ -63,10 +63,8 @@ const email = profile.email;
       class="card contact__form"
       data-contact-form
       data-email={email ?? ""}
-      action={email ? `mailto:${email}` : undefined}
-      method="post"
-      enctype="text/plain"
       novalidate
+      inert
       aria-labelledby="contact-title"
     >
       <fieldset class="contact__modes">
@@ -89,9 +87,15 @@ const email = profile.email;
             autocomplete="name"
             placeholder={form.name.placeholder}
             required
-            aria-describedby="contact-name-error"
           />
-          <p class="field__error" id="contact-name-error" data-error-for="name" hidden>
+          <p
+            class="field__error"
+            id="contact-name-error"
+            data-error-for="name"
+            role="status"
+            aria-live="polite"
+            hidden
+          >
             <span aria-hidden="true">!</span>
             {form.errors.name}
           </p>
@@ -105,9 +109,15 @@ const email = profile.email;
             autocomplete="email"
             placeholder={form.email.placeholder}
             required
-            aria-describedby="contact-email-error"
           />
-          <p class="field__error" id="contact-email-error" data-error-for="email" hidden>
+          <p
+            class="field__error"
+            id="contact-email-error"
+            data-error-for="email"
+            role="status"
+            aria-live="polite"
+            hidden
+          >
             <span aria-hidden="true">!</span>
             {form.errors.email}
           </p>
@@ -131,18 +141,29 @@ const email = profile.email;
           rows="3"
           placeholder={form.brief.placeholder}
           required
-          aria-describedby="contact-brief-error"
         ></textarea>
-        <p class="field__error" id="contact-brief-error" data-error-for="brief" hidden>
+        <p
+          class="field__error"
+          id="contact-brief-error"
+          data-error-for="brief"
+          role="status"
+          aria-live="polite"
+          hidden
+        >
           <span aria-hidden="true">!</span>
           {form.errors.brief}
         </p>
       </div>
 
-      <button class="button button--primary contact__submit" type="submit">
+      <button class="button button--primary contact__submit" type="submit" disabled>
         {form.submit}
       </button>
       <p class="contact__note">{form.note}</p>
+      {email ? (
+        <p class="contact__nojs-note" data-contact-nojs-note>
+          {form.noJsNote}
+        </p>
+      ) : null}
       <p class="contact__status" role="status" aria-live="polite" data-form-status></p>
       <template data-form-messages>
         <span data-msg="success">{form.success}</span>
@@ -344,9 +365,16 @@ const email = profile.email;
   }
 
   .contact__note,
+  .contact__nojs-note,
   .contact__status {
     color: var(--muted);
     font-size: 0.8125rem;
+  }
+
+  /* html.js is set in the head before first paint, so with JS this note is never
+     in the layout and does not shift the form. Without JS it stays visible. */
+  :global(html.js) .contact__nojs-note {
+    display: none;
   }
 
   .contact__status:empty {
