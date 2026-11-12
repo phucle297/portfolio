@@ -26,6 +26,7 @@ const EXPECTED_SPECS: readonly string[] = [
   "m2-keys.spec.ts",
   "m2-qa-b.spec.ts",
   "m2.spec.ts",
+  "mobile-menu.spec.ts",
   "owner-content.spec.ts",
   "probe-cost-webgl-disabled.spec.ts",
   "probe-cost.spec.ts",
