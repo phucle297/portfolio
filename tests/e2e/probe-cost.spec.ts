@@ -25,6 +25,21 @@ import {
 
 const table = new ProbeCostTable("probe-cost");
 
+/** Runs in the page: requestAnimationFrame callbacks during one second. */
+async function countFramesForOneSecond(): Promise<number> {
+  const t0 = performance.now();
+  let frames = 0;
+  await new Promise<void>((resolve) => {
+    const tick = (): void => {
+      frames += 1;
+      if (performance.now() - t0 < 1000) requestAnimationFrame(tick);
+      else resolve();
+    };
+    requestAnimationFrame(tick);
+  });
+  return frames;
+}
+
 test.describe.configure({ mode: "serial" });
 
 test.describe("PF-01 probe cost per branch (SwiftShader box)", () => {
@@ -79,19 +94,10 @@ test.describe("PF-01 probe cost per branch (SwiftShader box)", () => {
     await fulfil("// never answers")(page);
     await page.goto("/");
     await page.waitForLoadState("load");
-    const during = await page.evaluate(async () => {
-      const t0 = performance.now();
-      let frames = 0;
-      await new Promise<void>((resolve) => {
-        const tick = (): void => {
-          frames += 1;
-          if (performance.now() - t0 < 1000) requestAnimationFrame(tick);
-          else resolve();
-        };
-        requestAnimationFrame(tick);
-      });
-      return { frames, decided: performance.getEntriesByName("darkroom:probe").length > 0 };
-    });
+    const during = {
+      frames: await page.evaluate(countFramesForOneSecond),
+      decided: await page.evaluate(() => performance.getEntriesByName("darkroom:probe").length > 0),
+    };
     await page.keyboard.press("Tab");
     const focused = await page.evaluate(() => document.activeElement?.tagName ?? "");
     await page.mouse.wheel(0, 800);
@@ -102,8 +108,22 @@ test.describe("PF-01 probe cost per branch (SwiftShader box)", () => {
     await context.close();
     expect(during.decided).toBe(false);
     expect(stillUndecided).toBe(true);
-    expect(during.frames).toBeGreaterThan(20);
     expect(focused).not.toBe("BODY");
+    // Frame rate while the probe hangs vs the same second with the probe disabled, back to back:
+    // an absolute fps floor only measures how busy the shared box is.
+    const base = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const basePage = await base.newPage();
+    await basePage.addInitScript(() => {
+      Object.defineProperty(navigator, "connection", { value: { saveData: true } });
+    });
+    await basePage.goto("/");
+    await basePage.waitForLoadState("load");
+    const baseline = await basePage.evaluate(countFramesForOneSecond);
+    await base.close();
+    expect(
+      during.frames,
+      `frames in 1 s: ${during.frames} while hanging vs ${baseline} with the probe disabled`,
+    ).toBeGreaterThanOrEqual(Math.min(20, Math.floor(baseline * 0.75)));
   });
 
   test("no Worker / OffscreenCanvas: main-thread fallback, longest task reported", async ({
