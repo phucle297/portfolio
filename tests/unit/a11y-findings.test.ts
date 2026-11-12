@@ -67,8 +67,8 @@ describe("FILED_FINDINGS guard", () => {
         replaceAt(0, {
           floors: {
             [RM_1440]: 1,
-            "no JS 1440×900": 3.88,
-            "contact form, 3 errors, 1440×900": 2.74,
+            "no JS 1440×900": 2.94,
+            "contact form, 3 errors, 1440×900": 2.71,
           },
         }),
       );
@@ -77,7 +77,7 @@ describe("FILED_FINDINGS guard", () => {
 
   it("fails when the exemption is widened to another state", () => {
     const first = FILED_FINDINGS[1];
-    const widened = first ? { ...first.floors, "static tier 390×844": 4.01 } : {};
+    const widened = first ? { ...first.floors, "static tier 390×844": 3.98 } : {};
     expect(() => {
       assertFiledFindings(replaceAt(1, { floors: widened }));
     }).toThrow(/floors must be exactly/);

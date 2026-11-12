@@ -15,16 +15,20 @@
  *    ::before / ::after overlays and gradients with their opacity, stills and the WebGL canvas.
  *    Take two screenshots two frames and 150 ms apart.
  * 3. In the page (canvas 2D decode, no Node image library), for every pixel inside the node's
- *    glyph boxes composite the text colour over that pixel and compute the WCAG ratio. The
- *    node's ratio is the 5th percentile of those (the worst case after dropping the 5 % least
- *    representative pixels, the same p95-luminance worst case as M3-AC5 / PF-04), so light-on-
+ *    glyph boxes composite the text colour (normalised by the browser, so oklch / color() /
+ *    color-mix / hsl / named colours are read correctly) over that pixel and compute the WCAG
+ *    ratio. The node's ratio is the 1st percentile of those (attempt 5, tightened from the 5th:
+ *    only the worst 1 % of backdrop pixels, e.g. a hairline edge, can be outvoted), so light-on-
  *    dark and dark-on-light are both handled.
  * 4. Verdict: ratio ≥ 4.5 (≥ 3 for large text) → pass; below → FAIL, except the section-rail
  *    numerals over the live canvas, a known carded defect (PF-23), which are DEFERRED and listed
  *    with their measured ratio. A node whose backdrop
- *    changed between the two screenshots (> 1 % of its pixels by > 3 levels) is undecidable:
- *    when that backdrop is the live 3D canvas it is DEFERRED to PF-04 and listed by name; for
- *    any other backdrop it FAILS. A node with no painted glyph pixels at all also FAILS
+ *    changed between the two screenshots (> 1 % of its pixels by > 3 levels) is undecidable.
+ *    It is DEFERRED to PF-04 (listed by name) only when that motion is provably the canvas
+ *    (attempt 5): the same two shots retaken with the canvas `visibility:hidden` are still, the
+ *    canvas visibly shows through at ≥ 50 % of the glyph pixels (they change when it is hidden),
+ *    ≥ 99 % of the moving pixels are such pixels, and elementsFromPoint finds the canvas under
+ *    ≥ 95 % of sampled glyph pixels. Any other moving backdrop is UNDECIDED and FAILS. A node with no painted glyph pixels at all also FAILS
  *    (undecided). Nothing is skipped silently: every node is in the returned lists.
  * 5. Off-screen nodes (normal-flow states only) are scrolled into view one position at a time,
  *    settled with the spec's settle(), and measured there; the full tier never scrolls.
@@ -88,7 +92,7 @@ const CANVAS_VISIBLE_SHARE = 0.5;
 /** …and ≥ this share of the moving pixels must be pixels where the canvas shows through. */
 const MOTION_ON_CANVAS_SHARE = 0.99;
 /** The node's ratio is this percentile of its per-pixel ratios (see the PR body, attempt 5). */
-export const RATIO_PERCENTILE = 0.05;
+export const RATIO_PERCENTILE = 0.01;
 
 const HIDE_CANVAS_ID = "a11y-hide-canvas";
 const HIDE_CANVAS_CSS = "[data-scene] canvas { visibility: hidden !important; }";
