@@ -1,0 +1,27 @@
+# Git hooks (https://lefthook.dev). Installed by the `prepare` script on `bun install`.
+# Skip once with LEFTHOOK=0 git commit ..., or disable locally with lefthook-local.yml.
+pre-commit:
+  piped: true
+  jobs:
+    - name: format (oxfmt, staged files)
+      glob: "*.{js,mjs,cjs,ts,astro,json,jsonc,md,css,yml,yaml}"
+      run: bunx oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+    - name: lint (oxlint, staged files)
+      glob: "*.{js,mjs,cjs,ts,astro}"
+      run: bunx oxlint {staged_files}
+    - name: architecture (steiger, FSD)
+      glob: "src/**/*"
+      run: bun run lint:fsd
+
+pre-push:
+  piped: true
+  jobs:
+    - name: typecheck (TypeScript 7)
+      run: bun run typecheck
+    - name: astro check
+      run: bun run check
+    - name: lint (oxlint + steiger)
+      run: bun run lint
+    - name: build
+      run: bun run build
