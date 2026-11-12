@@ -5,7 +5,13 @@ import { PreviewLayout } from "@app/layouts";
 import { UiPreviewPage, uiPreviewEnabled } from "@pages/ui-preview";
 
 export function getStaticPaths() {
-  return uiPreviewEnabled(import.meta.env) ? [{ params: { slug: undefined } }] : [];
+  const enabled = uiPreviewEnabled({
+    DEV: import.meta.env.DEV,
+    PUBLIC_UI_PREVIEW: import.meta.env["PUBLIC_UI_PREVIEW"],
+    GITHUB_EVENT_NAME: process.env["GITHUB_EVENT_NAME"],
+    GITHUB_REF: process.env["GITHUB_REF"],
+  });
+  return enabled ? [{ params: { slug: undefined } }] : [];
 }
 ---
 

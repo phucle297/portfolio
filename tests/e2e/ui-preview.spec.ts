@@ -71,7 +71,13 @@ test.describe("PR-preview build", () => {
     out = mkdtempSync(join(tmpdir(), "ui-preview-dist-"));
     execFileSync("node", ["node_modules/astro/bin/astro.mjs", "build", "--outDir", out], {
       cwd: root,
-      env: { ...process.env, PUBLIC_UI_PREVIEW: "1" },
+      // What the pull_request deploy build sets (the gate refuses on a push / main build).
+      env: {
+        ...process.env,
+        PUBLIC_UI_PREVIEW: "1",
+        GITHUB_EVENT_NAME: "pull_request",
+        GITHUB_REF: "refs/pull/0/merge",
+      },
       stdio: "pipe",
     });
     const types: Record<string, string> = {
