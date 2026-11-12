@@ -18,7 +18,27 @@ const email = profile.email;
         <div>
           <dt>Email</dt>
           <dd data-email>
-            {email ? <a href={`mailto:${email}`}>{email}</a> : ownerPlaceholder("email")}
+            {email ? (
+              <>
+                <a href={`mailto:${email}`} data-email-address>
+                  {email}
+                </a>
+                {/* Shown only when JS and the Clipboard API are available (no-JS: the link and the selectable address remain). */}
+                <button
+                  type="button"
+                  class="contact__copy-email"
+                  data-copy-email={email}
+                  data-copied={form.copied}
+                  data-copy-failed={form.copyFailed}
+                  hidden
+                >
+                  {form.copyEmail}
+                </button>
+                <span class="visually-hidden" role="status" aria-live="polite" data-copy-status />
+              </>
+            ) : (
+              ownerPlaceholder("email")
+            )}
           </dd>
         </div>
         {profile.socials.map((social) => (
@@ -134,9 +154,12 @@ const email = profile.email;
 
 <script>
   import { initContactForm } from "../lib/contact-form";
+  import { initCopyEmail } from "../lib/copy-email";
 
   const form = document.querySelector<HTMLFormElement>("[data-contact-form]");
   if (form) initContactForm(form);
+  const copyButton = document.querySelector<HTMLButtonElement>("[data-copy-email]");
+  if (copyButton) initCopyEmail(copyButton);
 </script>
 
 <style>
@@ -179,7 +202,31 @@ const email = profile.email;
   }
 
   .contact__links dd {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    align-items: center;
     margin: 0;
+  }
+
+  .contact__copy-email {
+    min-height: 2.75rem;
+    padding: 0 0.85rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .contact__copy-email:hover {
+    border-color: var(--accent-2);
+  }
+
+  .contact__copy-email[data-state="copied"] {
+    border-color: var(--accent-2);
+    color: var(--accent-2);
   }
 
   .contact__links a {

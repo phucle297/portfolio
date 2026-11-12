@@ -256,6 +256,7 @@ export const contact = {
     noEmail: `Email sending isn't switched on yet ${ownerPlaceholder("email")}. Please reach me on LinkedIn for now.`,
     copyEmail: "Copy email",
     copied: "Email copied.",
+    copyFailed: "Couldn't copy. The address is selected, press Ctrl+C or ⌘C.",
   },
 } as const;
 
