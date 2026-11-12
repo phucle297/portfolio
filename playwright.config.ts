@@ -1,6 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 4322;
+/**
+ * Preview port for the e2e server. Its own port (default 4510, override with E2E_PORT) so it never
+ * collides with another preview on the shared box (QA uses 4400); never reuse a server that is
+ * already listening, so a run always tests its own fresh build.
+ */
+const PORT = Number(process.env.E2E_PORT ?? 4510);
 
 /**
  * End-to-end tests against the production build (`astro build` + `astro preview`).
@@ -26,7 +31,7 @@ export default defineConfig({
   webServer: {
     command: `bun run build && bun run preview -- --host 127.0.0.1 --port ${PORT}`,
     url: `http://127.0.0.1:${PORT}/`,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 180_000,
   },
 });

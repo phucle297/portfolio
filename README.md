@@ -43,11 +43,11 @@ sitemap (defaults to `https://phucle297.github.io`):
 SITE_URL=https://example.dev bun run build
 ```
 
-`test:e2e` builds the site and serves it on port 4322. On a machine without Playwright's own
+`test:e2e` builds the site and serves it on port 4510 (override with `E2E_PORT`; it never reuses a server already on that port). On a machine without Playwright's own
 browser download, point it at an installed Chrome: `CHROME_PATH=/usr/bin/google-chrome bun run
 test:e2e`. Tests that need the full 3D tier stub the hardware-WebGL probe and render on
-SwiftShader, so they check behaviour, not GPU performance. Astro allows one `preview` server at a
-time, so stop any other `bun run preview` before running `test:e2e`.
+SwiftShader, so they check behaviour, not GPU performance. Pick a free port with `E2E_PORT` if 4510
+is taken; do not stop other preview servers on a shared machine.
 
 ## Owner content and the email switch
 
@@ -230,7 +230,16 @@ frontmatter + `<script>` covers every import in the project.
 - **Fonts.** Be Vietnam Pro, Instrument Serif and IBM Plex Mono are self-hosted via `@fontsource`
   with `unicode-range` subsets (only used ranges download); the H1 faces are preloaded; metric
   overrides on local fallbacks limit layout shift. Anton is declared but only used by the 3D
-  island's textures, so static-tier visitors never download it.
+  island's textures, so static-tier visitors never download it. Only the latin, latin-ext and
+  Vietnamese subsets ship (IBM Plex Mono's cyrillic faces are left out in
+  `src/app/styles/fonts-plex-mono.css`).
+- **`hidden` always wins.** `global.css` sets `[hidden] { display: none !important; }`, so a
+  component's `display` rule can never reveal an element that ships hidden (form errors, the
+  Motion toggle without JS, the copy-email button).
+- **Copy email.** Next to the address, a "Copy email" button uses the Clipboard API and announces
+  "Email copied." in a polite live region; if the write fails it selects the address and says so.
+  It ships `hidden` and appears only with JS and the Clipboard API, so without JS the mailto link
+  and the selectable address remain.
 
 ## Accessibility and reduced motion
 
