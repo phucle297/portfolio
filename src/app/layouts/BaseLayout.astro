@@ -127,6 +127,7 @@ const imageUrl = new URL(image, Astro.site ?? Astro.url).href;
         };
         sync();
         window.addEventListener("resize", sync);
+        if (typeof ResizeObserver === "function") new ResizeObserver(sync).observe(header);
       })();
     </script>
     <main id="main" tabindex="-1">

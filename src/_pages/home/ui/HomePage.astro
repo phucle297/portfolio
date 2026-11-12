@@ -22,9 +22,41 @@ import WorkSection from "./WorkSection.astro";
 <ProcessSection />
 <ContactSection />
 
-<script>
-  import { initProgressBar } from "../lib/progress-bar";
-  initProgressBar();
+<!--
+  Progress fill: CSS scroll timeline is the default (works with and without JS). A tiny inline
+  fallback (rAF-throttled, transform only, no header layout reads on scroll) runs only when
+  the timeline API is missing. No module import, so this does not add to the initial JS budget.
+-->
+<script is:inline>
+  (function () {
+    const fill = document.querySelector("[data-progress]");
+    const root = fill && fill.parentElement;
+    if (!fill || !root) return;
+    if (window.CSS && CSS.supports("animation-timeline", "scroll()")) return;
+    let max = 0;
+    let queued = false;
+    const measure = function () {
+      max = document.documentElement.scrollHeight - window.innerHeight;
+    };
+    const paint = function () {
+      queued = false;
+      if (root.hasAttribute("data-progress-js")) return;
+      const p = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+      fill.style.transform = "scaleX(" + p.toFixed(4) + ")";
+    };
+    const onScroll = function () {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(paint);
+    };
+    measure();
+    paint();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", function () {
+      measure();
+      onScroll();
+    });
+  })();
 </script>
 
 <style>
@@ -55,7 +87,7 @@ import WorkSection from "./WorkSection.astro";
   /* Scroll progress line: fixed flush under the header (PF-27). Takes no layout space.
      --header-bottom is the header's real bottom edge, set before first paint and kept in
      sync on resize, so the bar is never behind the header and survives header-height
-     changes (mobile, scrolled state, later PF-11). Shown on every tier. */
+     changes (mobile, scrolled state, later PF-11). Shown on every tier, including static. */
   .home-progress {
     position: fixed;
     top: var(--header-bottom, var(--header-h));
@@ -76,9 +108,51 @@ import WorkSection from "./WorkSection.astro";
     transform-origin: 0 50%;
   }
 
+  /* CSS scroll timeline is the default driver (static and full, with or without JS). */
+  @supports (animation-timeline: scroll()) {
+    .home-progress span {
+      animation: home-progress-fill linear both;
+      animation-timeline: scroll();
+    }
+  }
+
+  @keyframes home-progress-fill {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+
+  /* Full-tier copy layer takes over with the scene's smoothed p. */
+  .home-progress[data-progress-js] span {
+    animation: none;
+  }
+
+  /* No JS and no scroll-timeline: hide the track so it never sits stuck empty or full. */
+  :global(html:not(.js)) .home-progress {
+    display: none;
+  }
+
+  @supports (animation-timeline: scroll()) {
+    :global(html:not(.js)) .home-progress {
+      display: block;
+    }
+  }
+
+  /* The global reduced-motion rule would force animation-duration: 0.01ms and freeze a
+     scroll-driven fill. This is a position indicator, not decorative motion. */
   @media (prefers-reduced-motion: reduce) {
     .home-progress span {
       transition: none;
+      animation-duration: unset;
+    }
+
+    @supports (animation-timeline: scroll()) {
+      .home-progress span {
+        animation-duration: unset !important;
+      }
     }
   }
 </style>

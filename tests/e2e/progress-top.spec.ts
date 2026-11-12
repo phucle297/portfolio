@@ -42,6 +42,13 @@ const scrollToRatio = async (page: Page, ratio: number): Promise<void> => {
   await expect.poll(() => scaleX(page), { timeout: 5_000 }).toBeGreaterThan(ratio * 0.5);
 };
 
+/** Force the static tier on a wide viewport by failing the WebGL probe. */
+const forceStatic = async (page: Page): Promise<void> => {
+  await page.route(/probe\.worker/, (route) =>
+    route.fulfill({ contentType: "text/javascript", body: "postMessage(false);" }),
+  );
+};
+
 test.describe("PF-27 progress bar under the header", () => {
   for (const viewport of VIEWPORTS) {
     test.describe(viewport.name, () => {
@@ -155,5 +162,71 @@ test.describe("PF-27 progress bar under the header", () => {
       expect(cls, `${viewport.name} CLS ${cls}`).toBeLessThanOrEqual(0.02);
       await context.close();
     });
+  });
+
+  test.describe("static tier", () => {
+    for (const viewport of VIEWPORTS) {
+      test(`${viewport.name}: the bar is visible, under the header, and grows with scroll`, async ({
+        page,
+      }) => {
+        if (viewport.width >= 768) await forceStatic(page);
+        await openAt(page, viewport.width, viewport.height);
+        await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
+        await expect(bar(page)).toBeVisible();
+
+        const atTop = await geometry(page);
+        expect(Math.abs(atTop.barTop - atTop.headerBottom)).toBeLessThanOrEqual(1);
+        await expect.poll(() => scaleX(page)).toBeCloseTo(0, 2);
+
+        await scrollToRatio(page, 0.45);
+        const mid = await scaleX(page);
+        expect(mid).toBeGreaterThan(0.3);
+        expect(mid).toBeLessThan(0.7);
+        const scrolled = await geometry(page);
+        expect(Math.abs(scrolled.barTop - scrolled.headerBottom)).toBeLessThanOrEqual(1);
+      });
+    }
+  });
+
+  test.describe("no JS", () => {
+    for (const viewport of VIEWPORTS) {
+      test(`${viewport.name}: the bar is CSS-driven or hidden, never stuck, with no errors`, async ({
+        browser,
+      }) => {
+        const context = await browser.newContext({
+          javaScriptEnabled: false,
+          viewport: { width: viewport.width, height: viewport.height },
+        });
+        const page = await context.newPage();
+        const errors: string[] = [];
+        page.on("pageerror", (error) => {
+          errors.push(error.message);
+        });
+        page.on("console", (msg) => {
+          if (msg.type() === "error") errors.push(msg.text());
+        });
+        await page.goto("/");
+        expect(errors, "no page or console errors").toEqual([]);
+
+        const visible = await bar(page).isVisible();
+        if (!visible) {
+          await expect(bar(page)).toBeHidden();
+        } else {
+          const track = await bar(page).boundingBox();
+          const startFill = await fill(page).boundingBox();
+          expect(track, "track is on screen").not.toBeNull();
+          expect(startFill, "fill is on screen").not.toBeNull();
+          const start = (startFill?.width ?? 0) / Math.max(1, track?.width ?? 1);
+
+          await page.mouse.move(Math.floor(viewport.width / 2), Math.floor(viewport.height / 2));
+          await page.mouse.wheel(0, 4000);
+          const midTrack = await bar(page).boundingBox();
+          const midFill = await fill(page).boundingBox();
+          const mid = (midFill?.width ?? 0) / Math.max(1, midTrack?.width ?? 1);
+          expect(mid, `fill grew (was ${start}, now ${mid})`).toBeGreaterThan(start + 0.1);
+        }
+        await context.close();
+      });
+    }
   });
 });
