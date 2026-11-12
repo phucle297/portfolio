@@ -18,6 +18,7 @@
     "format:check": "oxfmt --check",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "hw:verify": "node tools/hw/verify.ts",
     "verify": "bun run check && bun run typecheck && bun run lint && bun run format:check && bun run test && bun run build",
     "prepare": "node tools/install-git-hooks.mjs",
     "astro": "astro"
