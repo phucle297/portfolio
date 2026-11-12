@@ -11,6 +11,9 @@ import WorkSection from "./WorkSection.astro";
 
 <DarkroomScene />
 <div class="home-scrim" aria-hidden="true"></div>
+<div class="home-progress" aria-hidden="true">
+  <span data-progress></span>
+</div>
 <SectionRail />
 <HelloSection />
 <JourneySection />
@@ -37,5 +40,35 @@ import WorkSection from "./WorkSection.astro";
       background: linear-gradient(90deg, rgb(14 10 8 / 0.86) 0 82%, transparent 100%);
       pointer-events: none;
     }
+  }
+
+  /* Pinned copy brings its own per-section scrims. */
+  :global(html[data-pin="on"]) .home-scrim {
+    display: none;
+  }
+
+  /* Scroll progress line (pinned full tier only; the rail and nav carry the same information). */
+  .home-progress {
+    display: none;
+  }
+
+  :global(html[data-pin="on"]) .home-progress {
+    position: fixed;
+    right: var(--gutter);
+    bottom: 1.25rem;
+    left: var(--gutter);
+    z-index: 4;
+    display: block;
+    height: 2px;
+    background: var(--line);
+    pointer-events: none;
+  }
+
+  .home-progress span {
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    transform: scaleX(0);
+    transform-origin: 0 50%;
   }
 </style>

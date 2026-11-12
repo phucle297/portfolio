@@ -134,3 +134,119 @@ export function sectionAt(p: number): number {
 
 /** The scroll progress at which each key frame is shown in the mockups (kf-01…kf-06). */
 export const KEY_PROGRESS: readonly number[] = [0.03, 0.21, 0.41, 0.6, 0.76, 0.96];
+
+/* ---------- Copy layer (design.md §5) ---------- */
+
+/** Fractions of a morph's local time: outgoing copy exits over [0, .35], incoming enters over [.65, 1]. */
+export const COPY_EXIT_END = 0.35;
+export const COPY_ENTER_START = 0.65;
+/** Vertical travel of the copy while it exits (up) or enters (from below), in CSS px. */
+export const COPY_TRAVEL_PX = 24;
+
+export interface CopyState {
+  /** Opacity 0 → 1. */
+  opacity: number;
+  /** translateY in px (negative = up). */
+  y: number;
+}
+
+/**
+ * Opacity and offset of section `index`'s copy at progress `p`: at rest during its hold, exits
+ * over the first 35 % of the next morph, enters over the last 35 % of the previous one, and is
+ * absent otherwise. At most one section has opacity > 0 at any p.
+ */
+export function copyState(p: number, index: number): CopyState {
+  const { k, t } = locate(clamp(p));
+  if (t === 0) return k === index ? { opacity: 1, y: 0 } : { opacity: 0, y: 0 };
+  if (k === index && t <= COPY_EXIT_END) {
+    const opacity = 1 - ease(t / COPY_EXIT_END);
+    return { opacity, y: -COPY_TRAVEL_PX * (1 - opacity) };
+  }
+  if (k + 1 === index && t >= COPY_ENTER_START) {
+    const opacity = ease((t - COPY_ENTER_START) / (1 - COPY_ENTER_START));
+    return { opacity, y: COPY_TRAVEL_PX * (1 - opacity) };
+  }
+  return { opacity: 0, y: 0 };
+}
+
+/** `[from, to]` in p over which section `index`'s copy is at least partly visible. */
+export function copyWindow(index: number): readonly [number, number] {
+  const hold = HOLDS[index];
+  if (!hold) throw new Error(`No hold ${index}`);
+  const prev = HOLDS[index - 1];
+  const next = HOLDS[index + 1];
+  const from = prev ? prev[1] + (hold[0] - prev[1]) * COPY_ENTER_START : 0;
+  const to = next ? hold[1] + (next[0] - hold[1]) * COPY_EXIT_END : 1;
+  return [from, to];
+}
+
+/** Stretch of the hold (in p) over which each card is fully shown, when the hold is short. */
+const BEAT_SHOWN = 0.0035;
+/** Longest crossfade between two beats, in p. */
+const BEAT_FADE_MAX = 0.035;
+
+interface BeatLayout {
+  /** p where beat j − 1 hands over to beat j (middle of their crossfade), for j = 1 … count − 1. */
+  boundaries: number[];
+  /** Crossfade width in p. */
+  fade: number;
+}
+
+/**
+ * Beats (cards stepped through while a section is pinned) are laid out inside the section's
+ * hold, so every card is fully shown while the scene is at rest, never only during a morph
+ * (QA B-7). Each beat gets the same fully-shown stretch of the hold, `shown`: the first one
+ * from the hold start, the last one up to the hold end, the middle ones between two crossfades.
+ * The rest of the hold goes to the crossfades, as long as possible (a slow linear crossfade
+ * keeps the per-frame change small, M2-AC6): H = count·shown + (count − 1)·fade, with fade
+ * capped at .035 (longer holds give each card a longer stretch instead).
+ * Outside the hold the first beat stays on while the copy enters and the last while it exits.
+ */
+function beatLayout(index: number, count: number): BeatLayout {
+  const hold = HOLDS[index];
+  if (!hold) throw new Error(`No hold ${index}`);
+  const [from, to] = hold;
+  const fade = Math.min(BEAT_FADE_MAX, (to - from - count * BEAT_SHOWN) / (count - 1));
+  if (fade <= 0) throw new Error(`Hold ${index} is too short for ${count} beats`);
+  const step = (to - from + fade) / count;
+  const first = from + step - fade / 2;
+  return { boundaries: Array.from({ length: count - 1 }, (_, j) => first + j * step), fade };
+}
+
+/** Which of `count` beats is active at `p` (the one past its last handover). */
+export function beatAt(p: number, index: number, count: number): number {
+  if (count <= 1) return 0;
+  return beatLayout(index, count).boundaries.filter((b) => p >= b).length;
+}
+
+/** The p in the middle of beat `beat`'s fully-shown stretch of the hold (where focus scrolls to). */
+export function beatProgress(index: number, beat: number, count: number): number {
+  if (count <= 1) return KEY_PROGRESS[index] ?? 0;
+  const hold = HOLDS[index];
+  if (!hold) throw new Error(`No hold ${index}`);
+  const { boundaries, fade } = beatLayout(index, count);
+  const start = beat === 0 ? hold[0] : (boundaries[beat - 1] ?? hold[0]) + fade / 2;
+  const end = beat === count - 1 ? hold[1] : (boundaries[beat] ?? hold[1]) - fade / 2;
+  return (start + end) / 2;
+}
+
+/** Crossfade width (in p) between two beats of section `index`. */
+export function beatFade(index: number, count: number): number {
+  return count <= 1 ? 0 : beatLayout(index, count).fade;
+}
+
+/**
+ * Opacity of beat `beat` (of `count`) of section `index` at `p`, scrubbed by scroll like the rest
+ * of the copy: 1 on its own stretch, crossfading with its neighbour (linear in p, centred on the
+ * handover, the two always sum to 1). Linear keeps the per-frame change as small as possible;
+ * time-based or eased transitions concentrate it and show up as pops in the per-p smoothness
+ * capture (M2-AC6).
+ */
+export function beatOpacity(p: number, index: number, beat: number, count: number): number {
+  if (count <= 1) return 1;
+  const { boundaries, fade } = beatLayout(index, count);
+  const ramp = (boundary: number): number => clamp((p - (boundary - fade / 2)) / fade);
+  const rise = beat === 0 ? 1 : ramp(boundaries[beat - 1] ?? 0);
+  const fall = beat === count - 1 ? 1 : 1 - ramp(boundaries[beat] ?? 1);
+  return rise * fall;
+}
