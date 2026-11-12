@@ -132,7 +132,8 @@ jobs:
             [ "$code" = "200" ] && exit 0
             sleep 10
           done
-          echo "::warning::Preview URL did not return 200 yet."
+          echo "::error::Preview URL did not return 200 within the retry window."
+          exit 1
       - if: steps.upload.outputs.state == 'ok'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -205,5 +206,5 @@ jobs:
             [ "$code" = "200" ] && exit 0
             sleep 10
           done
-          echo "::error::${PROD_URL} did not return 200 after deploy. Roll back with: wrangler rollback"
+          echo "::error::${PROD_URL} did not return 200 after deploy. See docs/deploy.md. Roll back to an explicit prod version id from wrangler deployments list, for example: bun x wrangler@${WRANGLER_VERSION} rollback <version-id> --message \"rollback to main <sha>: <reason>\"."
           exit 1

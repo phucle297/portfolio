@@ -42,12 +42,21 @@ Rollback is the Owner's call. The quick path, which needs a token with Workers S
 
 Rules:
 
-- **Always pass an explicit version id taken from `wrangler deployments list`.** Never pick one
-  from `wrangler versions list`, and do not run `wrangler rollback` without an id: PR preview
-  versions share the version list, so "the previous version" can be a PR build (for example one
-  with the PR-only `/ui-preview/` page) that was never reviewed for production.
-- Cloudflare can only roll back to the **100 most recent versions**. Every PR push adds one, so
-  older production versions fall out of reach quickly.
+- **Always pass an explicit version id taken from a production deployment.** Never pick one with
+  a `pr-<N>` preview tag or a `PR #<N> <sha>` message, and do not run `wrangler rollback` without
+  an id: PR preview versions share the version list, so "the previous version" can be a PR build
+  (for example one with the PR-only `/ui-preview/` page) that was never reviewed for production.
+- `bun x wrangler@4.160.1 deployments list` shows only the **10 most recent deployments**.
+  wrangler 4.160.1's `--help` lists no pagination flag (only `--name` and `--json`). The same
+  10-row cap applies to `bun x wrangler@4.160.1 versions list` (also only `--name` and `--json`).
+  Rollback can still reach the **100 most recent versions**.
+- To find an older production version id that has dropped off those 10 rows, use the dashboard
+  (Workers & Pages → `portfolio` → Deployments history) and take a version whose message is
+  `main <sha>`. Among the 10 rows the CLI does print, you can also run
+  `bun x wrangler@4.160.1 versions list --json` and keep entries whose message is `main <sha>`
+  (and whose tag is not `pr-<N>`). **Never roll back to a `pr-<N>` preview version.**
+- Every PR push adds a version, so older production versions fall out of the 100-version window
+  quickly.
 - A rollback is a stopgap: the next push to `main` deploys again. **The durable fix is to revert
   the bad commit on `main`** (a revert PR); its push redeploys production from a clean build.
 
