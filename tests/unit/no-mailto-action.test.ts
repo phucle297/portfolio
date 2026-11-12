@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
 import { ensureBuiltIndex, formMailtoActions } from "../../tools/no-mailto-action";
 
 describe("built HTML has no mailto form action", () => {
-  it("does not render form[action^=mailto] in dist/index.html", () => {
+  // Cold-tree `astro build` takes ~6–7 s, past Vitest's 5 s default (QA Low on #22).
+  it("does not render form[action^=mailto] in dist/index.html", { timeout: 60_000 }, () => {
     const html = ensureBuiltIndex();
     expect(formMailtoActions(html)).toEqual([]);
     expect(html).toMatch(/<form\b[^>]*\bdata-contact-form\b/u);
