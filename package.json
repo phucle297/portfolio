@@ -37,6 +37,7 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.12",
     "@astrojs/compiler-rs": "0.5.3",
+    "@axe-core/playwright": "4.14.0",
     "@feature-sliced/steiger-plugin": "0.8.2",
     "@oxlint/plugins": "1.93.0",
     "@playwright/test": "^1.65.0",

@@ -10,7 +10,13 @@ import { inSequence, openScene, scrollToP, settle } from "./helpers";
 
 interface B4Watch {
   lastScroll: number;
-  lastRaf: number;
+  /** `darkroomTest.rafs()` when the last scroll event ran: later ticks come after it. */
+  rafsAtScroll: number;
+  /**
+   * Stage ticks (rAF callbacks that advanced `darkroomTest.rafs()`): callback start time and tick
+   * number.
+   */
+  ticks: { at: number; n: number }[];
   stop: boolean;
 }
 declare global {
@@ -475,60 +481,123 @@ test.describe("B-5 focus never lands mid-morph", () => {
   });
 });
 
+/** M2-AC10 idle budget: 0 rAF callbacks later than this after the last scroll event. */
+const B4_BUDGET_MS = 1500;
+/** M2-AC10: after stopping, 0 rAF callbacks in the next 2 s. */
+const B4_QUIET_MS = 2000;
+
+interface B4Verdict {
+  gap: number;
+  ticksAfterScroll: number;
+}
+
+/**
+ * M2-AC10 / PF-15 AC2, as agreed for B-4 (TASK-20261113-19): "0 rAF after 1.5 s idle" means the
+ * last stage rAF callback *starts* ≤ 1500 ms after the last scroll event (definition 1). The
+ * time is taken at callback start, not when its draw work finishes or a poll notices it, so a
+ * slow draw on a loaded host does not count. The bound is strict 1500 ms, slow frames included:
+ * no host-stall allowance. Measured from scroll stop, not from settle.
+ */
+function b4Verdict(w: B4Watch): B4Verdict {
+  // "After" is by tick number, not time: performance.now() is coarse enough that the last scroll
+  // event and the tick right after it can carry the same timestamp.
+  const after = w.ticks.filter((tick) => tick.n > w.rafsAtScroll);
+  const last = after.at(-1);
+  return { gap: last ? last.at - w.lastScroll : Number.NaN, ticksAfterScroll: after.length };
+}
+
+function b4Check(r: B4Watch & B4Verdict, label: string): void {
+  const summary = JSON.stringify({ label, ...r, ticks: r.ticks.length });
+  expect(r.lastScroll, summary).toBeGreaterThan(0);
+  expect(r.ticksAfterScroll, summary).toBeGreaterThan(0);
+  expect(r.gap, summary).toBeLessThanOrEqual(B4_BUDGET_MS);
+}
+
 test.describe("B-4 the render loop idles within 1.5 s of scrolling stopping", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
 
   test("last rAF callback ≤ 1.5 s after the last scroll event (wheel and a long jump)", async ({
     page,
   }) => {
+    // Time every stage tick where its callback starts (definition 1, see b4Verdict), not when a
+    // poll notices it, so a slow draw or a late poll on a loaded host does not count.
+    await page.addInitScript(() => {
+      const raf = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (callback) =>
+        raf((ts) => {
+          const at = performance.now();
+          const before = window.darkroomTest?.rafs() ?? 0;
+          try {
+            callback(ts);
+          } finally {
+            // Recorded even if the callback throws, so no tick goes uncounted.
+            const w = window.b4Watch;
+            const n = window.darkroomTest?.rafs() ?? 0;
+            if (w && !w.stop && n !== before) w.ticks.push({ at, n });
+          }
+        });
+    });
     await openScene(page);
     await scrollToP(page, 0.03);
     // Measured from the last scroll event (scroll stop), not from "caught up".
     const watch = async (): Promise<void> => {
       await page.evaluate(() => {
-        const w: B4Watch = { lastScroll: 0, lastRaf: 0, stop: false };
+        const w: B4Watch = { lastScroll: 0, rafsAtScroll: 0, ticks: [], stop: false };
         window.b4Watch = w;
         window.addEventListener("scroll", () => {
           w.lastScroll = performance.now();
+          w.rafsAtScroll = window.darkroomTest?.rafs() ?? 0;
         });
-        let seen = window.darkroomTest?.rafs() ?? 0;
-        const poll = (): void => {
-          const n = window.darkroomTest?.rafs() ?? 0;
-          if (n !== seen) {
-            seen = n;
-            w.lastRaf = performance.now();
-          }
-          if (!w.stop) setTimeout(poll, 10);
+      });
+    };
+    const result = async (label: string): Promise<B4Watch & B4Verdict> => {
+      // Watch ≥ 3.5 s after the last scroll and until the loop has been quiet for 2 s; a loop
+      // that never idles never gets there and fails here.
+      await page
+        .waitForFunction(
+          ({ quiet, min }) => {
+            const w = window.b4Watch;
+            if (!w || w.lastScroll === 0) return false;
+            const now = performance.now();
+            const lastTick = w.ticks.at(-1)?.at ?? 0;
+            return now - w.lastScroll >= min && now - Math.max(lastTick, w.lastScroll) >= quiet;
+          },
+          { quiet: B4_QUIET_MS, min: 3500 },
+          { timeout: 20_000, polling: 100 },
+        )
+        .catch(() => {
+          throw new Error(`${label}: the render loop did not go quiet for ${B4_QUIET_MS} ms`);
+        });
+      const w = await page.evaluate(() => {
+        const watched = window.b4Watch;
+        if (!watched) throw new Error("no watch");
+        watched.stop = true;
+        return {
+          lastScroll: watched.lastScroll,
+          rafsAtScroll: watched.rafsAtScroll,
+          ticks: watched.ticks,
+          stop: true,
         };
-        poll();
       });
-    };
-    const result = async (): Promise<B4Watch & { gap: number }> => {
-      await page.waitForTimeout(3500);
-      return page.evaluate(() => {
-        const w = window.b4Watch;
-        if (!w) throw new Error("no watch");
-        w.stop = true;
-        return { ...w, gap: w.lastRaf - w.lastScroll };
+      const verdict = { ...w, ...b4Verdict(w) };
+      test.info().annotations.push({
+        type: `B-4 ${label}`,
+        description: JSON.stringify({ ...verdict, ticks: w.ticks.length }),
       });
+      return verdict;
     };
+
     await watch();
     await page.mouse.move(800, 500);
     await inSequence([1, 2, 3, 4, 5], async () => {
       await page.mouse.wheel(0, 900);
     });
-    const wheel = await result();
-    expect(wheel.lastScroll).toBeGreaterThan(0);
-    expect(wheel.lastRaf).toBeGreaterThan(wheel.lastScroll);
-    expect(wheel.gap, JSON.stringify(wheel)).toBeLessThanOrEqual(1500);
+    b4Check(await result("wheel"), "wheel");
 
     await watch();
     await page.evaluate(() => {
       window.scrollTo({ top: 0, behavior: "instant" });
     });
-    const jump = await result();
-    expect(jump.lastScroll).toBeGreaterThan(0);
-    expect(jump.lastRaf).toBeGreaterThan(jump.lastScroll);
-    expect(jump.gap, JSON.stringify(jump)).toBeLessThanOrEqual(1500);
+    b4Check(await result("jump"), "jump");
   });
 });
