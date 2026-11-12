@@ -28,6 +28,7 @@ import {
   type JudgedNode,
   type Judgement,
 } from "./a11y-contrast.lib";
+import { assertFiledFindings, FILED_FINDINGS } from "./a11y-findings";
 import {
   expect,
   test,
@@ -220,29 +221,8 @@ function record(state: string, result: AxeResults, judgement: Judgement): void {
   );
 }
 
-/**
- * Contrast findings filed in the PR under PF-03 AC3 ("a violation that lives in a PR #3 file is
- * filed as a finding in the PR, not fixed here, and fixed in wave 2"). Matched by stable
- * selector and only off the full tier (backdrop = the Services poster still, not the canvas).
- * Each is printed with its measured ratio in every run; anything else that fails, fails.
- */
-const FILED_FINDINGS = [
-  {
-    selector: ".services__subline",
-    file: "src/_pages/home/ui/ServicesSection.astro",
-    note: "Services sub-line over the Services still (static tier, 1440)",
-  },
-  {
-    selector: ".services__head > .eyebrow",
-    file: "src/_pages/home/ui/ServicesSection.astro",
-    note: "Services eyebrow over the Services still (static tier, 1440)",
-  },
-  {
-    selector: "#services-title > em",
-    file: "src/_pages/home/ui/ServicesSection.astro",
-    note: "Services title accent (#FF7A3D) over the Services still (static tier, 1440)",
-  },
-] as const;
+// Frozen to the three PF-40 Services selectors (reviewer condition): fails the whole spec otherwise.
+assertFiledFindings(FILED_FINDINGS);
 
 /** Pixel-judge verdicts per scanned result (see a11y-contrast.lib.ts). */
 const JUDGED = new WeakMap<AxeResults, Judgement>();
@@ -261,7 +241,7 @@ async function analyze(page: Page, state: string): Promise<AxeResults> {
   const judgement = await judgeIncompleteContrast(page, result, state, {
     scroll: !fullTier,
     settle,
-    findings: fullTier ? [] : FILED_FINDINGS.map((f) => f.selector),
+    findings: fullTier ? [] : FILED_FINDINGS,
   });
   JUDGED.set(result, judgement);
   record(state, result, judgement);
@@ -270,7 +250,7 @@ async function analyze(page: Page, state: string): Promise<AxeResults> {
   const filed = nodes.filter((n) => n.verdict === "finding");
   for (const n of filed)
     process.stdout.write(
-      `FILED FINDING (PF-03 AC3, fix in wave 2) · ${state}: ${n.target} "${n.text}" ${n.reason} · ${FILED_FINDINGS.find((f) => n.finding === f.selector)?.file ?? ""}\n`,
+      `FILED FINDING (PF-40, filed under PF-03 AC3) · ${state}: ${n.target} "${n.text}" ${n.reason} · ${FILED_FINDINGS.find((f) => n.finding === f.selector)?.file ?? ""}\n`,
     );
   process.stdout.write(
     `contrast fallback · ${state}: ${nodes.length} incomplete → ${count(nodes, "pass")} pass, ${count(nodes, "fail")} fail, ${deferred.length} deferred (live canvas: PF-04 / PF-23), ${count(nodes, "undecided")} undecided, ${filed.length} filed findings${deferred.length > 0 ? ` · deferred: ${deferred.map((n) => `${n.target} (${n.reason})`).join("; ")}` : ""}\n`,
@@ -533,7 +513,7 @@ test.afterAll(() => {
     "",
     "Contrast pixel judge (axe color-contrast incomplete nodes; SwiftShader on the full tier):",
     "",
-    "| State | Incomplete | Pass | Fail | Deferred (live canvas: PF-04 / PF-23) | Filed findings (AC3, wave 2) | Undecided |",
+    "| State | Incomplete | Pass | Fail | Deferred (live canvas: PF-04 / PF-23) | Filed findings (PF-40, AC3) | Undecided |",
     "|---|---|---|---|---|---|---|",
     ...contrastRows,
   ].join("\n");

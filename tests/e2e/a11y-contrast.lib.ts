@@ -86,8 +86,8 @@ export interface JudgeOptions {
   scroll: boolean;
   /** The spec's settle(), run after every scroll. */
   settle: (page: Page) => Promise<void>;
-  /** Stable selectors of findings filed in the PR (PF-03 AC3): a FAILING match is a "finding". */
-  findings: readonly string[];
+  /** Findings filed in the PR (PF-03 AC3, carded): a FAILING match is a "finding". */
+  findings: readonly { readonly selector: string; readonly card: string }[];
 }
 
 export async function judgeIncompleteContrast(
@@ -113,7 +113,8 @@ export async function judgeIncompleteContrast(
     for (const m of list)
       if (m.pixels > 0 || !measured.has(m.selector)) measured.set(m.selector, m);
   };
-  keep(await measure(page, targets, options.findings));
+  const filedSelectors = options.findings.map((f) => f.selector);
+  keep(await measure(page, targets, filedSelectors));
   if (options.scroll) {
     const start = await page.evaluate(() => [window.scrollX, window.scrollY]);
     const tried = new Set<string>();
@@ -132,7 +133,7 @@ export async function judgeIncompleteContrast(
       await options.settle(page);
       const pending = targets.filter((t) => (measured.get(t)?.pixels ?? 0) === 0);
       // oxlint-disable-next-line no-await-in-loop -- one scroll position at a time
-      keep(await measure(page, pending, options.findings));
+      keep(await measure(page, pending, filedSelectors));
     }
     await page.evaluate(([x = 0, y = 0]) => {
       window.scrollTo({ left: x, top: y, behavior: "instant" });
@@ -161,7 +162,7 @@ export async function judgeIncompleteContrast(
       reason = "";
     } else if (n.finding !== null && !n.canvasBacked) {
       verdict = "finding";
-      reason = `${n.ratio.toFixed(2)}:1 < ${required}:1, filed finding (PF-03 AC3, PR #3 file, wave 2)`;
+      reason = `${n.ratio.toFixed(2)}:1 < ${required}:1, filed finding (${options.findings.find((f) => f.selector === n.finding)?.card ?? "?"}, PF-03 AC3)`;
     } else if (n.railNumeral && n.canvasBacked) {
       // Known, carded defect: the section-rail numerals over the live scene (backlog PF-23, found
       // by PF-04's tool). Listed in the output with the measured ratio, never silently passed.
