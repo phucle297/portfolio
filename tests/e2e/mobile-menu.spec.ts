@@ -139,6 +139,44 @@ test.describe("PF-11 mobile menu sheet", () => {
           expect(box.height).toBeGreaterThanOrEqual(phone.height - 1);
         }
 
+        const stacking = await page.evaluate(() => {
+          const dialog = document.querySelector<HTMLElement>("[data-menu-sheet]");
+          if (!dialog) throw new Error("sheet missing");
+          let bar = document.querySelector<HTMLElement>(".home-progress");
+          let planted = false;
+          if (!bar) {
+            bar = document.createElement("div");
+            bar.className = "home-progress";
+            const header = document.querySelector(".site-header");
+            const top = header ? header.getBoundingClientRect().bottom : 0;
+            bar.style.cssText = `position:fixed;left:0;right:0;top:${top}px;height:2px;z-index:21;`;
+            document.body.append(bar);
+            planted = true;
+          }
+          const previous = bar.style.pointerEvents;
+          bar.style.pointerEvents = "auto";
+          const rect = bar.getBoundingClientRect();
+          const hit = document.elementFromPoint(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+          );
+          bar.style.pointerEvents = previous;
+          const sheetZ = getComputedStyle(dialog).zIndex;
+          const backdropZ = getComputedStyle(dialog, "::backdrop").zIndex;
+          const covered = hit !== null && (dialog === hit || dialog.contains(hit));
+          if (planted) bar.remove();
+          return { covered, sheetZ, backdropZ, hit: hit?.tagName ?? null };
+        });
+        expect(
+          Number.parseInt(stacking.sheetZ, 10),
+          `sheet z-index ${stacking.sheetZ}`,
+        ).toBeGreaterThanOrEqual(22);
+        expect(
+          Number.parseInt(stacking.backdropZ, 10),
+          `backdrop z-index ${stacking.backdropZ}`,
+        ).toBeGreaterThanOrEqual(22);
+        expect(stacking.covered, "open sheet covers the progress bar (z-index 21)").toBe(true);
+
         await inSequence(SECTIONS, async (name) => {
           await expect(sheet(page).getByRole("link", { name })).toBeVisible();
         });

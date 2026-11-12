@@ -410,10 +410,13 @@ const { anchorBase = "" } = Astro.props;
 
   /* ---------- Mobile menu sheet (full-screen dialog; not in flow, so open/close has no CLS) ----------
      position: fixed / inset: 0 keeps the sheet out of .site-header's border box. PF-27 (PR #18)
-     sets --header-bottom from that box; opening the sheet must not move it. */
+     sets --header-bottom from that box; opening the sheet must not move it.
+     z-index 22 keeps the sheet and its backdrop above PF-27's progress bar (z-index 21).
+     The header itself is 20, so the modal top layer plus this z-index is what stacks above the bar. */
   .menu-sheet {
     position: fixed;
     inset: 0;
+    z-index: 22;
     width: 100vw;
     height: 100dvh;
     max-width: none;
@@ -426,6 +429,7 @@ const { anchorBase = "" } = Astro.props;
   }
 
   .menu-sheet::backdrop {
+    z-index: 22;
     background: var(--bg);
   }
 
