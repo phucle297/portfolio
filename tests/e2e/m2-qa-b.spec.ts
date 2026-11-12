@@ -1,10 +1,11 @@
 /**
  * QA follow-up on PR #3 (TASK-08 attempt 3): real mouse clicks reach the pinned copy (B-1),
- * focus never lands mid-morph (B-5), and the render loop idles ≤ 1.5 s after scrolling stops
- * (B-4). Full tier (`?scene-test`, SwiftShader standing in for the GPU), pinned layout.
+ * focus never lands mid-morph (B-5), the render loop idles ≤ 1.5 s after scrolling stops
+ * (B-4); attempt 4: every copy card is fully shown inside its section's hold while scrolling
+ * (B-7), and every control is shown and takes the click in its hold. Full tier (`?scene-test`, SwiftShader standing in for the GPU), pinned layout.
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { HOLDS, KEY_PROGRESS, SECTIONS } from "../../src/shared/lib/timeline";
+import { beatProgress, HOLDS, KEY_PROGRESS, SECTIONS } from "../../src/shared/lib/timeline";
 import { inSequence, openScene, scrollToP, settle } from "./helpers";
 
 interface B4Watch {
@@ -45,6 +46,25 @@ async function hitAtCentre(target: Locator) {
 
 const holdOf = (p: number): number => HOLDS.findIndex(([a, b]) => p >= a - 1e-6 && p <= b + 1e-6);
 
+/**
+ * Where control `el` of section `index` is shown: the middle of its own beat's fully-shown
+ * stretch of the hold, or the section's key p when the section has a single beat.
+ */
+async function shownAt(control: Locator, index: number): Promise<number> {
+  const { own, count } = await control.evaluate((el) => {
+    const body = el.closest("[data-copy-body]");
+    const all = Array.from(body?.querySelectorAll<HTMLElement>("[data-beat]") ?? []).flatMap((b) =>
+      (b.dataset.beat ?? "").split(/\s+/u).filter(Boolean).map(Number),
+    );
+    const mine = el.closest<HTMLElement>("[data-beat]")?.dataset.beat?.split(/\s+/u)[0];
+    return {
+      own: mine === undefined ? 0 : Number(mine),
+      count: all.length ? Math.max(...all) + 1 : 1,
+    };
+  });
+  return beatProgress(index, own, count);
+}
+
 async function pFromScroll(page: Page): Promise<number> {
   return page.evaluate(() => scrollY / (document.documentElement.scrollHeight - innerHeight));
 }
@@ -71,40 +91,51 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
     });
 
-    test("every visible control in each hold is the hit-test target at its centre", async ({
+    test("every control is fully shown, unobstructed and the hit-test target in its hold", async ({
       page,
     }) => {
       const misses: string[] = [];
-      await inSequence(KEY_PROGRESS, async (p, index) => {
-        await scrollToP(page, p);
-        const id = SECTIONS[index]?.id ?? "";
+      let audited = 0;
+      await inSequence(SECTIONS, async (section, index) => {
         const controls = page.locator(
-          `#${id} [data-copy-body] :is(a[href], button, input, select, textarea)`,
+          `#${section.id} [data-copy-body] :is(a[href], button, input, select, textarea)`,
         );
         const count = await controls.count();
         await inSequence(
           Array.from({ length: count }, (_, i) => i),
           async (i) => {
             const control = controls.nth(i);
-            const shown = await control.evaluate((el) => {
-              const r = el.getBoundingClientRect();
+            // No control is skipped: each one is checked where its card is shown, which must
+            // be inside its section's hold (scene at rest).
+            const p = await shownAt(control, index);
+            if (holdOf(p) !== index)
+              misses.push(`${section.id} #${i}: shown at p=${p} outside the hold`);
+            await scrollToP(page, p);
+            audited += 1;
+            const state = await control.evaluate((el) => {
+              // A radio's visible box is its label (the input itself is styled away).
+              const box =
+                el instanceof HTMLInputElement && el.type === "radio"
+                  ? (el.closest("label") ?? el)
+                  : el;
+              const r = box.getBoundingClientRect();
               let o = 1;
-              for (let n: Element | null = el; n; n = n.parentElement)
+              for (let n: Element | null = box; n; n = n.parentElement)
                 o *= Number(getComputedStyle(n).opacity);
-              const style = getComputedStyle(el);
-              return (
-                o > 0.99 &&
-                r.width > 0 &&
-                r.height > 0 &&
-                r.top >= 72 &&
-                r.bottom <= innerHeight &&
-                style.visibility !== "hidden" &&
-                style.display !== "none"
-              );
+              const style = getComputedStyle(box);
+              return {
+                opacity: o,
+                inView: r.width > 0 && r.height > 0 && r.top >= 72 && r.bottom <= innerHeight,
+                visible: style.visibility !== "hidden" && style.display !== "none",
+                label: `${el.tagName.toLowerCase()}#${el.id} "${(el.textContent ?? "").trim().slice(0, 24)}"`,
+              };
             });
-            if (!shown) return;
+            const where = `${section.id} #${i} ${state.label} at p=${p.toFixed(4)}`;
+            if (state.opacity < 0.999) misses.push(`${where}: opacity ${state.opacity.toFixed(3)}`);
+            if (!state.inView) misses.push(`${where}: not inside the viewport below the header`);
+            if (!state.visible) misses.push(`${where}: hidden`);
             const hit = await hitAtCentre(control);
-            if (!hit.ok) misses.push(`${id} #${i}: hit ${hit.hit} (pointer-events ${hit.pe})`);
+            if (!hit.ok) misses.push(`${where}: hit ${hit.hit} (pointer-events ${hit.pe})`);
             // Nothing (the sticky footer, other copy) covers any part of it: points at 15 % / 85 %
             // across and 25 % / 75 % down (inside rounded pill corners).
             const covered = await control.evaluate((el) => {
@@ -121,11 +152,36 @@ for (const viewport of VIEWPORTS) {
                 return !(at && (el === at || el.contains(at) || label?.contains(at) === true));
               }).length;
             });
-            if (covered > 0) misses.push(`${id} #${i}: ${covered} of 4 edge points covered`);
+            if (covered > 0) misses.push(`${where}: ${covered} of 4 edge points covered`);
           },
         );
       });
+      // 14 controls in the copy (Hello 2, Services 1, Contact 11).
+      expect(audited).toBeGreaterThanOrEqual(14);
       expect(misses).toEqual([]);
+    });
+
+    test("Services: 'Get a quote' takes a real mouse click in the Services hold", async ({
+      page,
+    }) => {
+      const quote = page.locator("#services [data-start-project]");
+      const p = await shownAt(quote, 3);
+      expect(holdOf(p), `p=${p}`).toBe(3);
+      await scrollToP(page, p);
+      expect(holdOf(await pFromScroll(page))).toBe(3);
+      const opacity = await quote.evaluate((el) => {
+        let o = 1;
+        for (let n: Element | null = el; n; n = n.parentElement)
+          o *= Number(getComputedStyle(n).opacity);
+        return o;
+      });
+      expect(opacity).toBeGreaterThanOrEqual(0.999);
+      const hit = await hitAtCentre(quote);
+      expect(hit, hit.hit).toMatchObject({ ok: true });
+      await page.mouse.click(hit.x, hit.y);
+      await settle(page);
+      expect(await pFromScroll(page)).toBeGreaterThan(SECTIONS[5]?.start ?? 0.84);
+      await expect(page.locator("#contact-name")).toBeFocused();
     });
 
     test("Hello: Start a project and the CV link take real mouse clicks", async ({ page }) => {
@@ -167,10 +223,16 @@ for (const viewport of VIEWPORTS) {
       await clickAt(page.locator("#contact-brief"));
       await page.keyboard.type("A small site.");
       await expect(page.locator("#contact-brief")).toHaveValue("A small site.");
+      // The project-type select (freelance mode, the default) takes the click and focus;
+      // Escape closes its picker if one opened.
+      await clickAt(page.locator("#contact-type"));
+      await expect(page.locator("#contact-type")).toBeFocused();
+      await page.keyboard.press("Escape");
       const fullTime = page.locator('#contact input[data-mode="1"]');
       await clickAt(fullTime);
       await expect(fullTime).toBeChecked();
-      await clickAt(page.locator("#contact-type")).catch(() => undefined);
+      // Full-time mode has no project type.
+      await expect(page.locator("#contact-type")).toBeHidden();
       // Send brief: the click submits, validation flags the email and focuses it.
       await clickAt(page.locator(".contact__submit"));
       await expect(page.locator("#contact-email-error")).toBeVisible();
@@ -183,6 +245,90 @@ for (const viewport of VIEWPORTS) {
     });
   });
 }
+
+test.describe("B-7 every copy card is fully shown inside its section's hold while scrolling", () => {
+  for (const viewport of [VIEWPORTS[0], VIEWPORTS[2]]) {
+    test(`scroll sweep at ${viewport?.width}×${viewport?.height}`, async ({ page }) => {
+      test.setTimeout(300_000);
+      await page.setViewportSize(viewport ?? { width: 1600, height: 1000 });
+      await openScene(page);
+      await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
+      const failures: string[] = [];
+      let cards = 0;
+      await inSequence(SECTIONS, async (section, index) => {
+        const hold = HOLDS[index] ?? [0, 0];
+        // Continuous scrolling from just before the hold to just after: one scroll step per
+        // frame (the scene and copy follow their smoothed p), every card sampled each frame.
+        // Δp 4e-4 per frame where cards step (≥ 10 samples per card's fully-shown stretch),
+        // 2e-3 elsewhere.
+        const stepped =
+          (await page.locator(`#${section.id} [data-copy-body] [data-beat]`).count()) > 0;
+        await scrollToP(page, Math.max(0, hold[0] - 0.006));
+        const result = await page.evaluate(
+          async ({ id, from, to, holdFrom, holdTo, dp }) => {
+            const body = document.querySelector(`#${id} [data-copy-body]`);
+            if (!body) return [];
+            const beatEls = Array.from(body.querySelectorAll<HTMLElement>("[data-beat]"));
+            const els: Element[] = beatEls.length ? beatEls : [body];
+            const best = els.map(() => ({ inHold: 0, outside: 0, at: -1 }));
+            const max = document.documentElement.scrollHeight - innerHeight;
+            for (let p = from; p <= to; p += dp) {
+              window.scrollTo({ top: p * max, behavior: "instant" });
+              // oxlint-disable-next-line no-await-in-loop -- one sample per frame, in order
+              await new Promise<void>((resolve) => {
+                requestAnimationFrame(() => {
+                  resolve();
+                });
+              });
+              const shown = window.darkroomTest?.shown() ?? -1;
+              const scrolled = scrollY / max;
+              els.forEach((el, i) => {
+                let o = 1;
+                for (let n: Element | null = el; n; n = n.parentElement)
+                  o *= Number(getComputedStyle(n).opacity);
+                const entry = best[i];
+                if (!entry) return;
+                const inHold =
+                  shown >= holdFrom &&
+                  shown <= holdTo &&
+                  scrolled >= holdFrom &&
+                  scrolled <= holdTo;
+                if (inHold && o > entry.inHold) {
+                  entry.inHold = o;
+                  entry.at = shown;
+                } else if (!inHold) entry.outside = Math.max(entry.outside, o);
+              });
+            }
+            return els.map((el, i) => ({
+              label: `${el.tagName.toLowerCase()}.${el.className.split(" ")[0] ?? ""}[data-beat="${el.getAttribute("data-beat") ?? "-"}"]`,
+              inHold: best[i]?.inHold ?? 0,
+              outside: best[i]?.outside ?? 0,
+              at: best[i]?.at ?? -1,
+            }));
+          },
+          {
+            id: section.id,
+            from: Math.max(0, hold[0] - 0.006),
+            to: Math.min(1, hold[1] + 0.006),
+            holdFrom: hold[0],
+            holdTo: hold[1],
+            dp: stepped ? 4e-4 : 2e-3,
+          },
+        );
+        for (const card of result) {
+          cards += 1;
+          if ((card.inHold ?? 0) < 0.999)
+            failures.push(
+              `${section.id} ${card.label}: max opacity in hold ${card.inHold?.toFixed(3)} (outside ${card.outside?.toFixed(3)})`,
+            );
+        }
+      });
+      // 6 sections; Journey and Services step through their cards.
+      expect(cards).toBeGreaterThanOrEqual(13);
+      expect(failures).toEqual([]);
+    });
+  }
+});
 
 test.describe("B-5 focus never lands mid-morph", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });

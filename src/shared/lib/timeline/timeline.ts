@@ -180,43 +180,74 @@ export function copyWindow(index: number): readonly [number, number] {
   return [from, to];
 }
 
+/** Share of a beat's step spent crossfading into the next one (the rest it is fully shown). */
+const BEAT_FADE_SHARE = 0.65;
+/** Longest crossfade between two beats, in p. */
+const BEAT_FADE_MAX = 0.035;
+
+interface BeatLayout {
+  /** p where beat j − 1 hands over to beat j (middle of their crossfade), for j = 1 … count − 1. */
+  boundaries: number[];
+  /** Crossfade width in p. */
+  fade: number;
+}
+
 /**
- * Which of `count` beats (cards stepped through while a section is pinned) is active at `p`:
- * the section's copy window split into equal parts.
+ * Beats (cards stepped through while a section is pinned) are laid out inside the section's
+ * hold, so every card is fully shown while the scene is at rest, never only during a morph
+ * (QA B-7). Each beat gets the same fully-shown stretch of the hold, `step − fade`: the first
+ * one from the hold start, the last one up to the hold end, the middle ones between two
+ * crossfades. With `count` beats in a hold of length H and fade = .65·step: H = count·step − fade.
+ * Outside the hold the first beat stays on while the copy enters and the last while it exits.
  */
+function beatLayout(index: number, count: number): BeatLayout {
+  const hold = HOLDS[index];
+  if (!hold) throw new Error(`No hold ${index}`);
+  const [from, to] = hold;
+  let step = (to - from) / (count - BEAT_FADE_SHARE);
+  let fade = BEAT_FADE_SHARE * step;
+  if (fade > BEAT_FADE_MAX) {
+    fade = BEAT_FADE_MAX;
+    step = (to - from + fade) / count;
+  }
+  const first = from + step - fade / 2;
+  return { boundaries: Array.from({ length: count - 1 }, (_, j) => first + j * step), fade };
+}
+
+/** Which of `count` beats is active at `p` (the one past its last handover). */
 export function beatAt(p: number, index: number, count: number): number {
   if (count <= 1) return 0;
-  const [from, to] = copyWindow(index);
-  return Math.min(count - 1, Math.max(0, Math.floor(((p - from) / (to - from)) * count)));
+  return beatLayout(index, count).boundaries.filter((b) => p >= b).length;
 }
 
-/** The p at the middle of beat `beat` of section `index` (where focus scrolls to). */
+/** The p in the middle of beat `beat`'s fully-shown stretch of the hold (where focus scrolls to). */
 export function beatProgress(index: number, beat: number, count: number): number {
   if (count <= 1) return KEY_PROGRESS[index] ?? 0;
-  const [from, to] = copyWindow(index);
-  return from + ((beat + 0.5) / count) * (to - from);
+  const hold = HOLDS[index];
+  if (!hold) throw new Error(`No hold ${index}`);
+  const { boundaries, fade } = beatLayout(index, count);
+  const start = beat === 0 ? hold[0] : (boundaries[beat - 1] ?? hold[0]) + fade / 2;
+  const end = beat === count - 1 ? hold[1] : (boundaries[beat] ?? hold[1]) - fade / 2;
+  return (start + end) / 2;
 }
 
-/** Crossfade width (in p) between two beats: ≤ .035, and never more than 60 % of a beat. */
+/** Crossfade width (in p) between two beats of section `index`. */
 export function beatFade(index: number, count: number): number {
-  const [from, to] = copyWindow(index);
-  return Math.min(0.035, (0.6 * (to - from)) / Math.max(1, count));
+  return count <= 1 ? 0 : beatLayout(index, count).fade;
 }
 
 /**
  * Opacity of beat `beat` (of `count`) of section `index` at `p`, scrubbed by scroll like the rest
- * of the copy: 1 inside its share of the copy window, crossfading with its neighbour (linear in
- * p, centred on the boundary, the two always sum to 1). Linear keeps the per-frame change as
- * small as possible; time-based or eased transitions concentrate it and show up as pops in the
- * per-p smoothness capture (M2-AC6).
+ * of the copy: 1 on its own stretch, crossfading with its neighbour (linear in p, centred on the
+ * handover, the two always sum to 1). Linear keeps the per-frame change as small as possible;
+ * time-based or eased transitions concentrate it and show up as pops in the per-p smoothness
+ * capture (M2-AC6).
  */
 export function beatOpacity(p: number, index: number, beat: number, count: number): number {
   if (count <= 1) return 1;
-  const [from, to] = copyWindow(index);
-  const share = (to - from) / count;
-  const fade = beatFade(index, count);
+  const { boundaries, fade } = beatLayout(index, count);
   const ramp = (boundary: number): number => clamp((p - (boundary - fade / 2)) / fade);
-  const rise = beat === 0 ? 1 : ramp(from + beat * share);
-  const fall = beat === count - 1 ? 1 : 1 - ramp(from + (beat + 1) * share);
+  const rise = beat === 0 ? 1 : ramp(boundaries[beat - 1] ?? 0);
+  const fall = beat === count - 1 ? 1 : 1 - ramp(boundaries[beat] ?? 1);
   return rise * fall;
 }

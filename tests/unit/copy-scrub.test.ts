@@ -77,7 +77,7 @@ describe("copy scrub", () => {
 });
 
 describe("beats", () => {
-  it("split a section's copy window into equal steps, in order", () => {
+  it("step in order across the section's copy window", () => {
     const [from, to] = copyWindow(3);
     expect(beatAt(from, 3, 5)).toBe(0);
     expect(beatAt(to, 3, 5)).toBe(4);
@@ -86,6 +86,30 @@ describe("beats", () => {
       const b = beatAt(from + ((to - from) * i) / 100, 3, 5);
       expect(b).toBeGreaterThanOrEqual(last);
       last = b;
+    }
+  });
+
+  it("every beat is fully shown (copy and card at opacity 1) inside its section's hold (QA B-7)", () => {
+    for (const [index, count] of [
+      [1, 3],
+      [3, 5],
+    ] as const) {
+      const hold = HOLDS[index] ?? [0, 0];
+      const stretches: number[] = [];
+      for (let b = 0; b < count; b += 1) {
+        let shown = 0;
+        for (let p = hold[0]; p <= hold[1]; p += 1e-5) {
+          if (copyState(p, index).opacity * beatOpacity(p, index, b, count) >= 1 - 1e-9)
+            shown += 1e-5;
+        }
+        stretches.push(shown);
+      }
+      // Each card is on for the same stretch of the hold: at least 4.5e-3 of p (well over one
+      // 1/383 smoothness-capture step) for the five Services cards in their .06 hold.
+      for (const shown of stretches) {
+        expect(shown).toBeGreaterThan(0.0045);
+        expect(shown).toBeCloseTo(stretches[0] ?? 0, 3);
+      }
     }
   });
 
