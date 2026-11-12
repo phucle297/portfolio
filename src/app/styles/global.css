@@ -78,6 +78,11 @@
   display: none !important;
 }
 
+/* Keyboard focus scrolled into view clears the fixed header (M2-AC9). */
+:where(a[href], button, input, select, textarea, summary, [tabindex]) {
+  scroll-margin-top: 96px;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -242,6 +247,10 @@ p {
 }
 
 /* ---------- Section headings ---------- */
+html[data-pin="on"] .section-title {
+  font-size: min(5.25rem, 5.4vw, 9.6vh);
+}
+
 .section-title {
   font-size: clamp(2.75rem, 6.6vw, 6rem);
 }

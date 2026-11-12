@@ -67,6 +67,15 @@ export const TILE_W = 1.8;
 export const TILE_H = 1.2857;
 
 /**
+ * Vessel body proportions (unit box, scaled per vessel): wall and floor thickness, the lid plane
+ * height and the cap box. Shared by the scene graph and the AC5 geometry tests.
+ */
+export const VESSEL_WALL = 0.03;
+export const VESSEL_FLOOR = 0.12;
+export const LID_Y = 0.5;
+export const CAP_SIZE: readonly [number, number, number] = [0.42, 0.28, 0.42];
+
+/**
  * Tile i (TL, TR, BL, BR quadrant of the print) → left-to-right slot on the line, jug row and
  * tray row, so prints that leave the tray in column order never cross paths.
  */
