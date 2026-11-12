@@ -1,5 +1,3 @@
-import { probeCanvas } from "./detect";
-
 /** The probe gives up (and the page keeps its poster stills) after this long. */
 export const PROBE_TIMEOUT_MS = 3000;
 
@@ -9,7 +7,7 @@ export type ProbeBranch =
   | "worker-error"
   | "worker-timeout"
   | "worker-unavailable"
-  | "main-thread";
+  | "no-offscreen";
 
 /** `performance.measure` name for one probe run; `detail` is a {@link ProbeReport}. */
 export const PROBE_MEASURE = "darkroom:probe";
@@ -23,8 +21,10 @@ export interface ProbeReport {
 
 /**
  * Resolve whether hardware WebGL is available. Creating a WebGL context can block for 100 ms+
- * on low-end devices, so the probe runs in a Web Worker on an OffscreenCanvas when possible and
- * only falls back to the main thread where workers/OffscreenCanvas are unavailable.
+ * (a single long task that cannot be split), so the probe only ever runs in a Web Worker on an
+ * OffscreenCanvas. It never creates a context on the main thread: without Worker or
+ * OffscreenCanvas (e.g. Safari < 16.4) or when the worker cannot be constructed, the answer is
+ * "no" and the page keeps its static tier (Orchestrator decision, PF-01 option b).
  *
  * Each run leaves one `performance.measure("darkroom:probe")` entry, from the probe start to the
  * decision, with the branch, the result and the main-thread time in its `detail`.
@@ -50,14 +50,8 @@ export function probeHardwareWebGL(): Promise<boolean> {
     }
     return hardware;
   };
-  const onMainThread = (branch: ProbeBranch): boolean =>
-    report(
-      branch,
-      timed(() => probeCanvas(document.createElement("canvas"))),
-    );
-
   if (typeof Worker === "undefined" || typeof OffscreenCanvas === "undefined") {
-    return Promise.resolve(onMainThread("main-thread"));
+    return Promise.resolve(report("no-offscreen", false));
   }
   return new Promise((resolve) => {
     let worker: Worker;
@@ -66,7 +60,7 @@ export function probeHardwareWebGL(): Promise<boolean> {
         () => new Worker(new URL("./probe.worker.ts", import.meta.url), { type: "module" }),
       );
     } catch {
-      resolve(onMainThread("worker-unavailable"));
+      resolve(report("worker-unavailable", false));
       return;
     }
     const finish = (branch: ProbeBranch, result: boolean): void => {

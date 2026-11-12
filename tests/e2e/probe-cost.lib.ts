@@ -28,6 +28,10 @@ export interface Run {
   tbtMs: number;
   bytes: number;
   probeRequests: number;
+  /** `data-tier` on <html> once collected. */
+  tier: string;
+  /** WebGL contexts created on the main thread (HTMLCanvasElement.getContext) during the load. */
+  mainThreadWebGL: number;
 }
 
 interface Collected {
@@ -38,11 +42,14 @@ interface Collected {
   } | null;
   longTasks: { startTime: number; duration: number }[];
   fcp: number;
+  tier: string;
+  mainThreadWebGL: number;
 }
 
 declare global {
   interface Window {
     probeCostLongTasks?: { startTime: number; duration: number }[];
+    probeCostWebGL?: number;
   }
 }
 
@@ -74,6 +81,23 @@ export async function load(
       for (const e of entries.getEntries())
         list.push({ startTime: e.startTime, duration: e.duration });
     }).observe({ type: "longtask", buffered: true });
+    // Count main-thread WebGL context requests (the probe must never make one, PF-01 option b).
+    window.probeCostWebGL = 0;
+    const getContext: unknown = Object.getOwnPropertyDescriptor(
+      HTMLCanvasElement.prototype,
+      "getContext",
+    )?.value;
+    if (typeof getContext === "function") {
+      Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+        configurable: true,
+        writable: true,
+        value(this: HTMLCanvasElement, ...args: unknown[]): unknown {
+          if (typeof args[0] === "string" && args[0].includes("webgl"))
+            window.probeCostWebGL = (window.probeCostWebGL ?? 0) + 1;
+          return Reflect.apply(getContext, this, args);
+        },
+      });
+    }
   });
   let bytes = 0;
   let probeRequests = 0;
@@ -121,7 +145,13 @@ export async function load(
           }
         : null;
     const fcp = performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? 0;
-    return { measure, longTasks: window.probeCostLongTasks ?? [], fcp };
+    return {
+      measure,
+      longTasks: window.probeCostLongTasks ?? [],
+      fcp,
+      tier: document.documentElement.dataset.tier ?? "",
+      mainThreadWebGL: window.probeCostWebGL ?? 0,
+    };
   });
   await context.close();
   const start = got.measure?.startTime ?? 0;
@@ -141,6 +171,8 @@ export async function load(
       .reduce((sum, t) => sum + Math.max(0, t.duration - 50), 0),
     bytes,
     probeRequests,
+    tier: got.tier,
+    mainThreadWebGL: got.mainThreadWebGL,
   };
 }
 

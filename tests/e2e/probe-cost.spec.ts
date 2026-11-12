@@ -126,40 +126,38 @@ test.describe("PF-01 probe cost per branch (SwiftShader box)", () => {
     ).toBeGreaterThanOrEqual(Math.min(20, Math.floor(baseline * 0.75)));
   });
 
-  test("no Worker / OffscreenCanvas: main-thread fallback, longest task reported", async ({
-    browser,
-  }) => {
-    const runs = await repeat(RUNS, () =>
-      load(browser, async (page) => {
-        await page.addInitScript(() => {
-          Reflect.deleteProperty(window, "Worker");
-          Reflect.deleteProperty(window, "OffscreenCanvas");
-        });
-      }),
-    );
-    table.record("no Worker support (main-thread probe)", runs);
-    for (const r of runs) expect(r).toMatchObject({ branch: "main-thread", probeRequests: 0 });
-    const longest = Math.max(0, ...runs.flatMap((r) => r.longTasks));
-    if (runs.every((r) => !r.hardware)) {
-      // FINDING (PF-01 PR): on a software rasteriser (this box, CI) creating the WebGL2 context on
-      // the main thread is one long task well over 50 ms, and it cannot be split. The number is
-      // reported, not hidden; the ≤ 50 ms budget is enforced where the host has a GPU (below) and
-      // the branch choice for software-GL hosts is an open Owner decision.
-      test.info().annotations.push({
-        type: "finding",
-        description: `main-thread probe on a software renderer: longest task ${longest} ms (budget 50 ms)`,
-      });
-      table.note(
-        `\nFINDING: no-Worker main-thread probe on SwiftShader: longest task ${longest} ms (> 50 ms budget).`,
+  // PF-01 option b (Orchestrator decision): without Worker or OffscreenCanvas there is no
+  // main-thread WebGL probe at all; the page keeps the static tier.
+  const missing: [string, string[]][] = [
+    ["no Worker", ["Worker"]],
+    ["no OffscreenCanvas", ["OffscreenCanvas"]],
+    ["no Worker, no OffscreenCanvas", ["Worker", "OffscreenCanvas"]],
+  ];
+  for (const [label, globals] of missing) {
+    test(`${label}: static tier, no main-thread WebGL context, no long task, branch "no-offscreen"`, async ({
+      browser,
+    }) => {
+      const runs = await repeat(RUNS, () =>
+        load(browser, async (page) => {
+          await page.addInitScript((names: string[]) => {
+            for (const name of names) Reflect.deleteProperty(window, name);
+          }, globals);
+        }),
       );
-    } else {
-      for (const r of runs)
-        expect(
-          Math.max(0, ...r.longTasks),
-          `long tasks ${r.longTasks.join(", ")}`,
-        ).toBeLessThanOrEqual(50);
-    }
-  });
+      table.record(`${label} (no-offscreen → static, no probe)`, runs);
+      for (const r of runs) {
+        expect(r).toMatchObject({
+          branch: "no-offscreen",
+          hardware: false,
+          tier: "static",
+          mainThreadWebGL: 0,
+          probeRequests: 0,
+          longTasks: [],
+        });
+        expect(r.mainThreadMs).toBeLessThanOrEqual(1);
+      }
+    });
+  }
 
   test("the probe worker is ≤ 1 KB gzipped", () => {
     const dir = join(process.cwd(), "dist", "_astro");
