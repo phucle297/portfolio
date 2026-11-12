@@ -19,3 +19,6 @@ export const siteConfig = {
 } as const;
 
 export type SiteConfig = typeof siteConfig;
+
+// TASK-20261112-10 fail-fast proof: deliberate type error, never merge.
+export const failFastProof: number = "not a number";
