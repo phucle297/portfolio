@@ -10,8 +10,13 @@ import { inSequence, openScene, scrollToP, settle } from "./helpers";
 
 interface B4Watch {
   lastScroll: number;
-  /** Stage ticks (rAF callbacks that advanced `darkroomTest.rafs()`): start time and rAF timestamp. */
-  ticks: { at: number; ts: number }[];
+  /** `darkroomTest.rafs()` when the last scroll event ran: later ticks come after it. */
+  rafsAtScroll: number;
+  /**
+   * Stage ticks (rAF callbacks that advanced `darkroomTest.rafs()`): start time, rAF timestamp
+   * and tick number.
+   */
+  ticks: { at: number; ts: number; n: number }[];
   stop: boolean;
 }
 declare global {
@@ -506,8 +511,10 @@ function b4Verdict(w: B4Watch): B4Verdict {
   // tick before it (the stage's first tick after an idle stop counts as one 60 fps frame; the
   // watch starts while the loop is idle).
   const intervals: number[] = [];
+  // "After" is by tick number, not time: performance.now() is coarse enough that the last scroll
+  // event and the tick right after it can carry the same timestamp.
   w.ticks.forEach((tick, i) => {
-    if (tick.at <= w.lastScroll) return;
+    if (tick.n <= w.rafsAtScroll) return;
     const prev = w.ticks[i - 1];
     intervals.push(prev ? tick.ts - prev.ts : 1000 / 60);
   });
@@ -551,7 +558,7 @@ test.describe("B-4 the render loop idles within 1.5 s of scrolling stopping", ()
             // Recorded even if the callback throws, so no tick goes uncounted.
             const w = window.b4Watch;
             if (w && !w.stop && (window.darkroomTest?.rafs() ?? 0) !== before)
-              w.ticks.push({ at, ts });
+              w.ticks.push({ at, ts, n: window.darkroomTest?.rafs() ?? 0 });
           }
         });
     });
@@ -560,10 +567,11 @@ test.describe("B-4 the render loop idles within 1.5 s of scrolling stopping", ()
     // Measured from the last scroll event (scroll stop), not from "caught up".
     const watch = async (): Promise<void> => {
       await page.evaluate(() => {
-        const w: B4Watch = { lastScroll: 0, ticks: [], stop: false };
+        const w: B4Watch = { lastScroll: 0, rafsAtScroll: 0, ticks: [], stop: false };
         window.b4Watch = w;
         window.addEventListener("scroll", () => {
           w.lastScroll = performance.now();
+          w.rafsAtScroll = window.darkroomTest?.rafs() ?? 0;
         });
       });
     };
@@ -589,7 +597,12 @@ test.describe("B-4 the render loop idles within 1.5 s of scrolling stopping", ()
         const watched = window.b4Watch;
         if (!watched) throw new Error("no watch");
         watched.stop = true;
-        return { lastScroll: watched.lastScroll, ticks: watched.ticks, stop: true };
+        return {
+          lastScroll: watched.lastScroll,
+          rafsAtScroll: watched.rafsAtScroll,
+          ticks: watched.ticks,
+          stop: true,
+        };
       });
       const verdict = { ...w, ...b4Verdict(w) };
       test.info().annotations.push({
