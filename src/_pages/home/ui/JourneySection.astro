@@ -10,38 +10,56 @@ import HomeSection from "./HomeSection.astro";
       <h2 id="journey-title" class="display section-title">
         {journey.title} <em>{journey.titleAccent}</em>
       </h2>
-      <p class="journey__text">{journey.intro}</p>
-      <div class="journey__meta">
-        {profile.photo && (
-          <img src={profile.photo} alt={profile.fullName} width="320" height="400" loading="lazy" />
-        )}
-        <p class="mono">
-          <span>{profile.fullName}</span>
-          <span>{profile.city}</span>
-          <span>{profile.timezone}</span>
-        </p>
+      <!-- Pinned (full tier): three beats share one spot. 0 = about + education, 1 = 2022 and
+           2023 roles, 2 = 2025 and 2026 roles. -->
+      <div class="journey__about" data-beat="0">
+        <p class="journey__text">{journey.intro}</p>
+        <div class="journey__meta">
+          {profile.photo && (
+            <img
+              src={profile.photo}
+              alt={profile.fullName}
+              width="320"
+              height="400"
+              loading="lazy"
+            />
+          )}
+          <p class="mono">
+            <span>{profile.fullName}</span>
+            <span>{profile.city}</span>
+            <span>{profile.timezone}</span>
+          </p>
+        </div>
+        <ul class="journey__skills" role="list" aria-label="Skills">
+          {skills.map((skill) => (
+            <li class="chip">{skill}</li>
+          ))}
+        </ul>
       </div>
-      <ul class="journey__skills" role="list" aria-label="Skills">
-        {skills.map((skill) => (
-          <li class="chip">{skill}</li>
-        ))}
-      </ul>
     </div>
     <div class="journey__timeline">
-      <ol class="journey__roles" role="list">
-        {roles.map((role) => (
-          <li class="card frame" data-reveal>
-            <article>
-              <p class="eyebrow">
-                {role.years} · {role.company}
-              </p>
-              <h3>{role.title}</h3>
-              <p>{role.copy}</p>
-            </article>
-          </li>
-        ))}
+      <ol class="journey__roles" role="list" data-beat="1 2">
+        {roles.map((role, i) => {
+          // Newest first in the DOM; while pinned each beat shows two roles, oldest on top.
+          const fromOldest = roles.length - 1 - i;
+          return (
+            <li
+              class="card frame"
+              data-beat={String(1 + Math.floor(fromOldest / 2))}
+              style={`--slot: ${(fromOldest % 2) + 1}`}
+            >
+              <article>
+                <p class="eyebrow">
+                  {role.years} · {role.company}
+                </p>
+                <h3>{role.title}</h3>
+                <p>{role.copy}</p>
+              </article>
+            </li>
+          );
+        })}
       </ol>
-      <div class="card journey__edu">
+      <div class="card journey__edu" data-beat="0">
         <h3 class="eyebrow">Education</h3>
         <ul role="list">
           {education.map((item) => (
@@ -154,6 +172,72 @@ import HomeSection from "./HomeSection.astro";
   .journey__edu strong {
     color: var(--text);
     font-weight: 600;
+  }
+
+  /* ---------- Pinned (full tier, large viewports) ---------- */
+  :global(html[data-pin="on"]) .journey {
+    display: grid;
+    grid-template-columns: minmax(0, 36rem);
+    grid-template-rows: auto auto auto;
+    gap: 0;
+  }
+
+  /* The intro's children and the timeline join one grid so all beats share a single cell. */
+  :global(html[data-pin="on"]) .journey__intro,
+  :global(html[data-pin="on"]) .journey__timeline {
+    display: contents;
+  }
+
+  :global(html[data-pin="on"]) .journey__intro > .eyebrow {
+    grid-row: 1;
+  }
+
+  :global(html[data-pin="on"]) .journey__intro > h2 {
+    grid-row: 2;
+    margin: 0.9rem 0 1.25rem;
+  }
+
+  :global(html[data-pin="on"]) .journey__intro > h2 em {
+    display: block;
+  }
+
+  :global(html[data-pin="on"]) .journey__about,
+  :global(html[data-pin="on"]) .journey__roles,
+  :global(html[data-pin="on"]) .journey__edu {
+    grid-row: 3;
+    grid-column: 1;
+  }
+
+  :global(html[data-pin="on"]) .journey__about {
+    display: grid;
+    gap: 0.9rem;
+    align-content: start;
+  }
+
+  :global(html[data-pin="on"]) .journey__edu {
+    align-self: end;
+    margin: 0;
+    padding: 1rem 1.25rem;
+  }
+
+  :global(html[data-pin="on"]) .journey__roles {
+    grid-template-rows: auto auto;
+    align-content: end;
+  }
+
+  :global(html[data-pin="on"]) .journey__roles > li {
+    grid-row: var(--slot);
+    grid-column: 1;
+    padding-block: 1rem;
+  }
+
+  :global(html[data-pin="on"]) .journey__skills .chip {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.75rem;
+  }
+
+  :global(html[data-pin="on"]) .frame h3 {
+    font-size: 1.5rem;
   }
 
   @media (max-width: 767px) {

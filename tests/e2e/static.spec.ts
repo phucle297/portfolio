@@ -137,15 +137,42 @@ test("QA-1: no element that ships `hidden` is displayed on load", async ({ page 
   );
   expect(shown).toEqual([]);
   await page.locator("#contact").scrollIntoViewIfNeeded();
-  await expect(page.locator("#contact-name-error")).toBeHidden();
-  await expect(page.locator("#contact-email-error")).toBeHidden();
-  await expect(page.locator("#contact-brief-error")).toBeHidden();
-  // Errors appear only after an invalid submit, and go again once fixed.
-  await page.locator(".contact__submit").click();
-  await expect(page.locator("#contact-name-error")).toBeVisible();
-  await page.locator("#contact-name").fill("Ada");
-  await page.locator(".contact__submit").click();
-  await expect(page.locator("#contact-name-error")).toBeHidden();
+  // Every contact-form error (name, email, brief), not just the first, is hidden on load,
+  // shows on an invalid submit and clears once its field is corrected.
+  const fields = ["name", "email", "brief"] as const;
+  const error = (name: string) => page.locator(`#contact-${name}-error`);
+  const input = (name: string) => page.locator(`#contact-${name}`);
+  const submit = page.locator(".contact__submit");
+  const each = (check: (name: (typeof fields)[number]) => Promise<void>) =>
+    Promise.all(fields.map(check));
+  await expect(page.locator("form .field__error")).toHaveCount(fields.length);
+  await each(async (name) => {
+    await expect(error(name)).toBeHidden();
+    await expect(input(name)).not.toHaveAttribute("aria-invalid", "true");
+  });
+  await submit.click();
+  await each(async (name) => {
+    await expect(error(name)).toBeVisible();
+    await expect(input(name)).toHaveAttribute("aria-invalid", "true");
+  });
+  // Correct one field at a time: only the fixed field's error clears.
+  await input("name").fill("Ada");
+  await input("email").fill("not-an-email");
+  await submit.click();
+  await expect(error("name")).toBeHidden();
+  await expect(error("email")).toBeVisible();
+  await expect(error("brief")).toBeVisible();
+  await input("email").fill("ada@example.com");
+  await submit.click();
+  await expect(error("email")).toBeHidden();
+  await expect(input("email")).toHaveAttribute("aria-invalid", "false");
+  await expect(error("brief")).toBeVisible();
+  await input("brief").fill("A small marketing site.");
+  await submit.click();
+  await each(async (name) => {
+    await expect(error(name)).toBeHidden();
+    await expect(input(name)).toHaveAttribute("aria-invalid", "false");
+  });
 });
 
 test("QA-5: copy-email button copies the address and announces it", async ({ browser }) => {
@@ -191,7 +218,78 @@ test("QA-7: the header is opaque once scrolled, so copy never shows through it",
     window.scrollTo(0, innerHeight * 2);
   });
   await expect(header).not.toHaveAttribute("data-at-top", "");
-  const bg = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
-  const alpha = Number(/rgba?\(([^)]+)\)/u.exec(bg)?.[1]?.split(",")[3] ?? "1");
+  // The bar fades in over --t-ui (background-color transition), so wait for the settled value.
+  await expect
+    .poll(
+      async () => {
+        const bg = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
+        return Number(/rgba?\(([^)]+)\)/u.exec(bg)?.[1]?.split(",")[3] ?? "1");
+      },
+      { timeout: 2000 },
+    )
+    .toBeGreaterThanOrEqual(0.95);
+});
+
+test("QA-8: the header's at-top state is in the HTML, and without JS the scrolled bar stays opaque", async ({
+  page,
+  browser,
+  request,
+}) => {
+  // Server-rendered: the first paint does not wait for the scroll script.
+  const html = await (await request.get("/")).text();
+  expect(html).toMatch(/<header class="site-header"[^>]*\bdata-at-top\b/u);
+  // With JS the gradient applies at the top from the first paint; the script clears it on scroll.
+  await page.goto("/");
+  const header = page.locator(".site-header");
+  await expect(header).toHaveAttribute("data-at-top", "");
+  const topBg = await header.evaluate((el) => getComputedStyle(el).backgroundImage);
+  expect(topBg).toContain("gradient");
+  // Without JS nothing clears the attribute, so the gradient is gated on html.js: opaque bar.
+  const off = await browser.newContext({ javaScriptEnabled: false });
+  const nojs = await off.newPage();
+  await nojs.goto("/");
+  const style = await nojs
+    .locator(".site-header")
+    .evaluate((el) => [getComputedStyle(el).backgroundImage, getComputedStyle(el).backgroundColor]);
+  expect(style[0]).toBe("none");
+  const alpha = Number(/rgba?\(([^)]+)\)/u.exec(style[1] ?? "")?.[1]?.split(",")[3] ?? "1");
   expect(alpha).toBeGreaterThanOrEqual(0.95);
+  await off.close();
+});
+
+test("B-8: a reload while scrolled keeps the header opaque before its script runs", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    window.scrollTo(0, innerHeight * 3);
+  });
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(100);
+  // Hold every bundled module script, so the header's own script (and everything else that
+  // hydrates) has not run while the browser restores the scrolled position.
+  const held: { continue: () => Promise<void> }[] = [];
+  await page.route(/\/_astro\/[^/]+\.js(\?.*)?$/u, (route) => {
+    held.push(route);
+  });
+  await page.reload({ waitUntil: "commit" });
+  await expect.poll(() => page.evaluate(() => scrollY), { timeout: 10_000 }).toBeGreaterThan(100);
+  await expect.poll(() => held.length).toBeGreaterThan(0);
+  const header = page.locator(".site-header");
+  // Not hydrated: the module script still has not cleared the server-rendered at-top state, and
+  // the JS-only Safelight button is still hidden.
+  await expect(header).toHaveAttribute("data-at-top", "");
+  await expect(page.locator("[data-safelight-toggle]")).toBeHidden();
+  const before = await header.evaluate((el) => [
+    getComputedStyle(el).backgroundImage,
+    getComputedStyle(el).backgroundColor,
+    `html[data-scrolled]=${document.documentElement.hasAttribute("data-scrolled")} scrollY=${scrollY}`,
+  ]);
+  expect(before[0], `no see-through gradient over the copy (${before[2]})`).toBe("none");
+  const alpha = Number(/rgba?\(([^)]+)\)/u.exec(before[1] ?? "")?.[1]?.split(",")[3] ?? "1");
+  expect(alpha).toBeGreaterThanOrEqual(0.95);
+  // Once the scripts run, the bar stays opaque (at-top cleared by the header's script).
+  await Promise.all(held.map(async (route) => route.continue()));
+  await page.unroute(/\/_astro\/[^/]+\.js(\?.*)?$/u);
+  await expect(header).not.toHaveAttribute("data-at-top", "");
+  expect(await header.evaluate((el) => getComputedStyle(el).backgroundImage)).toBe("none");
 });
