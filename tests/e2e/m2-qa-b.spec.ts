@@ -16,7 +16,7 @@ interface B4Watch {
    * Stage ticks (rAF callbacks that advanced `darkroomTest.rafs()`): start time, rAF timestamp
    * and tick number.
    */
-  ticks: { at: number; ts: number; n: number }[];
+  ticks: { at: number; ts: number; n: number; continues: boolean }[];
   stop: boolean;
 }
 declare global {
@@ -507,18 +507,21 @@ interface B4Verdict {
 function b4Verdict(w: B4Watch): B4Verdict {
   const last = w.ticks.at(-1);
   const gap = last ? last.at - w.lastScroll : Number.NaN;
-  // Intervals the stage sees after the last input: every tick after the scroll, measured from the
-  // tick before it (the stage's first tick after an idle stop counts as one 60 fps frame; the
-  // watch starts while the loop is idle).
+  // Frame intervals the stage sees after the last input (rAF timestamps, like its slowest-frame
+  // tracking): from the tick before, or one 60 fps frame for the first tick of a (re)started loop.
+  // The final interval is the wall-clock one (tick start to tick start), which is what can overrun.
   const intervals: number[] = [];
+  let lastWall = 0;
   // "After" is by tick number, not time: performance.now() is coarse enough that the last scroll
   // event and the tick right after it can carry the same timestamp.
   w.ticks.forEach((tick, i) => {
     if (tick.n <= w.rafsAtScroll) return;
     const prev = w.ticks[i - 1];
-    intervals.push(prev ? tick.ts - prev.ts : 1000 / 60);
+    const continued = tick.continues && prev !== undefined;
+    intervals.push(continued ? tick.ts - prev.ts : 1000 / 60);
+    lastWall = continued ? tick.at - prev.at : 1000 / 60;
   });
-  const lastInterval = intervals.at(-1) ?? 0;
+  const lastInterval = lastWall;
   const slowestBefore = Math.max(1000 / 60, ...intervals.slice(0, -1));
   const stall = Math.max(0, lastInterval - 3 * slowestBefore);
   return {
@@ -548,19 +551,27 @@ test.describe("B-4 the render loop idles within 1.5 s of scrolling stopping", ()
     // late poll on a loaded host does not count against the stage.
     await page.addInitScript(() => {
       const raf = window.requestAnimationFrame.bind(window);
-      window.requestAnimationFrame = (callback) =>
-        raf((ts) => {
+      // rafs() at the start of the stage tick that is running now, if any: a rAF requested while
+      // it has advanced is the loop continuing; any other request (a scroll) restarts the loop,
+      // whose first tick the stage counts as a 60 fps frame.
+      let running: number | undefined;
+      window.requestAnimationFrame = (callback) => {
+        const continues = running !== undefined && (window.darkroomTest?.rafs() ?? 0) !== running;
+        return raf((ts) => {
           const at = performance.now();
           const before = window.darkroomTest?.rafs() ?? 0;
+          running = before;
           try {
             callback(ts);
           } finally {
+            running = undefined;
             // Recorded even if the callback throws, so no tick goes uncounted.
             const w = window.b4Watch;
-            if (w && !w.stop && (window.darkroomTest?.rafs() ?? 0) !== before)
-              w.ticks.push({ at, ts, n: window.darkroomTest?.rafs() ?? 0 });
+            const n = window.darkroomTest?.rafs() ?? 0;
+            if (w && !w.stop && n !== before) w.ticks.push({ at, ts, n, continues });
           }
         });
+      };
     });
     await openScene(page);
     await scrollToP(page, 0.03);
