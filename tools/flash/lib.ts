@@ -130,8 +130,13 @@ export function transitions(series: ArrayLike<number>, kind: Kind): number[] {
   return out;
 }
 
-/** Most transitions whose frame times fall in any window of `span` (same unit as `times`). */
-export function maxInWindow(times: readonly number[], span: number): number {
+/**
+ * Most transitions whose frame times fall in any window of `span` (same unit as `times`).
+ * Order-independent: the times are sorted first (reverse-scroll transition lists arrive in
+ * descending frame order; unsorted input used to count every transition as one window).
+ */
+export function maxInWindow(input: readonly number[], span: number): number {
+  const times = input.toSorted((a, b) => a - b);
   let best = 0;
   let start = 0;
   for (let end = 0; end < times.length; end += 1) {

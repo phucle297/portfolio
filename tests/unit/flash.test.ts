@@ -54,6 +54,9 @@ describe("flash maths (WCAG 2.2 general and red flash)", () => {
   it("worst 1 s window and flashes per second", () => {
     expect(maxInWindow([0, 0.2, 0.4, 0.6, 2], 1)).toBe(4);
     expect(maxInWindow([0, 1, 2], 1)).toBe(1);
+    // Order-independent (reverse-scroll lists arrive in descending frame order).
+    expect(maxInWindow([2, 0.6, 0.4, 0.2, 0], 1)).toBe(4);
+    expect(maxInWindow([2, 1, 0], 1)).toBe(1);
     // 8 transitions within 1 s = 4 flashes: over the bar.
     const frames = [0, 1, 2, 3, 4, 5, 6, 7];
     expect(worstFlashesPerSecond(frames, (i) => i * 0.1)).toBe(4);
@@ -68,6 +71,8 @@ describe("flash maths (WCAG 2.2 general and red flash)", () => {
     expect(ok(s)).toBe(true);
     expect(ok(s * 0.99)).toBe(false);
     expect(minSafeSeconds([[]], 100)).toBe(0);
+    // A reverse-scroll list (descending frames) gives the same answer, and terminates.
+    expect(minSafeSeconds([frames.toReversed()], 100)).toBeCloseTo(s, 6);
   });
 
   it("catch-up time follows the stage's exponential and snaps at the idle budget", () => {
