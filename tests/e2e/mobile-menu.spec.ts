@@ -100,6 +100,30 @@ test.describe("PF-11 mobile menu sheet", () => {
         await expect(page.locator(".site-header__nav")).toBeHidden();
         await expect(page.locator(".rail")).toBeHidden();
         await expect(page.locator(".journey__skills")).toBeHidden();
+
+        const layout = await page.evaluate(() => {
+          const header = document.querySelector(".site-header");
+          const inner = document.querySelector(".site-header__inner");
+          if (!header || !inner) throw new Error("header missing");
+          const headerBox = header.getBoundingClientRect();
+          const innerBox = inner.getBoundingClientRect();
+          return {
+            headerRight: headerBox.right,
+            innerRight: innerBox.right,
+            headerHeight: headerBox.height,
+            innerHeight: innerBox.height,
+            viewport: innerWidth,
+          };
+        });
+        expect(layout.innerRight, "inner row does not overflow the viewport").toBeLessThanOrEqual(
+          layout.viewport + 1,
+        );
+        expect(layout.headerRight, "header does not overflow the viewport").toBeLessThanOrEqual(
+          layout.viewport + 1,
+        );
+        // One row (logo + Freelance + MENU), not the wrapping nav row that clipped Contact on main.
+        expect(layout.innerHeight, "phone header is a single row").toBeLessThan(110);
+        expect(Math.abs(layout.headerHeight - layout.innerHeight)).toBeLessThanOrEqual(2);
       });
 
       test("MENU opens a full-screen sheet; focus stays inside; Esc and Close return it to MENU", async ({
@@ -118,6 +142,22 @@ test.describe("PF-11 mobile menu sheet", () => {
         await inSequence(SECTIONS, async (name) => {
           await expect(sheet(page).getByRole("link", { name })).toBeVisible();
         });
+
+        const headerWhileOpen = await page.evaluate(() => {
+          const header = document.querySelector(".site-header");
+          const inner = document.querySelector(".site-header__inner");
+          if (!header || !inner) throw new Error("header missing");
+          return {
+            headerBottom: header.getBoundingClientRect().bottom,
+            innerBottom: inner.getBoundingClientRect().bottom,
+            viewportHeight: innerHeight,
+          };
+        });
+        // The open sheet must not expand .site-header (PF-27 --header-bottom uses that box).
+        expect(headerWhileOpen.headerBottom).toBeLessThan(headerWhileOpen.viewportHeight / 2);
+        expect(
+          Math.abs(headerWhileOpen.headerBottom - headerWhileOpen.innerBottom),
+        ).toBeLessThanOrEqual(2);
 
         expect(await focusIsInsideSheet(page)).toBe(true);
         const tabs = Array.from({ length: 16 }, (_, i) => i + 1);

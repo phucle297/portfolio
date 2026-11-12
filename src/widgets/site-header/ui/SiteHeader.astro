@@ -63,7 +63,13 @@ const { anchorBase = "" } = Astro.props;
       </button>
     </div>
   </div>
-  <dialog class="menu-sheet" id="site-menu-sheet" data-menu-sheet aria-labelledby="site-menu-title">
+  <dialog
+    class="menu-sheet"
+    id="site-menu-sheet"
+    data-menu-sheet
+    aria-labelledby="site-menu-title"
+    tabindex="-1"
+  >
     <div class="menu-sheet__bar">
       <h2 id="site-menu-title" class="menu-sheet__title">
         Menu
@@ -402,8 +408,12 @@ const { anchorBase = "" } = Astro.props;
     }
   }
 
-  /* ---------- Mobile menu sheet (full-screen dialog; not in flow, so open/close has no CLS) ---------- */
+  /* ---------- Mobile menu sheet (full-screen dialog; not in flow, so open/close has no CLS) ----------
+     position: fixed / inset: 0 keeps the sheet out of .site-header's border box. PF-27 (PR #18)
+     sets --header-bottom from that box; opening the sheet must not move it. */
   .menu-sheet {
+    position: fixed;
+    inset: 0;
     width: 100vw;
     height: 100dvh;
     max-width: none;
