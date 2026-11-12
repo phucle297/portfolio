@@ -98,6 +98,12 @@ export async function mountStage(
     raf = 0;
     rafs += 1;
     if (disposed || document.hidden) return;
+    // Hard deadline: a frame the browser delivers after the idle budget (a stall delayed it) is
+    // dropped, not drawn. The scene keeps its last frame until the next input.
+    if (performance.now() - inputAt >= IDLE_BUDGET_MS) {
+      last = 0;
+      return;
+    }
     const target = scrollProgress();
     const frameMs = last ? now - last : 1000 / 60;
     const dt = Math.min(0.1, frameMs / 1000);

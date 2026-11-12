@@ -295,6 +295,72 @@ test.describe("PF-15 AC2 no frames 1.5 s after the scroll stops", () => {
   test("when one frame near the budget takes 500 ms", async ({ page }) => {
     expectIdleWithin1500(await wheelAndWatch(page, { longFrameAt: 1000, longFrameMs: 500 }));
   });
+
+  test("when a stall in the middle of the catch-up runs past the deadline (700 ms → 1700 ms)", async ({
+    page,
+  }) => {
+    // A 1000 ms task (not a frame: nothing the loop can see coming) starts 700 ms after the scroll
+    // stop, while the catch-up is still running, and ends 200 ms past the 1.5 s deadline. The
+    // frame the loop had already requested is delivered late; drawing it would break AC2.
+    await page.evaluate(() => {
+      const log = window.pf15;
+      if (!log) throw new Error("no frame clock");
+      log.frames = [];
+      log.ticks = [];
+      let timer = 0;
+      const w = window as Window & { pf15Stall?: { loopRunning: boolean; from: number } };
+      window.addEventListener(
+        "scroll",
+        () => {
+          window.clearTimeout(timer);
+          timer = window.setTimeout(() => {
+            const max = document.documentElement.scrollHeight - innerHeight;
+            const shown = window.darkroomTest?.shown() ?? -1;
+            w.pf15Stall = {
+              loopRunning: Math.abs(shown - scrollY / max) > 1e-4,
+              from: Math.round(performance.now() - log.lastScroll),
+            };
+            const end = log.lastScroll + 1700;
+            while (performance.now() < end) {
+              // Busy: the main thread is stuck (GC, a heavy extension, a swapped-out tab).
+            }
+          }, 700);
+        },
+        { passive: true },
+      );
+    });
+    await page.mouse.move(800, 500);
+    await page.mouse.wheel(0, 1200);
+    await page.mouse.wheel(0, 1200);
+    await page.mouse.wheel(0, 1200);
+    await page.waitForTimeout(4500);
+    const result = await page.evaluate(() => {
+      const log = window.pf15;
+      if (!log) throw new Error("no frame clock");
+      const since = (t: number): number => Math.round(t - log.lastScroll);
+      const w = window as Window & { pf15Stall?: { loopRunning: boolean; from: number } };
+      return {
+        stall: w.pf15Stall ?? null,
+        frames: log.frames.map(since),
+        ticks: log.ticks.map(since),
+      };
+    });
+    const detail = JSON.stringify(result);
+    // The stall really hit a running catch-up (otherwise this proves nothing).
+    expect(result.stall?.loopRunning, detail).toBe(true);
+    expect(
+      result.frames.some((t) => t > 0 && t < 700),
+      detail,
+    ).toBe(true);
+    // No frame after the deadline...
+    expect(
+      result.frames.filter((t) => t > 1500),
+      detail,
+    ).toEqual([]);
+    // ...and the loop is dead after it: at most the one callback the browser delivered late (the
+    // page can't un-request it), and nothing requested after that.
+    expect(result.ticks.filter((t) => t > 1500).length, detail).toBeLessThanOrEqual(1);
+  });
 });
 
 /** Emulate a hidden (or visible again) tab: what the page sees when the user switches tabs. */
