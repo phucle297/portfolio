@@ -60,14 +60,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         # Explicit groups instead of --shard: every job stays well under 20 min (the 300 s sweeps
         # get their own jobs) and the render-loop test runs alone in a fresh browser, so a previous
         # full-tier test's SwiftShader backlog cannot eat its 60 s budget (TASK-20261112-10 INV-1).
         include:
-          - group: m2-qa-b
+          - group: m2-qa-b-1
             args: tests/e2e/m2-qa-b.spec.ts
+          - group: m2-qa-b-2
+            args: tests/e2e/m2-qa-b.spec.ts
+          - group: cls-probe
+            args: tests/e2e/cls-probe.spec.ts tests/e2e/static.spec.ts --grep "probe|M1-AC15|TASK-14" --repeat-each=3
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup

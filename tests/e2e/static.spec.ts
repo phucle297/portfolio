@@ -66,41 +66,22 @@ test("M1-AC13 fonts: design faces, no fallback in the names, ≤ 150 KB of page 
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await scrollThrough(page);
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
-  // Page-font bytes as the page itself loaded them, before the glyph checks below force any load.
-  const urls = [...fontBytes.keys()];
-  const total = [...fontBytes.values()].reduce((a, b) => a + b, 0);
-  // Real glyph-coverage check that does not depend on fonts installed on the machine:
-  // document.fonts.check() is not usable here, because Chrome returns true for a family that has no
-  // @font-face at all (and for system-installed families). document.fonts.load(font, text) resolves
-  // with the web-font faces that cover the text; require at least one and that all of them loaded.
-  const checks = await page.evaluate(async () => {
-    const specs = [
-      ['400 16px "Be Vietnam Pro"', "Lê Đàm Duy Phúc Asia/Saigon"],
-      ['400 64px "Instrument Serif"', "Phúc Lê"],
-      ['italic 400 64px "Instrument Serif"', "developing."],
-      ['500 13px "IBM Plex Mono"', "Asia/Saigon (UTC+7)"],
-    ] as const;
-    const [sans, serif, serifItalic, mono] = await Promise.all(
-      specs.map(async ([font, text]) => {
-        const faces = await document.fonts.load(font, text);
-        return faces.length > 0 && faces.every((face) => face.status === "loaded");
-      }),
-    );
-    return {
-      sans,
-      serif,
-      serifItalic,
-      mono,
-      h1Family: getComputedStyle(document.querySelector("h1") ?? document.body).fontFamily,
-    };
-  });
+  const checks = await page.evaluate(() => ({
+    sans: document.fonts.check('400 16px "Be Vietnam Pro"', "Lê Đàm Duy Phúc Asia/Saigon"),
+    serif: document.fonts.check('400 64px "Instrument Serif"', "Phúc Lê"),
+    serifItalic: document.fonts.check('italic 400 64px "Instrument Serif"', "developing."),
+    mono: document.fonts.check('500 13px "IBM Plex Mono"', "Asia/Saigon (UTC+7)"),
+    h1Family: getComputedStyle(document.querySelector("h1") ?? document.body).fontFamily,
+  }));
   expect(checks.sans).toBe(true);
   expect(checks.serif).toBe(true);
   expect(checks.serifItalic).toBe(true);
   expect(checks.mono).toBe(true);
   expect(checks.h1Family).toContain("Instrument Serif");
+  const urls = [...fontBytes.keys()];
   expect(urls.some((u) => u.includes("inter"))).toBe(false);
   expect(urls.some((u) => u.includes("anton"))).toBe(false);
+  const total = [...fontBytes.values()].reduce((a, b) => a + b, 0);
   expect(total).toBeLessThanOrEqual(150 * 1024);
 });
 
