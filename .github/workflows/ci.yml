@@ -67,7 +67,7 @@ jobs:
         # full-tier test's SwiftShader backlog cannot eat its 60 s budget (TASK-20261112-10 INV-1).
         include:
           - group: cls-probe
-            args: tests/e2e/cls-probe.spec.ts tests/e2e/static.spec.ts --grep "probe layout shifts|M1-AC15" --repeat-each=3
+            args: tests/e2e/font-probe.spec.ts tests/e2e/cls-probe.spec.ts tests/e2e/static.spec.ts --grep "probe|M1-AC15" --repeat-each=3
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -78,6 +78,7 @@ jobs:
       # Same engine the box/QA verifies with: the runner image's preinstalled Google Chrome
       # (playwright.config.ts honours CHROME_PATH). Chromium only; no browser download to cache.
       - run: /usr/bin/google-chrome --version
+      - run: "fc-list : family | sort -u; fc-match sans-serif; fc-match serif; fc-match system-ui"
       - run: bunx playwright test ${{ matrix.args }} --reporter=list,html
         env:
           E2E_PREBUILT: "1" # serve the shared dist; do not rebuild
