@@ -8,10 +8,18 @@
  * - no JS (1440×900 and 390×844; page scripts blocked by CSP so axe itself can still run);
  * - the contact form showing all three errors.
  * Every violation (any impact) is written to test-results/a11y/ (override with A11Y_OUT) so minor
- * and moderate ones are visible too. The open mobile menu state is added by PF-11.
+ * and moderate ones are visible too.
+ *
+ * Determinism (QA-PF03-1): every scan first waits until the page has settled — no finite Web
+ * Animation or CSS transition is running or pending, and every scroll-revealed block in view is
+ * revealed at full effective opacity — for three frames in a row. No fixed sleeps.
+ * Error-state contrast (QA-PF03-2): at 1440 axe can only file the error texts under "incomplete"
+ * (a still image sits behind the translucent card), so the error state is also scanned at 390×844,
+ * where axe must judge them (they must be color-contrast *passes*), and a computed-contrast
+ * fallback checks them at both widths. The open mobile menu state is added by PF-11.
  * Runner setup stays in this spec; playwright.config.ts is untouched.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AxeBuilder } from "@axe-core/playwright";
 import {
@@ -35,8 +43,54 @@ interface Finding {
   targets: string[];
 }
 
-const findings: Finding[] = [];
-const scanned: string[] = [];
+type AxeResults = Awaited<ReturnType<AxeBuilder["analyze"]>>;
+type Rgba = [number, number, number, number];
+type Rgb = [number, number, number];
+
+const STATES_DIR = join(OUT, "states");
+/** The three contact-form error texts (QA-PF03-2). */
+const ERROR_IDS = ["contact-name-error", "contact-email-error", "contact-brief-error"] as const;
+/** WCAG 2.x AA minimum for normal-size text. */
+const AA_NORMAL = 4.5;
+
+/**
+ * Wait until nothing on the page is still moving (QA-PF03-1): no finite animation or transition
+ * running or pending (Motion's `animate` is WAAPI, CSS transitions show up as CSSTransition), and
+ * every `[data-reveal]` block that is at least 15 % in view (the reveal threshold) is revealed at
+ * effective opacity 1. Must hold for 3 consecutive frames, so a reveal that the IntersectionObserver
+ * has not delivered yet cannot slip through.
+ */
+async function settle(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    Reflect.set(window, "a11ySettledFrames", 0);
+  });
+  await page.waitForFunction(
+    () => {
+      const moving = document.getAnimations().some((animation) => {
+        const iterations = animation.effect?.getComputedTiming().iterations ?? 1;
+        if (iterations === Number.POSITIVE_INFINITY) return false;
+        return animation.pending || animation.playState === "running";
+      });
+      const unrevealed = Array.from(document.querySelectorAll("[data-reveal]")).some((el) => {
+        const rect = el.getBoundingClientRect();
+        const visible =
+          Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0)) /
+          Math.max(1, rect.height);
+        if (visible < 0.15 || getComputedStyle(el).display === "none") return false;
+        let opacity = 1;
+        for (let node: Element | null = el; node; node = node.parentElement)
+          opacity *= Number(getComputedStyle(node).opacity);
+        return opacity < 1;
+      });
+      const frames =
+        moving || unrevealed ? 0 : Number(Reflect.get(window, "a11ySettledFrames")) + 1;
+      Reflect.set(window, "a11ySettledFrames", frames);
+      return frames >= 3;
+    },
+    null,
+    { polling: "raf", timeout: 20_000 },
+  );
+}
 
 async function open(
   browser: Browser,
@@ -72,43 +126,120 @@ async function open(
   return page;
 }
 
-/** Scan the whole page; record every violation and return the serious/critical ones. */
-async function scan(page: Page, state: string): Promise<string[]> {
+/** Persist one state's violations (any impact) for the report written in afterAll. */
+function record(state: string, result: AxeResults): void {
+  const findings: Finding[] = result.violations.map((v) => ({
+    state,
+    id: v.id,
+    impact: v.impact ?? "unknown",
+    help: v.help,
+    targets: v.nodes.map((n) => n.target.join(" ")),
+  }));
+  mkdirSync(STATES_DIR, { recursive: true });
+  const slug = state.replaceAll(/[^\w]+/gu, "-").replaceAll(/^-|-$/gu, "");
+  writeFileSync(join(STATES_DIR, `${slug}.json`), JSON.stringify({ state, findings }, null, 1));
+}
+
+/** Settle, scan the whole page, record every violation; returns the raw result. */
+async function analyze(page: Page, state: string): Promise<AxeResults> {
+  await settle(page);
   const result = await new AxeBuilder({ page }).analyze();
-  scanned.push(state);
-  for (const v of result.violations) {
-    findings.push({
-      state,
-      id: v.id,
-      impact: v.impact ?? "unknown",
-      help: v.help,
-      targets: v.nodes.map((n) => n.target.join(" ")),
-    });
-  }
-  return result.violations
+  record(state, result);
+  return result;
+}
+
+const blockingOf = (state: string, result: AxeResults): string[] =>
+  result.violations
     .filter((v) => BLOCKING.has(v.impact ?? ""))
     .map(
       (v) =>
         `${state}: ${v.impact}: ${v.id} (${v.help}) at ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`,
     );
+
+/** Scan and return the serious/critical violations. */
+async function scan(page: Page, state: string): Promise<string[]> {
+  return blockingOf(state, await analyze(page, state));
+}
+
+type ContrastVerdict = "pass" | "incomplete" | "violation" | "not checked";
+
+/** Where axe's color-contrast rule put each error text. */
+const hasContrastNode = (list: AxeResults["passes"], id: string): boolean =>
+  list
+    .filter((rule) => rule.id === "color-contrast")
+    .some((rule) => rule.nodes.some((node) => node.target.join(" ").includes(`#${id}`)));
+
+function errorVerdicts(result: AxeResults): Record<string, ContrastVerdict> {
+  const has = hasContrastNode;
+  return Object.fromEntries(
+    ERROR_IDS.map((id) => {
+      if (has(result.violations, id)) return [id, "violation"];
+      if (has(result.incomplete, id)) return [id, "incomplete"];
+      if (has(result.passes, id)) return [id, "pass"];
+      return [id, "not checked"];
+    }),
+  );
+}
+
+const parseColor = (value: string): Rgba => {
+  const parts = (/rgba?\(([^)]+)\)/u.exec(value)?.[1] ?? "0, 0, 0, 0")
+    .split(/[\s,/]+/u)
+    .filter(Boolean)
+    .map(Number);
+  return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, parts[3] ?? 1];
+};
+const over = (top: Rgba, bottom: Rgb): Rgb => [
+  top[0] * top[3] + bottom[0] * (1 - top[3]),
+  top[1] * top[3] + bottom[1] * (1 - top[3]),
+  top[2] * top[3] + bottom[2] * (1 - top[3]),
+];
+const channel = (c: number): number => {
+  const v = c / 255;
+  return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+};
+const luminance = ([r, g, b]: Rgb): number =>
+  0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+
+/**
+ * Computed-contrast fallback for the error texts: the text colour against its ancestors'
+ * background colours composited over the page background (images behind are ignored, which is
+ * exactly what axe cannot decide at 1440).
+ */
+async function computedErrorContrast(page: Page): Promise<Record<string, number>> {
+  const styles = await page.evaluate(
+    (ids) =>
+      ids.map((id) => {
+        const el = document.getElementById(id);
+        const backgrounds: string[] = [];
+        for (let node: Element | null = el; node; node = node.parentElement)
+          backgrounds.push(getComputedStyle(node).backgroundColor);
+        return { id, color: el ? getComputedStyle(el).color : "", backgrounds };
+      }),
+    ERROR_IDS,
+  );
+  const out: Record<string, number> = {};
+  for (const { id, color, backgrounds } of styles) {
+    // Innermost first: composite from the root (white canvas default) up to the element.
+    let bg: Rgb = [255, 255, 255];
+    for (const layer of backgrounds.toReversed()) bg = over(parseColor(layer), bg);
+    const fg = over(parseColor(color), bg);
+    const [hi, lo] = [luminance(fg), luminance(bg)].toSorted((a, b) => b - a);
+    out[id] = ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
+  }
+  return out;
 }
 
 async function scrollToProgress(page: Page, p: number): Promise<void> {
-  await page.evaluate(async (progress) => {
+  await page.evaluate((progress) => {
     const max = document.documentElement.scrollHeight - window.innerHeight;
     window.scrollTo({ top: max * progress, behavior: "instant" });
-    // Let the scene and the copy layer catch up with the new position.
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setTimeout(resolve, 400);
-        });
-      });
-    });
   }, p);
+  // The copy fades in on scroll: scan() waits for it to settle (no fixed sleep).
 }
 
-test.describe.configure({ mode: "serial" });
+// Not serial: every state is its own browser context, so one failing state must not skip the
+// others (QA-PF03-1). Each state persists its own results file; afterAll builds the report from
+// all of them, whichever worker ran them.
 
 test("full tier at 1440×900, at each of the 6 key scroll positions", async ({ browser }) => {
   test.setTimeout(240_000);
@@ -164,27 +295,73 @@ for (const viewport of [
   });
 }
 
-test("contact form showing all three errors", async ({ browser }) => {
-  const page = await open(browser);
-  const form = page.locator("[data-contact-form]");
-  await form.scrollIntoViewIfNeeded();
-  await form.locator('button[type="submit"]').click();
-  await expect(form.locator(".field__error:visible")).toHaveCount(3);
-  await expect(form.locator('[aria-invalid="true"]')).toHaveCount(3);
-  expect(await scan(page, "contact form, 3 errors"), "serious/critical axe violations").toEqual([]);
-  await page.context().close();
-});
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test(`contact form showing all three errors at ${viewport.width}×${viewport.height}`, async ({
+    browser,
+  }) => {
+    const mobile = viewport.width < 768;
+    const page = await open(browser, { viewport, isMobile: mobile, hasTouch: mobile });
+    const form = page.locator("[data-contact-form]");
+    await form.scrollIntoViewIfNeeded();
+    await form.locator('button[type="submit"]').click();
+    await expect(form.locator(".field__error:visible")).toHaveCount(3);
+    await expect(form.locator('[aria-invalid="true"]')).toHaveCount(3);
+    for (const id of ERROR_IDS) {
+      // oxlint-disable-next-line no-await-in-loop -- bring each error text fully into view
+      await page.locator(`#${id}`).scrollIntoViewIfNeeded();
+    }
+    const state = `contact form, 3 errors, ${viewport.width}×${viewport.height}`;
+    const result = await analyze(page, state);
+    const verdicts = errorVerdicts(result);
+    const ratios = await computedErrorContrast(page);
+    await page.context().close();
+    expect(blockingOf(state, result), "serious/critical axe violations").toEqual([]);
+    // axe must actually judge the error texts where it can (390: no image behind the card)…
+    if (mobile)
+      expect(verdicts, "axe color-contrast verdict per error text at 390").toEqual(
+        Object.fromEntries(ERROR_IDS.map((id) => [id, "pass"])),
+      );
+    else
+      for (const id of ERROR_IDS)
+        expect(["pass", "incomplete"], `axe color-contrast verdict for #${id}`).toContain(
+          verdicts[id],
+        );
+    // …and the computed fallback holds at both widths, so "incomplete" can never hide a bad colour.
+    for (const id of ERROR_IDS)
+      expect(ratios[id] ?? 0, `computed contrast of #${id}`).toBeGreaterThanOrEqual(AA_NORMAL);
+  });
+}
 
 test.afterAll(() => {
-  if (scanned.length === 0) return;
+  let files: string[] = [];
+  try {
+    files = readdirSync(STATES_DIR).filter((f) => f.endsWith(".json"));
+  } catch {
+    return;
+  }
+  const states = files.map((f): { state: string; findings: Finding[] } => {
+    const parsed: unknown = JSON.parse(readFileSync(join(STATES_DIR, f), "utf8"));
+    const state: unknown =
+      parsed !== null && typeof parsed === "object" ? Reflect.get(parsed, "state") : "";
+    const list: unknown =
+      parsed !== null && typeof parsed === "object" ? Reflect.get(parsed, "findings") : [];
+    return {
+      state: String(state),
+      findings: Array.isArray(list) ? list.filter((x): x is Finding => typeof x === "object") : [],
+    };
+  });
+  const findings = states.flatMap((s) => s.findings);
   const rows = findings.map(
     (f) =>
       `| ${f.state} | ${f.impact} | ${f.id} | ${f.help} | ${f.targets.slice(0, 3).join("<br>")}${f.targets.length > 3 ? ` (+${f.targets.length - 3})` : ""} |`,
   );
   const md = [
-    `axe-core scan: ${scanned.length} states, ${findings.length} violations (any impact), ${findings.filter((f) => BLOCKING.has(f.impact)).length} serious/critical.`,
+    `axe-core scan: ${states.length} states, ${findings.length} violations (any impact), ${findings.filter((f) => BLOCKING.has(f.impact)).length} serious/critical.`,
     "",
-    `States: ${scanned.join("; ")}.`,
+    `States: ${states.map((s) => s.state).join("; ")}.`,
     "",
     "| State | Impact | Rule | Help | Targets |",
     "|---|---|---|---|---|",
