@@ -4,8 +4,9 @@
  *
  * The test runs against the current Playwright project / browser. On main today that is Chromium;
  * after PF-05 merges, the same file runs on Firefox and WebKit too (new specs are cross-browser
- * by default). Evidence on this PR also runs the file with `--browser=firefox` and
- * `--browser=webkit`.
+ * by default). Do not use `--browser=firefox` or `--browser=webkit` with this repo's Playwright
+ * config while it sets `launchOptions.executablePath` from `CHROME_PATH` — that launches Chrome
+ * as Firefox/WebKit and fails. Cross-browser evidence uses `tools/serif-once-check.mjs`.
  */
 import { expect, test } from "@playwright/test";
 
