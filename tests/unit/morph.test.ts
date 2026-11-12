@@ -10,7 +10,8 @@ import {
   SAFELIGHT_OFF_LEVEL,
   type SceneState,
 } from "../../src/_pages/home/model/evaluate";
-import { KEYS, TILE_H, TILE_W, type Vec3 } from "../../src/_pages/home/model/keyframes";
+import { intersections, penetration, tileObb, vesselParts, type Obb } from "./sat";
+import { KEYS, type Vec3 } from "../../src/_pages/home/model/keyframes";
 
 /** Deterministic PRNG so failures reproduce. */
 function rng(seed: number): () => number {
@@ -162,59 +163,6 @@ interface Box {
   max: Vec3;
 }
 
-const vec3 = (f: (axis: 0 | 1 | 2) => number): Vec3 => [f(0), f(1), f(2)];
-
-/** AABB of a rotated (Euler YXZ) and scaled TILE_W × TILE_H plane. */
-function tileBox(pos: Vec3, rot: Vec3, scale: number): Box {
-  const [rx, ry, rz] = rot;
-  const corners: Vec3[] = [
-    [-TILE_W / 2, -TILE_H / 2, 0],
-    [TILE_W / 2, -TILE_H / 2, 0],
-    [TILE_W / 2, TILE_H / 2, 0],
-    [-TILE_W / 2, TILE_H / 2, 0],
-  ];
-  // Rotation matrix for order YXZ: R = Ry · Rx · Rz.
-  const [cx, sx, cy, sy, cz, sz] = [
-    Math.cos(rx),
-    Math.sin(rx),
-    Math.cos(ry),
-    Math.sin(ry),
-    Math.cos(rz),
-    Math.sin(rz),
-  ];
-  const pts = corners.map(([x, y, z]) => {
-    // Rz
-    const x1 = x * cz - y * sz;
-    const y1 = x * sz + y * cz;
-    const z1 = z;
-    // Rx
-    const y2 = y1 * cx - z1 * sx;
-    const z2 = y1 * sx + z1 * cx;
-    // Ry
-    const x3 = x1 * cy + z2 * sy;
-    const z3 = -x1 * sy + z2 * cy;
-    const point: Vec3 = [pos[0] + x3 * scale, pos[1] + y2 * scale, pos[2] + z3 * scale];
-    return point;
-  });
-  const min = vec3((a) => Math.min(...pts.map((p) => p[a])));
-  const max = vec3((a) => Math.max(...pts.map((p) => p[a])));
-  return { min, max };
-}
-
-/** A 9 × 9 grid of points on a rotated (YXZ), scaled print. */
-function tilePoints(pos: Vec3, rot: Vec3, scale: number): Vec3[] {
-  const { u } = tileObb(pos, rot, 1);
-  const out: Vec3[] = [];
-  for (let a = 0; a <= 8; a += 1) {
-    for (let b = 0; b <= 8; b += 1) {
-      const x = (a / 8 - 0.5) * TILE_W * scale;
-      const y = (b / 8 - 0.5) * TILE_H * scale;
-      out.push(vec3((i) => pos[i] + u[0][i] * x + u[1][i] * y));
-    }
-  }
-  return out;
-}
-
 /** AABB of a vessel (unit box centred on pos, scaled, yawed). */
 function vesselBox(pos: Vec3, scl: Vec3, yaw: number): Box {
   const hx = (Math.abs(Math.cos(yaw)) * scl[0] + Math.abs(Math.sin(yaw)) * scl[2]) / 2;
@@ -225,57 +173,20 @@ function vesselBox(pos: Vec3, scl: Vec3, yaw: number): Box {
   };
 }
 
-/** Oriented box of a tile: centre, 3 unit axes and half extents (prints are 4 mm thick). */
-interface Obb {
-  c: Vec3;
-  u: [Vec3, Vec3, Vec3];
-  e: Vec3;
-}
-
-function tileObb(pos: Vec3, rot: Vec3, scale: number): Obb {
-  const [rx, ry, rz] = rot;
-  const rotate = ([x, y, z]: Vec3): Vec3 => {
-    const x1 = x * Math.cos(rz) - y * Math.sin(rz);
-    const y1 = x * Math.sin(rz) + y * Math.cos(rz);
-    const y2 = y1 * Math.cos(rx) - z * Math.sin(rx);
-    const z2 = y1 * Math.sin(rx) + z * Math.cos(rx);
-    return [x1 * Math.cos(ry) + z2 * Math.sin(ry), y2, -x1 * Math.sin(ry) + z2 * Math.cos(ry)];
-  };
-  return {
-    c: pos,
-    u: [rotate([1, 0, 0]), rotate([0, 1, 0]), rotate([0, 0, 1])],
-    e: [(TILE_W / 2) * scale, (TILE_H / 2) * scale, 0.002],
-  };
-}
-
-const dot = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: Vec3, b: Vec3): Vec3 => [
-  a[1] * b[2] - a[2] * b[1],
-  a[2] * b[0] - a[0] * b[2],
-  a[0] * b[1] - a[1] * b[0],
-];
-
-/** Separating-axis test for two oriented boxes. */
-function obbIntersect(A: Obb, B: Obb): boolean {
-  const d: Vec3 = [B.c[0] - A.c[0], B.c[1] - A.c[1], B.c[2] - A.c[2]];
-  const axes: Vec3[] = [...A.u, ...B.u];
-  for (const a of A.u) for (const b of B.u) axes.push(cross(a, b));
-  return axes.every((axis) => {
-    const len = Math.hypot(...axis);
-    if (len < 1e-9) return true;
-    const n: Vec3 = [axis[0] / len, axis[1] / len, axis[2] / len];
-    const ra = A.u.reduce((sum, u, i) => sum + (A.e[i] ?? 0) * Math.abs(dot(u, n)), 0);
-    const rb = B.u.reduce((sum, u, i) => sum + (B.e[i] ?? 0) * Math.abs(dot(u, n)), 0);
-    return Math.abs(dot(d, n)) <= ra + rb;
-  });
-}
-
 const inside = (p: Vec3, b: Box): boolean =>
   p.every((v, a) => v > (b.min[a] ?? 0) && v < (b.max[a] ?? 0));
-const overlap = (a: Box, b: Box, eps: number): boolean =>
-  [0, 1, 2].every(
-    (i) => (a.min[i] ?? 0) < (b.max[i] ?? 0) - eps && (b.min[i] ?? 0) < (a.max[i] ?? 0) - eps,
-  );
+/** A flat print (as in a tray) centred at (x, y, 0). */
+const flat = (x: number, y: number): Obb =>
+  tileObb({
+    pos: [x, y, 0],
+    rot: [-Math.PI / 2, 0, 0],
+    scale: 1,
+    atlasA: 0,
+    atlasB: 0,
+    mix: 0,
+    develop: 0,
+    lit: 0,
+  });
 
 describe("M2-AC5 paths never intersect", () => {
   const random = rng(7);
@@ -299,64 +210,46 @@ describe("M2-AC5 paths never intersect", () => {
     expect(hits.slice(0, 10)).toEqual([]);
   });
 
-  it("no two prints intersect (oriented boxes, 4 mm thick)", () => {
-    const hits: string[] = [];
-    for (const p of ps) {
-      const s = evaluate(p);
-      // The four quarters abut edge to edge as one print at K0/K5 (gap 0); a 1 % inset lets
-      // touching edges pass while any real interpenetration still fails.
-      const boxes = s.tiles.map((t) => tileObb(t.pos, t.rot, t.scale * 0.99));
-      for (let a = 0; a < boxes.length; a += 1) {
-        for (let b = a + 1; b < boxes.length; b += 1) {
-          const A = boxes[a];
-          const B = boxes[b];
-          if (A && B && obbIntersect(A, B)) hits.push(`p=${p.toFixed(4)} tiles ${a}/${b}`);
-        }
-      }
-    }
-    expect(hits.slice(0, 10)).toEqual([]);
+  it("the SAT check catches real interpenetration (self-test)", () => {
+    const wall = vesselParts({
+      pos: [0, 0.225, 0],
+      scl: [2.8, 0.45, 2.1],
+      yaw: 0,
+      color: [0, 0, 0],
+      lidOpacity: 0,
+      liquidOpacity: 0,
+      capScale: 0,
+      capPos: [0, 0, 0],
+    }).find((part) => part.name === "wall x-");
+    if (!wall) throw new Error("no wall");
+    // A flat print whose left edge reaches 0.02 into the left wall, below the rim: 0.02 deep.
+    expect(penetration(flat(-1.4 + 0.9 - 0.02 + 0.084, 0.3), wall.obb)).toBeCloseTo(0.02, 6);
+    // The same print 1 mm above the rim, or clear of the wall: no contact.
+    expect(penetration(flat(-1.4 + 0.9 - 0.02 + 0.084, 0.451), wall.obb)).toBeLessThanOrEqual(0);
+    expect(penetration(flat(0, 0.3), wall.obb)).toBeLessThanOrEqual(0);
   });
 
-  it("reports how often the axis-aligned boxes overlap (informational)", () => {
-    let count = 0;
-    for (const p of ps) {
-      const s = evaluate(p);
-      const boxes = s.tiles.map((t) => tileBox(t.pos, t.rot, t.scale));
-      for (let a = 0; a < boxes.length; a += 1) {
-        for (let b = a + 1; b < boxes.length; b += 1) {
-          const A = boxes[a];
-          const B = boxes[b];
-          if (A && B && overlap(A, B, 1e-3)) count += 1;
-        }
+  it("no mesh-to-mesh intersection deeper than 0.001 (exact oriented-box SAT, dense p)", () => {
+    // Every morph at Δp 2e-5 (the narrowest earlier failure spanned 1.2e-3 of p), holds at 1e-4.
+    const samples: number[] = [];
+    for (let i = 0; i <= 10_000; i += 1) samples.push(i / 10_000);
+    for (let k = 0; k + 1 < HOLDS.length; k += 1) {
+      const from = HOLDS[k]?.[1] ?? 0;
+      const to = HOLDS[k + 1]?.[0] ?? 1;
+      for (let p = from; p <= to; p += 2e-5) samples.push(p);
+    }
+    let worst = 0;
+    const hits: string[] = [];
+    for (const p of samples) {
+      for (const hit of intersections(evaluate(p), 0)) {
+        worst = Math.max(worst, hit.depth);
+        if (hit.depth > 0.001)
+          hits.push(`p=${p.toFixed(5)} ${hit.what} depth ${hit.depth.toFixed(4)}`);
       }
     }
-    expect(count).toBeGreaterThanOrEqual(0);
-  });
-
-  it("prints below an open tray's rim stay inside its walls (no print passes through a wall)", () => {
-    const hits: string[] = [];
-    for (let i = 0; i <= 10_000; i += 1) {
-      const s = evaluate(i / 10_000);
-      s.tiles.forEach((tile, ti) => {
-        if (tile.scale <= 0.05) return;
-        const pts = tilePoints(tile.pos, tile.rot, tile.scale * 0.99);
-        s.vessels.forEach((v, vi) => {
-          if (v.lidOpacity >= 0.5) return;
-          const vb = vesselBox(v.pos, v.scl, v.yaw);
-          // Points of the print below the rim: all inside the tray's walls or all outside.
-          const below = pts.filter((q) => q[1] < vb.max[1] && q[1] > vb.min[1]);
-          const isIn = (q: Vec3): boolean =>
-            q[0] > vb.min[0] && q[0] < vb.max[0] && q[2] > vb.min[2] && q[2] < vb.max[2];
-          const n = below.filter(isIn).length;
-          if (n > 0 && n < below.length) {
-            hits.push(`p=${s.p.toFixed(4)} tile ${ti} crosses tray ${vi} wall`);
-            if (process.env.AC5_DEBUG)
-              console.warn(`AC5 ${s.p.toFixed(4)} ${ti} ${vi} ${n}/${below.length}`);
-          }
-        });
-      });
-    }
+    expect(samples.length).toBeGreaterThan(35_000);
     expect(hits.slice(0, 10)).toEqual([]);
+    expect(worst).toBeLessThanOrEqual(0.001);
   });
 
   // Process → Contact is the one morph where design §1/§3 drain the bath *with* the rise (liq

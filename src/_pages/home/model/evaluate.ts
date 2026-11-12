@@ -160,7 +160,17 @@ export function evaluate(p: number, options: EvaluateOptions = {}): SceneState {
     const b = pick(B.tiles, i);
     const stagger = k === 1 ? (i >> 1) * 0.15 : pick(SLOT, i) * 0.05;
     const e = k === 3 ? tt : clamp(tt * 1.15 - stagger);
-    const pos = [...lerp3(a.pos, b.pos, e)] as [number, number, number];
+    // Horizontal progress (x, z) and, into the Process trays, the flattening (rot, scale):
+    // - Journey → Work: the prints rise clear of the tray rims before they move out sideways
+    //   (eh = e²(2 − e): starts slower, same end), so no edge cuts a rim (M2-AC5).
+    // - Services → Process: each print is flat, centred and full size over its tray by e = .85,
+    //   before the arc brings it below the rim (and after the lid has faded out) (M2-AC5).
+    const eh = k === 1 ? e * e * (2 - e) : k === 3 ? clamp(e / 0.85) : e;
+    const pos: [number, number, number] = [
+      lerp(a.pos[0], b.pos[0], eh),
+      lerp(a.pos[1], b.pos[1], e),
+      lerp(a.pos[2], b.pos[2], eh),
+    ];
     // Process → Contact: the prints open out into the 2×2 cluster (depth and size lead the
     // slide) with a small gap that closes as each print arrives, so the column pairs never
     // overlap on the way in (M2-AC5); they reach the cluster by t .65 and settle as one print.
@@ -177,12 +187,12 @@ export function evaluate(p: number, options: EvaluateOptions = {}): SceneState {
     // Into the Process trays the swing settles as (1 − e)^1.5, ahead of the arc height, so each
     // print is back over its tray before it dips below the rim (M2-AC5).
     if (k === 2) pos[2] += Math.sin(PI * e) * 1.6;
-    if (k === 3) pos[2] += Math.sin(PI * e) * Math.sqrt(1 - e) * 1.9;
+    if (k === 3) pos[2] += Math.sin(PI * eh) * Math.sqrt(1 - eh) * 1.9;
     const developing = k === 0 && t === 0 && options.developed !== true;
     return {
       pos,
-      rot: lerp3(a.rot, b.rot, e),
-      scale: lerp(a.s, b.s, ez),
+      rot: lerp3(a.rot, b.rot, k === 3 ? eh : e),
+      scale: lerp(a.s, b.s, k === 3 ? eh : ez),
       atlasA: a.tex,
       atlasB: b.tex,
       mix: t > 0 ? tx * 1.4 - 0.2 : -0.3,
