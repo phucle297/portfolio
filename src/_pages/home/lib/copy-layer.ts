@@ -16,6 +16,7 @@ import {
   beatProgress,
   clamp,
   copyState,
+  HOLDS,
   SECTIONS,
 } from "@shared/lib/timeline";
 
@@ -29,6 +30,8 @@ interface SectionCopy {
   beatCount: number;
   lastOpacity: number;
   lastBeat: number;
+  /** Beat that holds keyboard focus; it is shown instead of the scroll-picked beat. */
+  focusBeat: number | null;
 }
 
 export interface CopyLayer {
@@ -53,9 +56,33 @@ function collect(): SectionCopy[] {
       (max, item) => Math.max(max, ...item.beats.map((b) => b + 1)),
       1,
     );
-    return [{ index, body, beats, beatCount, lastOpacity: -1, lastBeat: -1 }];
+    return [{ index, body, beats, beatCount, lastOpacity: -1, lastBeat: -1, focusBeat: null }];
   });
 }
+
+/** Inset from the hold edges for focus targets, so the scene is fully at rest there. */
+const HOLD_INSET = 0.002;
+
+/**
+ * Where focus inside section `index` scrolls to: the beat's own position, clamped into the
+ * section's hold, so focused copy never sits over a morph in progress (QA B-5).
+ */
+export function focusProgress(index: number, beat: number, count: number): number {
+  const hold = HOLDS[index];
+  const p = beatProgress(index, beat, count);
+  if (!hold) return p;
+  return clamp(p, hold[0] + HOLD_INSET, hold[1] - HOLD_INSET);
+}
+
+const inHold = (p: number, index: number): boolean => {
+  const hold = HOLDS[index];
+  return hold !== undefined && p >= hold[0] && p <= hold[1];
+};
+
+const scrollProgress = (): number => {
+  const max = document.documentElement.scrollHeight - window.innerHeight;
+  return max > 0 ? clamp(window.scrollY / max) : 0;
+};
 
 const progressToScroll = (p: number): number =>
   clamp(p) * Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
@@ -102,7 +129,16 @@ export function createCopyLayer(): CopyLayer {
         section.body.style.setProperty("--copy-y", `${y.toFixed(2)}px`);
         section.body.toggleAttribute("data-copy-active", opacity > 0.01);
       }
-      if (section.beatCount > 1 && opacity > 0) {
+      if (section.beatCount > 1 && opacity > 0 && section.focusBeat !== null) {
+        // Focus picked the beat: show it alone (scroll still scrubs the section as a whole).
+        const focused = section.focusBeat;
+        for (const item of section.beats) {
+          const on = item.beats.includes(focused);
+          item.el.style.setProperty("--beat-o", on ? "1" : "0");
+          item.el.toggleAttribute("data-beat-active", on);
+        }
+        section.lastBeat = -1;
+      } else if (section.beatCount > 1 && opacity > 0) {
         for (const item of section.beats) {
           // An element in several beats (e.g. a list shown across two) stays opaque through
           // the crossfade between them: neighbouring weights sum to 1.
@@ -136,30 +172,40 @@ export function createCopyLayer(): CopyLayer {
     }
   };
 
-  // Keyboard users: focus inside copy that is not on screen scrolls to where it is shown.
+  // Keyboard users: focus inside copy that is not on screen scrolls to where it is shown, always
+  // inside the section's hold (the scene at rest), and the focused beat is the one shown.
   const onFocusIn = (event: FocusEvent): void => {
     const { target } = event;
     if (!query.matches || !(target instanceof Element)) return;
+    for (const s of sections) s.focusBeat = null;
     const section = sections.find((s) => s.body.contains(target));
-    if (!section) return;
+    if (!section) {
+      update(current);
+      return;
+    }
     const beatEl = section.beats.find((b) => b.el.contains(target));
-    const firstBeat = beatEl?.beats[0];
-    const targetBeat =
-      section.beatCount > 1 && firstBeat !== undefined
-        ? firstBeat
-        : beatAt(current, section.index, section.beatCount);
-    const visible = copyState(current, section.index).opacity >= 0.99;
-    const onBeat =
-      section.beatCount <= 1 || beatAt(current, section.index, section.beatCount) === targetBeat;
-    if (visible && onBeat) return;
-    window.scrollTo({
-      top: progressToScroll(beatProgress(section.index, targetBeat, section.beatCount)),
-      behavior: "instant",
-    });
+    const ownBeat = section.beatCount > 1 ? beatEl?.beats[0] : undefined;
+    const targetBeat = ownBeat ?? beatAt(current, section.index, section.beatCount);
+    if (ownBeat !== undefined) section.focusBeat = ownBeat;
+    const scrolled = scrollProgress();
+    if (!inHold(scrolled, section.index)) {
+      window.scrollTo({
+        top: progressToScroll(focusProgress(section.index, targetBeat, section.beatCount)),
+        behavior: "instant",
+      });
+    }
+    update(current);
   };
 
+  const onFocusOut = (event: FocusEvent): void => {
+    const next = event.relatedTarget;
+    if (next instanceof Element && sections.some((s) => s.body.contains(next))) return;
+    for (const s of sections) s.focusBeat = null;
+    update(current);
+  };
   query.addEventListener("change", applyMode);
   document.addEventListener("focusin", onFocusIn);
+  document.addEventListener("focusout", onFocusOut);
   applyMode();
 
   return {
@@ -168,6 +214,7 @@ export function createCopyLayer(): CopyLayer {
     dispose: () => {
       query.removeEventListener("change", applyMode);
       document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
       delete root.dataset.pin;
       reset();
     },
