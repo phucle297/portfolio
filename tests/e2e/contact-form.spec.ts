@@ -279,4 +279,56 @@ test.describe("PF-13 contact form", () => {
     await expect(freelance(page)).toBeChecked();
     await context.close();
   });
+
+  test("without JS the form cannot submit or post back, and the mailto link is shown", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    const documentRequests: string[] = [];
+    page.on("request", (request) => {
+      const url = request.url();
+      if (url.startsWith("mailto:")) documentRequests.push(url);
+      const method = request.method();
+      if (method === "POST" || method === "PUT") documentRequests.push(`${method} ${url}`);
+    });
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame() && !frame.url().startsWith("http")) {
+        documentRequests.push(frame.url());
+      }
+    });
+
+    await page.goto("/");
+    await page.locator("#contact").scrollIntoViewIfNeeded();
+
+    if (PUBLIC_EMAIL === null) {
+      await expect(page.locator('#contact a[href^="mailto:"]')).toHaveCount(0);
+      await context.close();
+      return;
+    }
+
+    const mailtoLink = page.locator(`#contact a[href="mailto:${PUBLIC_EMAIL}"]`);
+    await expect(mailtoLink).toBeVisible();
+    await expect(mailtoLink).toHaveText(PUBLIC_EMAIL);
+
+    const form = page.locator("form[data-contact-form]");
+    await expect(form).toBeHidden();
+    const action = await form.getAttribute("action");
+    expect((action ?? "").toLowerCase().startsWith("mailto:")).toBe(false);
+    await expect(form.locator('button[type="submit"]')).toBeDisabled();
+
+    // The control is not visible and is disabled, so a visitor cannot submit.
+    // A forced click (if the driver allows it) must not navigate or post back.
+    const urlBefore = page.url();
+    try {
+      await form.locator('button[type="submit"]').click({ force: true });
+    } catch {
+      // Disabled or not hittable: the no-JS visitor cannot submit.
+    }
+    await page.waitForTimeout(400);
+    expect(page.url()).toBe(urlBefore);
+    expect(documentRequests).toEqual([]);
+
+    await context.close();
+  });
 });

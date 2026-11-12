@@ -63,10 +63,8 @@ const email = profile.email;
       class="card contact__form"
       data-contact-form
       data-email={email ?? ""}
-      action={email ? `mailto:${email}` : undefined}
-      method="post"
-      enctype="text/plain"
       novalidate
+      inert
       aria-labelledby="contact-title"
     >
       <fieldset class="contact__modes">
@@ -157,7 +155,7 @@ const email = profile.email;
         </p>
       </div>
 
-      <button class="button button--primary contact__submit" type="submit">
+      <button class="button button--primary contact__submit" type="submit" disabled>
         {form.submit}
       </button>
       <p class="contact__note">{form.note}</p>
@@ -257,6 +255,17 @@ const email = profile.email;
   .contact__form {
     display: grid;
     gap: 0.9rem;
+  }
+
+  /* No-JS: hide the form so it cannot submit or post back. html.js is set before first
+     paint, so with JS the form is in the layout from the start and does not shift in.
+     The visible mailto: link in .contact__links is the no-JS path. */
+  :global(html:not(.js)) .contact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :global(html:not(.js)) .contact__form {
+    display: none;
   }
 
   .contact__modes {

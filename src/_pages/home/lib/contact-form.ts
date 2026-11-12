@@ -96,6 +96,12 @@ function syncMode(form: HTMLFormElement): void {
 }
 
 export function initContactForm(form: HTMLFormElement): void {
+  // Progressive enhancement: the form ships inert and the submit button disabled so a
+  // no-JS submit cannot post back to the page. JS turns it on.
+  form.removeAttribute("inert");
+  const submit = form.querySelector<HTMLButtonElement>("[type=submit]");
+  if (submit) submit.disabled = false;
+
   const status = form.querySelector<HTMLElement>("[data-form-status]");
   const email = form.dataset.email ?? "";
 
