@@ -29,6 +29,16 @@ await page.route(/probe\.worker/, (route) =>
 await page.goto(`${base}/?scene-test`);
 await page.waitForFunction(() => window.darkroomTest !== undefined, null, { timeout: 120_000 });
 await page.evaluate(() => document.fonts.ready);
+// The test hook exists before the canvas has faded in over the poster (.is-ready, 560 ms); wait
+// for the canvas to be fully shown so frame 0 is not caught mid-fade.
+await page.waitForFunction(
+  () => {
+    const canvas = document.querySelector(".darkroom-scene__canvas");
+    return canvas !== null && getComputedStyle(canvas).opacity === "1";
+  },
+  null,
+  { timeout: 30_000 },
+);
 if (mode === "scene") await page.addStyleTag({ content: HIDE_COPY });
 
 /** Render and capture frame i (p = i / 383). */
