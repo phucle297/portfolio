@@ -1,0 +1,74 @@
+---
+import { process } from "@entities/profile";
+import HomeSection from "./HomeSection.astro";
+---
+
+<HomeSection id="process" index={4} labelledBy="process-title">
+  <p class="eyebrow">{process.eyebrow}</p>
+  <h2 id="process-title" class="display section-title">
+    {process.title} <em>{process.titleAccent}</em>
+  </h2>
+  <ol class="process__steps" role="list">
+    {process.steps.map((step, i) => (
+      <li class="card" data-reveal>
+        <article>
+          <span class="process__num mono" aria-hidden="true">
+            0{i + 1}
+          </span>
+          <p class="eyebrow">{step.eyebrow}</p>
+          <h3>{step.title}</h3>
+          <p>{step.copy}</p>
+        </article>
+      </li>
+    ))}
+  </ol>
+</HomeSection>
+
+<style>
+  .process__steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 2rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .process__num {
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    margin-bottom: 1rem;
+    border: 1.5px solid var(--line-strong);
+    border-radius: 50%;
+    font-size: 0.875rem;
+  }
+
+  .process__steps li:first-child .process__num {
+    border-color: var(--accent-2);
+    color: var(--accent-2);
+  }
+
+  .process__steps h3 {
+    margin: 0.3rem 0 0.6rem;
+    font: 400 1.75rem/1.1 var(--font-serif);
+  }
+
+  .process__steps p:last-child {
+    color: var(--muted);
+    font-size: 0.9375rem;
+  }
+
+  @media (max-width: 1023px) {
+    .process__steps {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 767px) {
+    .process__steps {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

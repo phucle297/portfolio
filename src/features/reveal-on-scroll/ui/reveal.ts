@@ -1,6 +1,6 @@
 import { inView } from "motion";
 import { animate } from "motion/mini";
-import { prefersReducedMotion } from "@shared/lib/motion";
+import { motionAllowed } from "@shared/lib/motion";
 
 const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const;
 
@@ -15,7 +15,7 @@ export function initReveal(root: ParentNode = document): void {
   const elements = Array.from(root.querySelectorAll<HTMLElement>("[data-reveal]"));
   if (elements.length === 0) return;
 
-  if (prefersReducedMotion()) {
+  if (!motionAllowed()) {
     for (const el of elements) el.dataset.revealed = "";
     return;
   }

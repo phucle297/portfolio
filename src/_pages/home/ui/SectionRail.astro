@@ -1,0 +1,80 @@
+---
+import { siteConfig } from "@shared/config";
+---
+
+<nav class="rail" aria-label="Sections">
+  <ol role="list">
+    {siteConfig.nav.map((item, i) => (
+      <li>
+        <a
+          href={`#${item.id}`}
+          data-section-link={item.id}
+          aria-current={i === 0 ? "true" : undefined}
+        >
+          <span class="visually-hidden">{item.label}</span>
+          <span aria-hidden="true">{item.number}</span>
+        </a>
+      </li>
+    ))}
+  </ol>
+</nav>
+
+<script>
+  import { initSectionTracker } from "../lib/section-tracker";
+
+  initSectionTracker();
+</script>
+
+<style>
+  .rail {
+    position: fixed;
+    top: 50%;
+    right: 1.75rem;
+    z-index: 15;
+    transform: translateY(-50%);
+  }
+
+  .rail ol {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .rail a {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    color: var(--muted);
+    font: 500 0.6875rem/1 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-decoration: none;
+  }
+
+  .rail a::after {
+    content: "";
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid var(--line-strong);
+    border-radius: 50%;
+  }
+
+  .rail a[aria-current="true"] {
+    color: var(--accent-2);
+  }
+
+  .rail a[aria-current="true"]::after {
+    border-color: var(--accent-2);
+    background: radial-gradient(circle, var(--accent-2) 35%, transparent 40%);
+  }
+
+  @media (max-width: 1023px) {
+    .rail {
+      display: none;
+    }
+  }
+</style>

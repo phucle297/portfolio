@@ -1,0 +1,84 @@
+---
+/**
+ * One of the six page sections. On desktop each section's height is a fixed share of the
+ * scrollable height, so the DOM boundaries land on the timeline's points (0 / .12 / .30 / .52 /
+ * .68 / .84, see `SECTIONS` in @shared/lib/timeline). Heights come from CSS only.
+ */
+import SectionStill from "./SectionStill.astro";
+
+interface Props {
+  id: string;
+  index: number;
+  labelledBy: string;
+  align?: "start" | "center" | "end";
+}
+
+const { id, index, labelledBy, align = "center" } = Astro.props;
+---
+
+<section
+  id={id}
+  class:list={["home-section", `home-section--${id}`, `home-section--align-${align}`]}
+  aria-labelledby={labelledBy}
+  data-section={id}
+>
+  <SectionStill index={index} eager={index === 0} />
+  <div class="home-section__body container">
+    <slot />
+  </div>
+</section>
+
+<style>
+  .home-section {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    scroll-margin-top: 0;
+  }
+
+  .home-section__body {
+    position: relative;
+    z-index: 2;
+    padding-block: calc(var(--header-h) + 2rem) 4rem;
+  }
+
+  @media (min-width: 768px) {
+    .home-section {
+      --scroll: 1000vh;
+    }
+
+    .home-section--hello {
+      min-height: calc(var(--scroll) * 0.12);
+    }
+
+    .home-section--journey {
+      min-height: calc(var(--scroll) * 0.18);
+    }
+
+    .home-section--work {
+      min-height: calc(var(--scroll) * 0.22);
+    }
+
+    .home-section--services,
+    .home-section--process {
+      min-height: calc(var(--scroll) * 0.16);
+    }
+
+    /* The last section also spans the final viewport, minus the footer. */
+    .home-section--contact {
+      min-height: calc(var(--scroll) * 0.16 + 100vh - var(--footer-h));
+    }
+
+    .home-section--align-start {
+      justify-content: flex-start;
+    }
+
+    .home-section--align-center {
+      justify-content: center;
+    }
+
+    .home-section--align-end {
+      justify-content: flex-end;
+    }
+  }
+</style>

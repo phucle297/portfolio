@@ -1,14 +1,25 @@
 ---
-import { profile } from "@entities/profile";
-const year = new Date().getFullYear();
+import { hello, profile } from "@entities/profile";
+
+const linkedin = profile.socials.find((social) => social.label === "LinkedIn");
+const cvHref = profile.cvUrl ?? linkedin?.href ?? null;
+const cvLabel = profile.cvUrl ? hello.secondaryCta : hello.secondaryCtaFallback;
 ---
 
 <footer class="site-footer">
-  <div class="container site-footer__inner">
+  <div class="site-footer__inner">
     <p>
-      © {year} {profile.name}. Built with Astro, Three.js and Motion.
+      © 2026 {profile.name} · {profile.city}
     </p>
     <ul class="site-footer__links" role="list">
+      {cvHref && (
+        <li>
+          <a href={cvHref} rel="noopener noreferrer" target="_blank">
+            {cvLabel}
+            <span class="visually-hidden"> (opens in a new tab)</span>
+          </a>
+        </li>
+      )}
       {profile.socials.map((social) => (
         <li>
           <a href={social.href} rel="me noopener noreferrer" target="_blank">
@@ -23,10 +34,17 @@ const year = new Date().getFullYear();
 
 <style>
   .site-footer {
-    border-top: 1px solid var(--color-border);
-    padding-block: 2rem;
-    color: var(--color-text-muted);
-    font-size: 0.9rem;
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    min-height: var(--footer-h);
+    border-top: 1px solid var(--line);
+    background: rgb(14 10 8 / 0.85);
+    color: var(--muted);
+    font: 500 0.75rem/1.4 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
   }
 
   .site-footer__inner {
@@ -34,22 +52,28 @@ const year = new Date().getFullYear();
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .site-footer__inner p {
-    margin: 0;
+    gap: 0.5rem 1.5rem;
+    width: 100%;
+    padding-inline: var(--gutter);
   }
 
   .site-footer__links {
     display: flex;
-    gap: 1rem;
+    gap: 1.25rem;
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
   .site-footer__links a {
-    color: var(--color-text);
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .site-footer__links a:hover {
+    color: var(--accent-2);
   }
 </style>

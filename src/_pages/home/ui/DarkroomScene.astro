@@ -1,0 +1,122 @@
+---
+/**
+ * The page-wide darkroom scene: ONE fixed canvas behind the copy (design.md §5, §10).
+ *
+ * Static tier by default: each section shows its own poster still and this host stays empty.
+ * The full tier mounts only when every cheap gate passes (fine pointer, ≥ 768 px, motion allowed
+ * by the OS and the site toggle, no Save-Data) AND the off-main-thread hardware WebGL2 probe
+ * passes. Under reduced motion neither the probe nor three.js is ever requested (F1).
+ */
+import { sceneDescription } from "@entities/profile";
+---
+
+<p class="visually-hidden" id="darkroom-scene-description">
+  {sceneDescription}
+</p>
+<div class="darkroom-scene" data-scene aria-hidden="true"></div>
+
+<script>
+  import { onMotionChange } from "@shared/lib/motion";
+  import { probeHardwareWebGL } from "@shared/lib/webgl";
+  import { cheapGates } from "../lib/gate";
+  import type { StageHandle } from "../lib/stage";
+  import { LITE_MORPH_ENABLED } from "../lib/tiers";
+
+  const host = document.querySelector<HTMLElement>("[data-scene]");
+  const root = document.documentElement;
+  const params = new URLSearchParams(window.location.search);
+  const exposeTestHook = import.meta.env.DEV || params.has("scene-test");
+
+  let handle: StageHandle | null = null;
+  let starting = false;
+
+  const setTier = (tier: "full" | "static"): void => {
+    root.dataset.tier = tier;
+  };
+
+  const whenIdle = (cb: () => void): void => {
+    let done = false;
+    const run = (): void => {
+      if (done) return;
+      done = true;
+      removeEventListener("pointerdown", run);
+      removeEventListener("keydown", run);
+      cb();
+    };
+    addEventListener("pointerdown", run, { once: true, passive: true });
+    addEventListener("keydown", run, { once: true });
+    if ("requestIdleCallback" in window) window.requestIdleCallback(run, { timeout: 3000 });
+    else setTimeout(run, 1);
+  };
+
+  const whenLoaded = (cb: () => void): void => {
+    if (document.readyState === "complete") cb();
+    else addEventListener("load", cb, { once: true });
+  };
+
+  function stop(): void {
+    handle?.dispose();
+    handle = null;
+    setTier("static");
+  }
+
+  async function start(el: HTMLElement): Promise<void> {
+    if (handle || starting || !cheapGates().pass) return;
+    starting = true;
+    try {
+      if (!(await probeHardwareWebGL()) || !cheapGates().pass) return;
+      // Lite morph is not enabled (build plan Q5); the "lite" tier is reachable only via the
+      // test hook for budget measurement.
+      const wantsLite = params.get("tier") === "lite";
+      const tier = wantsLite && (LITE_MORPH_ENABLED || exposeTestHook) ? "lite" : "full";
+      const { mountStage } = await import("../lib/stage");
+      if (!cheapGates().pass) return;
+      handle = await mountStage(el, { tier, exposeTestHook });
+      setTier("full");
+      addEventListener("pagehide", (event) => {
+        if (!event.persisted) stop();
+      });
+    } catch {
+      // WebGL or network failure: the poster stills stay.
+      stop();
+    } finally {
+      starting = false;
+    }
+  }
+
+  if (host) {
+    setTier("static");
+    whenLoaded(() => {
+      whenIdle(() => {
+        void start(host);
+      });
+    });
+    onMotionChange(() => {
+      if (cheapGates().pass) void start(host);
+      else stop();
+    });
+  }
+</script>
+
+<style>
+  .darkroom-scene {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .darkroom-scene :global(.darkroom-scene__canvas) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    opacity: 0;
+    transition: opacity 560ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .darkroom-scene:global(.is-ready) :global(.darkroom-scene__canvas) {
+    opacity: 1;
+  }
+</style>
