@@ -156,19 +156,23 @@ describe("e2e projects: specs are cross-browser by default (PF-05)", () => {
     );
   };
 
-  it.each(["firefox", "webkit"])("runs every spec that is not opted out on %s", (engine) => {
-    const expected = specs.filter((f) => !optedOut(f) && !allTestsDropped(f, engine));
-    const missing = expected
-      .filter((f) => !files(engine).includes(f))
-      .map((f) => relative(root, f));
-    expect(missing, `specs missing from ${engine}: opt them out in tests/e2e/projects.ts`).toEqual(
-      [],
-    );
-    const leaked = files(engine)
-      .filter((f) => optedOut(f) || allTestsDropped(f, engine))
-      .map((f) => relative(root, f));
-    expect(leaked, `opted-out specs still listed on ${engine}`).toEqual([]);
-  });
+  it.each(["firefox", "webkit"] as const)(
+    "runs every spec that is not opted out on %s",
+    (engine) => {
+      const expected = specs.filter((f) => !optedOut(f) && !allTestsDropped(f, engine));
+      const missing = expected
+        .filter((f) => !files(engine).includes(f))
+        .map((f) => relative(root, f));
+      expect(
+        missing,
+        `specs missing from ${engine}: opt them out in tests/e2e/projects.ts`,
+      ).toEqual([]);
+      const leaked = files(engine)
+        .filter((f) => optedOut(f) || allTestsDropped(f, engine))
+        .map((f) => relative(root, f));
+      expect(leaked, `opted-out specs still listed on ${engine}`).toEqual([]);
+    },
+  );
 
   it("drops only documented tests on Firefox and WebKit", () => {
     const keys = (project: string): Set<string> =>
