@@ -79,6 +79,20 @@ async function withFrameClock(page: Page): Promise<void> {
 /** Everything the page and the scene show at the current scroll position. */
 async function snapshot(page: Page) {
   await settle(page);
+  // settle() only waits for the scene to come within 2e-4 of the page; the comparisons here are
+  // exact, so also wait for the render loop to stop (it snaps `shown` to the target as it stops).
+  await page.waitForFunction(
+    () =>
+      new Promise<boolean>((resolve) => {
+        const rafs = window.darkroomTest?.rafs() ?? -1;
+        const shown = window.darkroomTest?.shown() ?? -1;
+        setTimeout(() => {
+          resolve(window.darkroomTest?.rafs() === rafs && window.darkroomTest.shown() === shown);
+        }, 200);
+      }),
+    null,
+    { timeout: 15_000 },
+  );
   return page.evaluate(() => ({
     y: window.scrollY,
     shown: window.darkroomTest?.shown() ?? -1,
