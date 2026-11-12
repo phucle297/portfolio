@@ -27,7 +27,6 @@ export const CHROMIUM_ONLY_SPECS: readonly OptOut[] = [
     pattern: /[\\/]m2(-[\w-]+)?\.spec\.ts$/,
     reason:
       "M2 pinned copy, scrub and render loop on the full tier: needs the SwiftShader-backed scene",
-    pending: "PR #3 (factory/TASK-20261112-08-m2)",
   },
   {
     pattern: /[\\/]probe-cost(-[\w-]+)?\.spec\.ts$/,
@@ -55,11 +54,6 @@ export const CHROMIUM_ONLY_TESTS: readonly OptOut[] = [
     pattern: /M1-AC13 fonts: design faces, no fallback in the names/,
     reason:
       "relies on Chromium answering document.fonts.check() for unloaded faces; cross-browser.spec.ts loads then checks",
-  },
-  {
-    pattern: /QA-7: the header is opaque once scrolled, so copy never shows through it/,
-    reason:
-      "main's version reads the header colour mid-transition; PR #3 replaces it with a poll (drop this entry then)",
   },
 ];
 
