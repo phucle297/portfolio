@@ -33,7 +33,6 @@ export const CHROMIUM_ONLY_SPECS: readonly OptOut[] = [
     pattern: /[\\/]probe-cost(-[\w-]+)?\.spec\.ts$/,
     reason:
       "probe cost per branch measured with Chromium flags (--disable-webgl) and a spoofed worker on SwiftShader",
-    pending: "PF-01 (factory/PF-01-probe-cost)",
   },
 ];
 
