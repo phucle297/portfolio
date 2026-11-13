@@ -248,6 +248,8 @@ export const contact = {
     brief: { label: "Short brief", placeholder: "What are you building, and by when?" },
     submit: "Send brief",
     note: `${REPLY_PROMISE}.`,
+    /** Visible only when JS is off. Points at the mailto link in .contact__links. */
+    noJsNote: "JavaScript is off — send a brief using the email address above.",
     errors: {
       name: "Please add your name.",
       email: "Please enter a valid email, like you@company.com.",
