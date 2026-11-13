@@ -35,6 +35,10 @@ jobs:
         check: [check, typecheck, "lint:oxlint", "lint:fsd", "format:check", test]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # PF-05 (#8): the e2e spec-inventory guard (tests/unit/e2e-projects.test.ts) needs
+          # origin/main to find the merge-base; a shallow clone makes it fail on purpose.
+          fetch-depth: ${{ matrix.check == 'test' && '0' || '1' }}
       - uses: ./.github/actions/setup
       - run: bun run ${{ matrix.check }}
 
@@ -86,6 +90,10 @@ jobs:
             args: tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts
           - group: probe-cost
             args: tests/e2e/probe-cost.spec.ts tests/e2e/probe-cost-webgl-disabled.spec.ts
+          # PF-05 (#8): the engine-neutral stand-ins, here on Chromium like every group. Firefox and
+          # WebKit run on the box (`--project=firefox|webkit`); the runner has only Chrome.
+          - group: cross-browser
+            args: tests/e2e/cross-browser.spec.ts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -96,7 +104,8 @@ jobs:
       # Same engine the box/QA verifies with: the runner image's preinstalled Google Chrome
       # (playwright.config.ts honours CHROME_PATH). Chromium only; no browser download to cache.
       - run: /usr/bin/google-chrome --version
-      - run: bunx playwright test ${{ matrix.args }} --reporter=list,html
+      # PF-05 (#8) adds firefox and webkit projects; CI runs Chromium only (QA L2 on #4).
+      - run: bunx playwright test ${{ matrix.args }} --project=chromium --reporter=list,html
         env:
           E2E_PREBUILT: "1" # serve the shared dist; do not rebuild
           CHROME_PATH: /usr/bin/google-chrome
