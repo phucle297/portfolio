@@ -29,6 +29,12 @@ import { sceneDescription } from "@entities/profile";
 
   let handle: StageHandle | null = null;
   let starting = false;
+  /**
+   * Bumped by every stop(). A start() that began before a stop (e.g. reduced motion switched on
+   * while the scene chunk was compiling) sees a newer generation after its awaits and backs out
+   * instead of mounting 3D the visitor no longer wants (M3-AC2).
+   */
+  let generation = 0;
 
   const setTier = (tier: "full" | "static"): void => {
     root.dataset.tier = tier;
@@ -55,6 +61,7 @@ import { sceneDescription } from "@entities/profile";
   };
 
   function stop(): void {
+    generation += 1;
     handle?.dispose();
     handle = null;
     setTier("static");
@@ -63,24 +70,36 @@ import { sceneDescription } from "@entities/profile";
   async function start(el: HTMLElement): Promise<void> {
     if (handle || starting || !cheapGates().pass) return;
     starting = true;
+    const startedAt = generation;
+    let failed = false;
+    const wanted = (): boolean => generation === startedAt && cheapGates().pass;
     try {
-      if (!(await probeHardwareWebGL()) || !cheapGates().pass) return;
+      if (!(await probeHardwareWebGL()) || !wanted()) return;
       // Lite morph is not enabled (build plan Q5); the "lite" tier is reachable only via the
       // test hook for budget measurement.
       const wantsLite = params.get("tier") === "lite";
       const tier = wantsLite && (LITE_MORPH_ENABLED || exposeTestHook) ? "lite" : "full";
       const { mountStage } = await import("../lib/stage");
-      if (!cheapGates().pass) return;
-      handle = await mountStage(el, { tier, exposeTestHook });
+      if (!wanted()) return;
+      const mounted = await mountStage(el, { tier, exposeTestHook });
+      if (!wanted()) {
+        mounted.dispose();
+        return;
+      }
+      handle = mounted;
       setTier("full");
       addEventListener("pagehide", (event) => {
         if (!event.persisted) stop();
       });
     } catch {
       // WebGL or network failure: the poster stills stay.
+      failed = true;
       stop();
     } finally {
       starting = false;
+      // Motion was switched off and back on while this start was in flight: start again, now
+      // that this one has backed out (never after a failure, so errors cannot loop).
+      if (!failed && !handle && generation !== startedAt && cheapGates().pass) void start(el);
     }
   }
 

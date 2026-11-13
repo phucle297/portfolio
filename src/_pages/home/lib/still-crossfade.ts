@@ -13,7 +13,13 @@
  * Under reduced motion (OS setting or the site's Motion toggle) the change is instant.
  *
  * Only the shown still and its neighbours are displayed (so lazy images load ahead of the scroll
- * and the rest are never fetched early). Phones keep their in-flow stills (portrait intro +
+ * and the rest are never fetched early).
+ *
+ * Tier switches (PF-09): on the full tier the stills are `display: none` behind the live scene, so
+ * nothing is picked or decoded there. When the tier becomes static mid-visit (reduced motion or
+ * the Motion toggle switched on), the still of the current section is picked, decoded and shown
+ * right away, without waiting for a scroll. A still whose image could not be decoded is retried
+ * on the next update instead of being remembered as the target. Phones keep their in-flow stills (portrait intro +
  * 390×240 bands), so nothing runs there.
  */
 import { sectionAt } from "@shared/lib/timeline";
@@ -47,7 +53,25 @@ async function ready(still: HTMLElement): Promise<boolean> {
     await img.decode();
     return true;
   } catch {
-    return false;
+    // decode() can reject for a lazy image whose load has not started yet (Firefox, WebKit: it
+    // was not displayed when asked). It is displayed now, so wait for the load itself.
+    if (img.complete) return img.naturalWidth > 0;
+    return new Promise<boolean>((resolve) => {
+      img.addEventListener(
+        "load",
+        () => {
+          resolve(img.naturalWidth > 0);
+        },
+        { once: true },
+      );
+      img.addEventListener(
+        "error",
+        () => {
+          resolve(false);
+        },
+        { once: true },
+      );
+    });
   }
 }
 
@@ -110,8 +134,13 @@ export function initStillCrossfade(): void {
     for (const [i, still] of stills.entries())
       still.classList.toggle(NEAR, Math.abs(i - index) <= 1);
     const ok = await ready(next);
-    // Scrolled on meanwhile, or the image failed: keep what is on screen.
-    if (target !== next || !ok) return;
+    // Scrolled on meanwhile: a newer go() owns the target.
+    if (target !== next) return;
+    // The image failed (or could not decode yet): keep what is on screen, retry on the next update.
+    if (!ok) {
+      target = shown;
+      return;
+    }
     const previous = shown;
     // A fade in progress jumps to its end first, so at most two stills are ever involved.
     settle();
@@ -124,6 +153,8 @@ export function initStillCrossfade(): void {
   const update = (): void => {
     queued = false;
     if (!wide.matches) return;
+    // The live scene covers the page and the stills are not displayed: nothing to pick or decode.
+    if (root.dataset.tier === "full") return;
     const next = stills.find((still) => still.dataset.still === String(sectionAt(progress())));
     if (next) void go(next);
   };
@@ -136,5 +167,8 @@ export function initStillCrossfade(): void {
 
   window.addEventListener("scroll", queue, { passive: true });
   window.addEventListener("resize", queue, { passive: true });
+  // Full → static mid-visit (reduced motion, the Motion toggle, a lost context): show the current
+  // section's still now, not on the next scroll.
+  new MutationObserver(queue).observe(root, { attributes: true, attributeFilter: ["data-tier"] });
   update();
 }
