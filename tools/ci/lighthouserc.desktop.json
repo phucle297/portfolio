@@ -1,0 +1,93 @@
+{
+  "ci": {
+    "collect": {
+      "startServerCommand": "node_modules/.bin/astro preview --host 127.0.0.1 --port 4321",
+      "startServerReadyPattern": "127\\.0\\.0\\.1:4321|ready|Local",
+      "startServerReadyTimeout": 60000,
+      "url": ["http://127.0.0.1:4321/"],
+      "numberOfRuns": 3,
+      "settings": {
+        "chromeFlags": "--headless=new --no-sandbox --disable-dev-shm-usage",
+        "preset": "desktop"
+      }
+    },
+    "assert": {
+      "assertions": {
+        "categories:performance": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "minScore": 0.95
+          }
+        ],
+        "categories:accessibility": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "minScore": 0.95
+          }
+        ],
+        "categories:best-practices": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "minScore": 0.95
+          }
+        ],
+        "categories:seo": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "minScore": 0.95
+          }
+        ],
+        "largest-contentful-paint": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "maxNumericValue": 1000
+          }
+        ],
+        "total-blocking-time": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "maxNumericValue": 50
+          }
+        ],
+        "cumulative-layout-shift": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "maxNumericValue": 0.02
+          }
+        ],
+        "resource-summary:script:size": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "maxNumericValue": 15360
+          }
+        ],
+        "resource-summary:font:size": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "maxNumericValue": 153600
+          }
+        ],
+        "resource-summary:total:size": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "maxNumericValue": 307200
+          }
+        ]
+      }
+    },
+    "upload": {
+      "target": "filesystem",
+      "outputDir": "lhci-report/desktop"
+    }
+  }
+}
