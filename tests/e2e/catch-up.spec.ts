@@ -41,28 +41,10 @@ interface Recorded {
  * depend on the frame rate (CI SwiftShader frames can take longer than any fixed quiet window).
  */
 const quiet = async (page: Page): Promise<void> => {
-  // Must be `() => new Promise(...)` (not `async () => new Promise(...)`). Playwright awaits one
-  // Promise level; an async wrapper makes that resolve to the inner Promise object, which is
-  // truthy, so waitForFunction would return immediately — mid-hold, before the cut.
-  await page.waitForFunction(
-    () =>
-      new Promise<boolean>((resolve) => {
-        const y = scrollY;
-        setTimeout(() => {
-          // idle() can flicker mid-tick; confirm on the next animation frame that the loop has
-          // really stopped and the scene has caught up.
-          if (scrollY !== y || window.darkroomTest?.idle() !== true) {
-            resolve(false);
-            return;
-          }
-          requestAnimationFrame(() => {
-            resolve(scrollY === y && window.darkroomTest?.idle() === true);
-          });
-        }, 300);
-      }),
-    null,
-    { timeout: 30_000 },
-  );
+  // Synchronous predicate only. Playwright 1.65 treats a Promise from waitForFunction as
+  // success as soon as it resolves, even when the value is false, so a delayed Promise
+  // check would return mid-hold (before the cut). idle() is only true once shown has caught up.
+  await page.waitForFunction(() => window.darkroomTest?.idle() === true, null, { timeout: 30_000 });
 };
 
 const toTop = async (page: Page): Promise<void> => {
