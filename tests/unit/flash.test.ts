@@ -2,14 +2,25 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { evaluate } from "../../src/_pages/home/model/evaluate";
 import {
-  catchUpTime,
+  CATCH_UP_SECONDS,
+  catchUpStep,
+  CUT_GAP,
+  MAX_SWEEP_PER_SECOND,
+  MIN_CUT_SECONDS,
+} from "../../src/_pages/home/lib/catch-up";
+import {
+  type CatchUpStepFn,
   luminance,
   maxInWindow,
   minSafeSeconds,
+  pathFlashesPerSecond,
   rampSpan,
   regionMeans,
+  replayCatchUp,
   saturatedRed,
+  sweepStates,
   transitions,
+  valueAt,
   worstFlashesPerSecond,
 } from "../../tools/flash/lib";
 
@@ -75,14 +86,6 @@ describe("flash maths (WCAG 2.2 general and red flash)", () => {
     expect(minSafeSeconds([frames.toReversed()], 100)).toBeCloseTo(s, 6);
   });
 
-  it("catch-up time follows the stage's exponential and snaps at the idle budget", () => {
-    expect(catchUpTime(0, 0, 1, 0.15, 1.5)).toBe(0);
-    expect(catchUpTime(1 - Math.exp(-1), 0, 1, 0.15, 1.5)).toBeCloseTo(0.15, 6);
-    expect(catchUpTime(1, 0, 1, 0.15, 1.5)).toBe(1.5);
-    // Upward jump mirrors it.
-    expect(catchUpTime(Math.exp(-2), 1, 0, 0.15, 1.5)).toBeCloseTo(0.3, 6);
-  });
-
   it("ramp span from the last flat sample to the top", () => {
     const ps = [0, 0.1, 0.2, 0.3, 0.4, 0.5];
     const v = [0, 0, 0.5, 1, 1, 1];
@@ -111,11 +114,119 @@ describe("M3-AC10 lights-on ramp in the scene model", () => {
 const num = (src: string, name: string): number =>
   Number(new RegExp(`const ${name} = ([\\d._]+)`).exec(src)?.[1]?.replaceAll("_", ""));
 
-describe("flash check mirrors the stage's catch-up constants", () => {
-  it("CATCH_UP_SECONDS and IDLE_BUDGET_MS match tools/flash/check.ts", () => {
+describe("flash check mirrors the stage's idle budget", () => {
+  it("IDLE_BUDGET_MS matches tools/flash/check.ts SNAP_SECONDS", () => {
     const stage = readFileSync("src/_pages/home/lib/stage.ts", "utf8");
     const check = readFileSync("tools/flash/check.ts", "utf8");
-    expect(num(check, "CATCH_UP_TAU")).toBe(num(stage, "CATCH_UP_SECONDS"));
     expect(num(check, "SNAP_SECONDS") * 1000).toBe(num(stage, "IDLE_BUDGET_MS"));
+    // The catch-up itself is not mirrored: stage.ts and check.ts both import catchUpStep.
+    expect(stage).toContain('from "./catch-up"');
+    expect(check).toContain('from "../../src/_pages/home/lib/catch-up.ts"');
+  });
+});
+
+const legacyStep: CatchUpStepFn = (shown, target, dt) => ({
+  shown: shown + (target - shown) * (1 - Math.exp(-dt / CATCH_UP_SECONDS)),
+  cut: false,
+});
+const N = 384;
+/** A red region that turns on and off every 27 frames (14 transitions over the page), like r4c3. */
+const strobe = Array.from({ length: N }, (_, i) => (Math.floor(i / 27) % 2 === 0 ? 0 : 40));
+const jumpFps = (step: CatchUpStepFn, p0: number, p1: number): number =>
+  pathFlashesPerSecond(
+    strobe,
+    sweepStates(
+      replayCatchUp(step, p0, () => p1, 0, { snapSeconds: 1.5 }),
+      N,
+    ),
+    "red",
+  );
+const dragFps = (step: CatchUpStepFn, seconds: number, p0: number, p1: number): number =>
+  pathFlashesPerSecond(
+    strobe,
+    sweepStates(
+      replayCatchUp(step, p0, (t) => p0 + (p1 - p0) * Math.min(1, t / seconds), seconds, {
+        snapSeconds: 1.5,
+      }),
+      N,
+    ),
+    "red",
+  );
+
+describe("stage catch-up is motion-safe on big jumps (PF-14 / M3-AC10)", () => {
+  it("small gaps ease exactly as the τ 0.15 s exponential", () => {
+    const dt = 1 / 60;
+    const next = catchUpStep(0.5, 0.505, dt, Number.POSITIVE_INFINITY);
+    expect(next.cut).toBe(false);
+    expect(next.shown).toBeCloseTo(0.5 + 0.005 * (1 - Math.exp(-dt / CATCH_UP_SECONDS)), 12);
+  });
+
+  it("sweeps no faster than MAX_SWEEP_PER_SECOND, and cuts gaps over CUT_GAP at most every MIN_CUT_SECONDS", () => {
+    const dt = 1 / 60;
+    // Within CUT_GAP: capped sweep.
+    const capped = catchUpStep(0, CUT_GAP * 0.99, dt, Number.POSITIVE_INFINITY);
+    expect(capped.cut).toBe(false);
+    expect(capped.shown).toBeCloseTo(MAX_SWEEP_PER_SECOND * dt, 12);
+    // Over CUT_GAP: one cut, straight to the target.
+    expect(catchUpStep(0, 1, dt, Number.POSITIVE_INFINITY)).toEqual({ shown: 1, cut: true });
+    // Too soon after the last cut: capped sweep instead.
+    const soon = catchUpStep(1, 0, dt, MIN_CUT_SECONDS - dt);
+    expect(soon.cut).toBe(false);
+    expect(soon.shown).toBeCloseTo(1 - MAX_SWEEP_PER_SECOND * dt, 12);
+    expect(catchUpStep(1, 0, dt, MIN_CUT_SECONDS).cut).toBe(true);
+  });
+
+  it("regression: End / Home and far section links strobe with the old catch-up, not the new one", () => {
+    // Old behaviour (459f3f9): a full-page sweep in ~1 s, red r4c3 at 7 flashes/s on the capture.
+    expect(jumpFps(legacyStep, 0, 1)).toBeGreaterThan(3);
+    expect(jumpFps(legacyStep, 1, 0)).toBeGreaterThan(3);
+    expect(jumpFps(legacyStep, 0.12, 0.84)).toBeGreaterThan(3);
+    for (const [p0, p1] of [
+      [0, 1],
+      [1, 0],
+      [0.12, 0.84],
+      [0.84, 0],
+      [0.3, 0.52],
+    ] as const) {
+      expect(jumpFps(catchUpStep, p0, p1)).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  it("regression: fast scrollbar drags strobe with the old catch-up, not the new one", () => {
+    expect(dragFps(legacyStep, 0.5, 0, 1)).toBeGreaterThan(3);
+    for (const seconds of [0.25, 0.5, 1, 2, 4, 8, 16]) {
+      expect(dragFps(catchUpStep, seconds, 0, 1)).toBeLessThanOrEqual(3);
+      expect(dragFps(catchUpStep, seconds, 1, 0)).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("hammering End / Home cuts at most twice in any 1 s", () => {
+    const shown = replayCatchUp(catchUpStep, 0, (t) => Math.floor(t / 0.1) % 2, 3, {
+      snapSeconds: 1.5,
+    });
+    const cuts = shown.filter((s) => s.cut).map((s) => s.t);
+    expect(cuts.length).toBeGreaterThan(2);
+    expect(maxInWindow(cuts.slice(0, -1), 1)).toBeLessThanOrEqual(2);
+  });
+
+  it("sweep states cover every captured frame a sweep passes, and none a cut skips", () => {
+    const sweep = sweepStates(
+      [
+        { t: 0, p: 0, cut: false },
+        { t: 1, p: 10 / (N - 1), cut: false },
+      ],
+      N,
+    );
+    expect(sweep.map((s) => Math.round(s.p * (N - 1)))).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(sweep[5]?.t).toBeCloseTo(0.5, 9);
+    const cut = sweepStates(
+      [
+        { t: 0, p: 0, cut: false },
+        { t: 1 / 60, p: 1, cut: true },
+      ],
+      N,
+    );
+    expect(cut).toHaveLength(2);
+    expect(valueAt([0, 10], 0.25)).toBeCloseTo(2.5, 12);
   });
 });

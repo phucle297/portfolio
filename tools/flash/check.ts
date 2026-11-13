@@ -7,6 +7,7 @@
  *   bun run flash:check                               # build, capture 384 frames, analyse
  *   bun run flash:check -- --no-build                 # reuse the cached build
  *   bun run flash:check -- --frames <dir>             # analyse an existing capture (f000.png …)
+ *   bun run flash:check -- --series <file>            # re-analyse a saved series.json (no capture)
  *   options: --out <dir> (test-results/flash) · --seconds 16 · --grid 8x8 · --mode page|scene
  *
  * Capture: the same 384-frame scroll capture as tools/smooth/capture.mjs (1280×800, frame i at
@@ -18,15 +19,19 @@
  * 160×100 px, smaller than WCAG's 341×256 px flash area, so it is stricter than the area rule).
  * Per region, WCAG 2.2 general transitions (Δ relative luminance ≥ 0.1, darker < 0.8) and red
  * transitions (Δ saturated red > 20) are found; a flash is two opposing transitions. Frames carry
- * no wall-clock time, so p is mapped to time in two scenarios:
+ * no wall-clock time, so p is mapped to time in these scenarios:
  * 1. "scroll": a constant-rate 0 → 100 % scroll in `--seconds` (16 s, M2-AC11's scripted scroll);
- * 2. "jump": the fastest real input, a jump from the top to the bottom (End key, far nav link)
- *    and back (Home), replayed through the stage's catch-up curve (τ = 0.15 s, snap at 1.5 s).
- * Pass: no region over 3 flashes in any 1 s window in either scenario, and the lights-on ramp
- * spans ≥ 4 % of scroll. Also reported: the shortest constant-rate full scroll that stays safe.
+ * 2. fast inputs, replayed at 60 fps through the stage's own catch-up (`catchUpStep`, imported
+ *    from src/_pages/home/lib/catch-up.ts, snap at 1.5 s): End and Home, every section link
+ *    (jump between any two section starts) and whole-page scrollbar drags (0.25–8 s, both ways).
+ *    A sweep is assumed to show every captured frame it passes (strict); a cut shows only its end.
+ * Pass: no region over 3 flashes in any 1 s window in any scenario, and the lights-on ramp
+ * spans ≥ 4 % of scroll. Also reported: the shortest constant-rate full scroll that stays safe,
+ * and (not gated) what the pre-fix plain-exponential catch-up would do on End.
  *
  * Output: summary.md, summary.json, regions.csv (worst flashes/s per region and scenario),
- * luminance.csv (mean luminance per frame), heatmap.png. Exit 0 pass, 1 fail.
+ * luminance.csv (mean luminance per frame), series.json (per-region values per frame, for
+ * --series), heatmap.png. Exit 0 pass, 1 fail.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, posix, relative, resolve as resolvePath } from "node:path";
@@ -34,20 +39,32 @@ import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "@playwright/test";
 import sharp from "sharp";
 import {
-  catchUpTime,
+  CATCH_UP_SECONDS,
+  catchUpStep,
+  CUT_GAP,
+  MAX_SWEEP_PER_SECOND,
+  MIN_CUT_SECONDS,
+} from "../../src/_pages/home/lib/catch-up.ts";
+import { SECTIONS } from "../../src/shared/lib/timeline/timeline.ts";
+import {
   MAX_FLASHES_PER_SECOND,
   minSafeSeconds,
+  pathFlashesPerSecond,
   rampSpan,
   regionMeans,
+  replayCatchUp,
+  sweepStates,
   transitions,
   worstFlashesPerSecond,
+  type CatchUpStepFn,
   type Kind,
   type RegionFrame,
 } from "./lib.ts";
 
-/** Mirrors `CATCH_UP_SECONDS` and `IDLE_BUDGET_MS` in src/_pages/home/lib/stage.ts (unit-tested). */
-export const CATCH_UP_TAU = 0.15;
+/** Mirrors `IDLE_BUDGET_MS` in src/_pages/home/lib/stage.ts (unit-tested). */
 export const SNAP_SECONDS = 1.5;
+/** Scrollbar drags over the whole page, in seconds per page (fast flick to slow drag). */
+export const DRAG_SECONDS = [0.25, 0.5, 1, 2, 4, 8];
 export const FRAMES = 384;
 export const MIN_RAMP = 0.04;
 
@@ -59,6 +76,7 @@ const option = (name: string, fallback: string): string => {
 };
 const outDir = resolvePath(root, option("--out", "test-results/flash"));
 const framesDir = args.includes("--frames") ? resolvePath(option("--frames", "")) : null;
+const seriesFile = args.includes("--series") ? resolvePath(option("--series", "")) : null;
 const seconds = Number(option("--seconds", "16"));
 const [cols = 8, rows = 8] = option("--grid", "8x8").split("x").map(Number);
 const mode = option("--mode", "page");
@@ -206,21 +224,118 @@ async function load(dir: string): Promise<Frame[]> {
 }
 
 // ---- Analysis ----------------------------------------------------------------------------------
-const { frames, renderer } = framesDir
-  ? { frames: await load(framesDir), renderer: `from ${framesDir}` }
-  : await capture();
+/** Per-frame region values as saved in series.json (re-analyse without a new capture). */
+interface SavedSeries {
+  renderer: string;
+  frames: { luminance: number[]; red: number[]; mean: number; lit: number | null }[];
+}
+const isSavedSeries = (x: unknown): x is SavedSeries =>
+  typeof x === "object" &&
+  x !== null &&
+  "renderer" in x &&
+  typeof x.renderer === "string" &&
+  "frames" in x &&
+  Array.isArray(x.frames);
+function loadSeries(file: string): { frames: Frame[]; renderer: string } {
+  const saved: unknown = JSON.parse(readFileSync(file, "utf8"));
+  if (!isSavedSeries(saved)) throw new Error(`${file}: not a flash-check series.json`);
+  return {
+    renderer: `${saved.renderer} (from ${file})`,
+    frames: saved.frames.map((f) => ({
+      regions: { luminance: Float64Array.from(f.luminance), red: Float64Array.from(f.red) },
+      mean: f.mean,
+      lit: f.lit,
+    })),
+  };
+}
+const { frames, renderer } = seriesFile
+  ? loadSeries(seriesFile)
+  : framesDir
+    ? { frames: await load(framesDir), renderer: `from ${framesDir}` }
+    : await capture();
+writeFileSync(
+  join(outDir, "series.json"),
+  JSON.stringify({
+    renderer,
+    frames: frames.map((f) => ({
+      luminance: [...f.regions.luminance],
+      red: [...f.regions.red],
+      mean: f.mean,
+      lit: f.lit,
+    })),
+  } satisfies SavedSeries),
+);
 const n = frames.length;
 if (n < 2) throw new Error("need at least 2 frames");
 const ps = frames.map((_, i) => i / (n - 1));
 const cells = cols * rows;
 
-interface RegionResult {
+// Fast inputs, replayed through the stage's own catch-up (catchUpStep, imported from the product):
+// End / Home, every section link (jump from one section's start to another's), and scrollbar drags
+// across the whole page at several speeds, both ways.
+interface Input {
+  name: string;
+  p0: number;
+  target: (t: number) => number;
+  inputEnd: number;
+}
+const jump = (name: string, p0: number, p1: number): Input => ({
+  name,
+  p0,
+  target: () => p1,
+  inputEnd: 0,
+});
+const drag = (duration: number, p0: number, p1: number): Input => ({
+  name: `drag ${p0 < p1 ? "down" : "up"} in ${duration} s`,
+  p0,
+  target: (t) => p0 + (p1 - p0) * Math.min(1, t / duration),
+  inputEnd: duration,
+});
+const JUMP_KEYS = ["jumpDown", "jumpUp", "anchor", "drag"] as const;
+type JumpKey = (typeof JUMP_KEYS)[number];
+const SCENARIOS: Record<JumpKey, Input[]> = {
+  jumpDown: [jump("End (top → bottom)", 0, 1)],
+  jumpUp: [jump("Home (bottom → top)", 1, 0)],
+  anchor: SECTIONS.flatMap((from) =>
+    SECTIONS.filter((to) => to !== from).map((to) =>
+      jump(`#${from.id} → #${to.id}`, from.start, to.start),
+    ),
+  ),
+  drag: DRAG_SECONDS.flatMap((sec) => [drag(sec, 0, 1), drag(sec, 1, 0)]),
+};
+type Key = "scroll" | JumpKey;
+const KEYS: Key[] = ["scroll", ...JUMP_KEYS];
+const replay = (step: CatchUpStepFn, input: Input) =>
+  sweepStates(
+    replayCatchUp(step, input.p0, input.target, input.inputEnd, { snapSeconds: SNAP_SECONDS }),
+    n,
+  );
+interface Run {
+  name: string;
+  states: { t: number; p: number }[];
+}
+const runAll = (inputs: Input[]): Run[] =>
+  inputs.map((input) => ({ name: input.name, states: replay(catchUpStep, input) }));
+const runs: Record<JumpKey, Run[]> = {
+  jumpDown: runAll(SCENARIOS.jumpDown),
+  jumpUp: runAll(SCENARIOS.jumpUp),
+  anchor: runAll(SCENARIOS.anchor),
+  drag: runAll(SCENARIOS.drag),
+};
+/** The catch-up before PF-14's fix (plain exponential, τ 0.15 s): reported, not gated. */
+const legacyStep: CatchUpStepFn = (shown, target, dt) => ({
+  shown: shown + (target - shown) * (1 - Math.exp(-dt / CATCH_UP_SECONDS)),
+  cut: false,
+});
+const legacyEnd = replay(legacyStep, jump("End (top → bottom)", 0, 1));
+
+interface RegionResult extends Record<Key, number> {
   region: number;
   kind: Kind;
   transitions: number;
-  scroll: number;
-  jumpDown: number;
-  jumpUp: number;
+  /** Worst input per jump scenario. */
+  input: Record<JumpKey, string>;
+  legacyEnd: number;
 }
 const results: RegionResult[] = [];
 const perRegion: number[][] = [];
@@ -232,7 +347,15 @@ for (const kind of ["general", "red"] as const)
     const down = transitions(series, kind);
     const up = transitions(series.toReversed(), kind).map((i) => n - 1 - i);
     perRegion.push(down, up);
-    results.push({
+    const worstRun = (key: JumpKey): { fps: number; name: string } =>
+      runs[key]
+        .map((run) => ({ fps: pathFlashesPerSecond(series, run.states, kind), name: run.name }))
+        .reduce((x, y) => (y.fps > x.fps ? y : x));
+    const jumpDown = worstRun("jumpDown");
+    const jumpUp = worstRun("jumpUp");
+    const anchor = worstRun("anchor");
+    const dragged = worstRun("drag");
+    const r: RegionResult = {
       region: c,
       kind,
       transitions: down.length,
@@ -240,15 +363,21 @@ for (const kind of ["general", "red"] as const)
         worstFlashesPerSecond(down, (i) => (ps[i] ?? 0) * seconds),
         worstFlashesPerSecond(up, (i) => (1 - (ps[i] ?? 0)) * seconds),
       ),
-      jumpDown: worstFlashesPerSecond(down, (i) =>
-        catchUpTime(ps[i] ?? 0, 0, 1, CATCH_UP_TAU, SNAP_SECONDS),
-      ),
-      jumpUp: worstFlashesPerSecond(up, (i) =>
-        catchUpTime(ps[i] ?? 0, 1, 0, CATCH_UP_TAU, SNAP_SECONDS),
-      ),
-    });
+      jumpDown: jumpDown.fps,
+      jumpUp: jumpUp.fps,
+      anchor: anchor.fps,
+      drag: dragged.fps,
+      input: {
+        jumpDown: jumpDown.name,
+        jumpUp: jumpUp.name,
+        anchor: anchor.name,
+        drag: dragged.name,
+      },
+      legacyEnd: pathFlashesPerSecond(series, legacyEnd, kind),
+    };
+    results.push(r);
   }
-const worst = (key: "scroll" | "jumpDown" | "jumpUp"): RegionResult =>
+const worst = (key: Key | "legacyEnd"): RegionResult =>
   results.reduce((a, b) => (b[key] > a[key] ? b : a));
 const safeSeconds = minSafeSeconds(perRegion, n);
 
@@ -268,10 +397,12 @@ const lumRamp = rampSpan(
 
 const fmt = (x: number, d = 2): string => x.toFixed(d);
 const failures: string[] = [];
-for (const key of ["scroll", "jumpDown", "jumpUp"] as const) {
+for (const key of KEYS) {
   const w = worst(key);
   if (w[key] > MAX_FLASHES_PER_SECOND)
-    failures.push(`${key}: region ${w.region} (${w.kind}) flashes ${fmt(w[key], 1)}/s > 3`);
+    failures.push(
+      `${key}: region ${w.region} (${w.kind}${key === "scroll" ? "" : `, ${w.input[key]}`}) flashes ${fmt(w[key], 1)}/s > 3`,
+    );
 }
 const rampValue = litRamp?.span ?? lumRamp.span;
 if (rampValue < MIN_RAMP) failures.push(`lights-on ramp ${fmt(rampValue * 100, 1)} % < 4 %`);
@@ -286,15 +417,21 @@ const lines = [
   "",
   "| scenario | worst region | flashes / s (worst 1 s) | result |",
   "|---|---|---|---|",
-  ...(["scroll", "jumpDown", "jumpUp"] as const).map((key) => {
+  ...KEYS.map((key) => {
     const w = worst(key);
     const label = {
       scroll: `constant scroll, 0 → 100 % in ${seconds} s`,
-      jumpDown: "jump top → bottom (End), catch-up τ 0.15 s",
-      jumpUp: "jump bottom → top (Home), catch-up τ 0.15 s",
+      jumpDown: "jump top → bottom (End)",
+      jumpUp: "jump bottom → top (Home)",
+      anchor: `section links (${SCENARIOS.anchor.length} jumps between section starts)`,
+      drag: `scrollbar drags over the whole page (${DRAG_SECONDS.join(", ")} s, both ways)`,
     }[key];
-    return `| ${label} | ${cellName(w.region)} (${w.kind}, ${w.transitions} transitions over the page) | ${fmt(w[key], 1)} | ${w[key] <= MAX_FLASHES_PER_SECOND ? "pass" : "FAIL"} |`;
+    const which = key === "scroll" ? "" : `; worst: ${w.input[key]}`;
+    return `| ${label} | ${cellName(w.region)} (${w.kind}, ${w.transitions} transitions over the page${which}) | ${fmt(w[key], 1)} | ${w[key] <= MAX_FLASHES_PER_SECOND ? "pass" : "FAIL"} |`;
   }),
+  "",
+  `- Catch-up: exponential τ ${CATCH_UP_SECONDS} s, sweep ≤ ${MAX_SWEEP_PER_SECOND} of the page per s, gaps > ${CUT_GAP} cut (≤ 1 cut per ${MIN_CUT_SECONDS} s), snap ${SNAP_SECONDS} s after the last input`,
+  `- Pre-fix catch-up (plain τ ${CATCH_UP_SECONDS} s exponential) on this capture, End: ${cellName(worst("legacyEnd").region)} (${worst("legacyEnd").kind}) ${fmt(worst("legacyEnd").legacyEnd, 1)} flashes/s (not gated; shows the check still catches it)`,
   "",
   `- Shortest constant-rate full scroll that stays ≤ 3 flashes/s: **${fmt(safeSeconds)} s**`,
   `- Most transitions in one region over the whole page: ${Math.max(...results.map((r) => r.transitions))}`,
@@ -315,11 +452,8 @@ writeFileSync(
       grid,
       seconds,
       renderer,
-      worst: {
-        scroll: worst("scroll"),
-        jumpDown: worst("jumpDown"),
-        jumpUp: worst("jumpUp"),
-      },
+      worst: Object.fromEntries(KEYS.map((key) => [key, worst(key)])),
+      legacyEnd: worst("legacyEnd"),
       safeSeconds,
       lightsOnRamp: litRamp,
       lightsOnRamp1090: litRamp1090,
@@ -334,10 +468,10 @@ writeFileSync(
 writeFileSync(
   join(outDir, "regions.csv"),
   [
-    "region,kind,transitions,scroll_fps,jump_down_fps,jump_up_fps",
+    `region,kind,transitions,${KEYS.map((k) => `${k}_fps`).join(",")},legacy_end_fps`,
     ...results.map(
       (r) =>
-        `${cellName(r.region)},${r.kind},${r.transitions},${fmt(r.scroll, 2)},${fmt(r.jumpDown, 2)},${fmt(r.jumpUp, 2)}`,
+        `${cellName(r.region)},${r.kind},${r.transitions},${KEYS.map((k) => fmt(r[k], 2)).join(",")},${fmt(r.legacyEnd, 2)}`,
     ),
   ].join("\n"),
 );
@@ -352,7 +486,7 @@ writeFileSync(
 const heat = Buffer.alloc(cells);
 for (let c = 0; c < cells; c += 1) {
   const v = Math.max(
-    ...results.filter((r) => r.region === c).map((r) => Math.max(r.scroll, r.jumpDown, r.jumpUp)),
+    ...results.filter((r) => r.region === c).map((r) => Math.max(...KEYS.map((k) => r[k]))),
   );
   heat[c] = Math.min(255, Math.round((v / MAX_FLASHES_PER_SECOND) * 255));
 }

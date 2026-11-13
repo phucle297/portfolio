@@ -5,12 +5,11 @@
  */
 import { onSafelightChange, safelightOn } from "@shared/lib/motion";
 import { clamp } from "@shared/lib/timeline";
+import { catchUpStep } from "./catch-up";
 import { createCopyLayer } from "./copy-layer";
 import { createDarkroom, type Darkroom, type RenderInfo } from "./darkroom";
 import type { Tier } from "./tiers";
 
-/** Time constant of the scroll catch-up (≈ GSAP `scrub: .6`): ~98 % caught up after 0.6 s. */
-const CATCH_UP_SECONDS = 0.15;
 const SETTLE_EPSILON = 1e-4;
 /**
  * Idle budget after the last scroll (or resize): rendering must have stopped this long after
@@ -83,6 +82,8 @@ export async function mountStage(
   let last = 0;
   let inputAt = 0;
   let slowestFrameMs = 0;
+  /** When the scene last cut straight to the scroll position (catch-up.ts), ms. */
+  let lastCutAt = Number.NEGATIVE_INFINITY;
   let frames = 0;
   let rafs = 0;
   let disposed = false;
@@ -103,12 +104,17 @@ export async function mountStage(
     const dt = Math.min(0.1, frameMs / 1000);
     slowestFrameMs = Math.max(slowestFrameMs, frameMs);
     last = now;
-    const step = 1 - Math.exp(-dt / CATCH_UP_SECONDS);
-    shown += (target - shown) * step;
+    // Eased, speed-capped, and cut on big jumps: never a strobe (M3-AC10, catch-up.ts).
+    const next = catchUpStep(shown, target, dt, (now - lastCutAt) / 1000);
+    shown = next.shown;
+    if (next.cut) lastCutAt = now;
     const settled =
       Math.abs(target - shown) < SETTLE_EPSILON ||
       performance.now() - inputAt + 3 * slowestFrameMs >= IDLE_BUDGET_MS;
-    if (settled) shown = target;
+    if (settled) {
+      if (Math.abs(target - shown) >= SETTLE_EPSILON) lastCutAt = now;
+      shown = target;
+    }
     draw();
     if (!settled) raf = requestAnimationFrame(tick);
     else last = 0;

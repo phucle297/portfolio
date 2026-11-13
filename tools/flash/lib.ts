@@ -180,24 +180,6 @@ export function minSafeSeconds(
   return hi;
 }
 
-/**
- * Time at which the scene shows progress p after a jump from p0 to p1 (End / Home key, a fling
- * or a click on a far section link): the stage's exponential catch-up, shown(t) = p1 + (p0 − p1)
- * · e^(−t / τ), snapped to p1 once the idle budget is reached. Returns seconds.
- */
-export function catchUpTime(
-  p: number,
-  p0: number,
-  p1: number,
-  tau: number,
-  snapAt: number,
-): number {
-  if (p1 === p0) return 0;
-  const left = (p1 - p) / (p1 - p0);
-  if (left <= 0) return snapAt;
-  return Math.min(snapAt, Math.max(0, -tau * Math.log(left)));
-}
-
 /** p span of a ramp: from the first sample above `lowFrac` of the way to the last above `highFrac`. */
 export function rampSpan(
   ps: readonly number[],
@@ -218,4 +200,108 @@ export function rampSpan(
   const from = fromIndex >= 0 ? (ps[fromIndex] ?? 0) : at(lowFrac);
   const to = at(highFrac);
   return { from, to, span: to - from };
+}
+
+/** One frame of the stage's scroll catch-up (src/_pages/home/lib/catch-up.ts `catchUpStep`). */
+export type CatchUpStepFn = (
+  shown: number,
+  target: number,
+  dt: number,
+  sinceCut: number,
+) => { shown: number; cut: boolean };
+
+/** What the screen shows at time `t` (s): progress `p`, reached by a cut or by a sweep. */
+export interface ShownSample {
+  t: number;
+  p: number;
+  cut: boolean;
+}
+
+/**
+ * Replays the stage's render loop (stage.ts `tick`) for one input: the scene starts at `p0`, the
+ * scroll target follows `target(t)` from t = 0 (input lasts until `inputEnd` s), frames run at `fps`, and, as in the stage, the
+ * scene snaps to the target (a cut) once `snapSeconds` after the last input would be overrun,
+ * or settles within `epsilon`. Returns the shown progress per frame, starting at t = 0.
+ */
+export function replayCatchUp(
+  step: CatchUpStepFn,
+  p0: number,
+  target: (t: number) => number,
+  inputEnd: number,
+  {
+    fps = 60,
+    snapSeconds,
+    epsilon = 1e-4,
+  }: { fps?: number; snapSeconds: number; epsilon?: number },
+): ShownSample[] {
+  const dt = 1 / fps;
+  let shown = p0;
+  let lastCut = Number.NEGATIVE_INFINITY;
+  const out: ShownSample[] = [{ t: 0, p: shown, cut: false }];
+  for (let k = 1; k < fps * (inputEnd + snapSeconds + 1); k += 1) {
+    const t = k * dt;
+    const goal = target(t);
+    const next = step(shown, goal, dt, t - lastCut);
+    let { cut } = next;
+    shown = next.shown;
+    const settled =
+      Math.abs(goal - shown) < epsilon || t - Math.min(t, inputEnd) + 3 * dt >= snapSeconds;
+    if (settled && shown !== goal) {
+      cut ||= Math.abs(goal - shown) >= epsilon;
+      shown = goal;
+    }
+    if (cut) lastCut = t;
+    out.push({ t, p: shown, cut });
+    if (settled && t >= inputEnd) break;
+  }
+  return out;
+}
+
+/**
+ * Expands replayed frames into the states the scene passes through: a sweep from one frame to the
+ * next is assumed to show every captured frame in between (strict: a real 60 Hz screen skips
+ * some), at linearly interpolated times; a cut shows only its end state.
+ */
+export function sweepStates(
+  shown: readonly ShownSample[],
+  frameCount: number,
+): { t: number; p: number }[] {
+  const first = shown[0];
+  if (!first) return [];
+  const out = [{ t: first.t, p: first.p }];
+  for (let k = 1; k < shown.length; k += 1) {
+    const a = shown[k - 1] ?? first;
+    const b = shown[k] ?? first;
+    if (!b.cut && b.p !== a.p) {
+      const up = b.p > a.p;
+      const ia = a.p * (frameCount - 1);
+      const ib = b.p * (frameCount - 1);
+      const from = up ? Math.floor(ia) + 1 : Math.ceil(ia) - 1;
+      for (let i = from; up ? i < ib : i > ib; i += up ? 1 : -1) {
+        const p = i / (frameCount - 1);
+        out.push({ t: a.t + ((p - a.p) / (b.p - a.p)) * (b.t - a.t), p });
+      }
+    }
+    out.push({ t: b.t, p: b.p });
+  }
+  return out;
+}
+
+/** A region's value at progress p, linearly interpolated between captured frames (p = i / (n − 1)). */
+export function valueAt(series: ArrayLike<number>, p: number): number {
+  const x = Math.max(0, Math.min(1, p)) * (series.length - 1);
+  const i = Math.floor(x);
+  const a = series[i] ?? 0;
+  const b = series[Math.min(series.length - 1, i + 1)] ?? a;
+  return a + (b - a) * (x - i);
+}
+
+/** Worst flashes in any 1 s for one region's series shown along `states` (from sweepStates). */
+export function pathFlashesPerSecond(
+  series: ArrayLike<number>,
+  states: readonly { t: number; p: number }[],
+  kind: Kind,
+): number {
+  const values = states.map((s) => valueAt(series, s.p));
+  return worstFlashesPerSecond(transitions(values, kind), (i) => states[i]?.t ?? 0);
 }
