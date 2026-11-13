@@ -90,6 +90,9 @@ jobs:
             args: tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts
           - group: probe-cost
             args: tests/e2e/probe-cost.spec.ts tests/e2e/probe-cost-webgl-disabled.spec.ts
+          # PF-03: axe-core scan across tiers and states (report in test-results/a11y, uploaded below).
+          - group: a11y
+            args: tests/e2e/a11y.spec.ts
           # PF-05 (#8): the engine-neutral stand-ins, here on Chromium like every group. Firefox and
           # WebKit run on the box (`--project=firefox|webkit`); the runner has only Chrome.
           - group: cross-browser
