@@ -5,7 +5,7 @@
  */
 import { onSafelightChange, safelightOn } from "@shared/lib/motion";
 import { clamp } from "@shared/lib/timeline";
-import { stageAt, stageStep, type StageFrame, type StageState } from "./catch-up";
+import { SETTLE_EPSILON, stageAt, stageStep, type StageFrame, type StageState } from "./catch-up";
 import { createCopyLayer } from "./copy-layer";
 import { createDarkroom, type Darkroom, type RenderInfo } from "./darkroom";
 import type { Tier } from "./tiers";
@@ -101,6 +101,8 @@ export async function mountStage(
   let rafs = 0;
   let trace: StageTrace | null = null;
   let disposed = false;
+  /** Watchdog: restarts the loop if rAF stalls mid-catch-up (see armPump). */
+  let pumpTimer = 0;
 
   /** The progress last drawn (scene and copy layer). */
   let drawn = scene.shown;
@@ -112,34 +114,71 @@ export async function mountStage(
     return darkroom.render();
   };
 
+  const caughtUp = (): boolean => Math.abs(scrollProgress() - scene.shown) < SETTLE_EPSILON;
+
+  const stopPump = (): void => {
+    window.clearTimeout(pumpTimer);
+    pumpTimer = 0;
+  };
+
+  /**
+   * A big jump (End/Home) holds `shown` still until the lead arrives, then cuts. Only this loop
+   * can finish that hold. If rAF stops after a couple of frames (a hidden flicker, a dropped
+   * frame, or a tick that returns without rescheduling), the scene would stay at the pre-jump
+   * progress forever — nothing else calls request() until the next scroll. Keep pumping until
+   * shown actually reaches the scroll position (or the idle-budget snap does).
+   */
+  const armPump = (): void => {
+    stopPump();
+    if (disposed || document.hidden || caughtUp()) return;
+    pumpTimer = window.setTimeout(() => {
+      pumpTimer = 0;
+      if (disposed || document.hidden || caughtUp()) return;
+      if (!raf) raf = requestAnimationFrame(tick);
+      armPump();
+    }, 50);
+  };
+
   const tick = (now: number): void => {
     raf = 0;
     rafs += 1;
     if (disposed || document.hidden) return;
-    const frameMs = last ? now - last : 1000 / 60;
-    slowestFrameMs = Math.max(slowestFrameMs, frameMs);
-    last = now;
-    // The whole per-frame transition is stageStep's (eased, speed-capped, held and cut on big
-    // jumps: never a strobe, M3-AC10); its result is applied as is (PF-14, QA M1).
-    const frame: StageFrame = {
-      target: scrollProgress(),
-      dt: Math.min(0.1, frameMs / 1000),
-      elapsed: prevTick ? (now - prevTick) / 1000 : frameMs / 1000,
-      overBudget: performance.now() - inputAt + 3 * slowestFrameMs >= IDLE_BUDGET_MS,
-    };
-    const next = stageStep(scene, frame);
-    prevTick = now;
-    scene = next.state;
-    draw();
-    trace?.frames.push({ frame, state: scene, shown: drawn });
-    if (!next.settled) raf = requestAnimationFrame(tick);
-    else last = 0;
+    try {
+      const frameMs = last ? now - last : 1000 / 60;
+      slowestFrameMs = Math.max(slowestFrameMs, frameMs);
+      last = now;
+      // The whole per-frame transition is stageStep's (eased, speed-capped, held and cut on big
+      // jumps: never a strobe, M3-AC10); its result is applied as is (PF-14, QA M1).
+      const frame: StageFrame = {
+        target: scrollProgress(),
+        dt: Math.min(0.1, frameMs / 1000),
+        elapsed: prevTick ? (now - prevTick) / 1000 : frameMs / 1000,
+        overBudget: performance.now() - inputAt + 3 * slowestFrameMs >= IDLE_BUDGET_MS,
+      };
+      const next = stageStep(scene, frame);
+      prevTick = now;
+      scene = next.state;
+      draw();
+      trace?.frames.push({ frame, state: scene, shown: drawn });
+    } finally {
+      if (!disposed && !document.hidden) {
+        // Do not trust settled alone: the loop must keep going until shown is actually there.
+        if (!caughtUp()) {
+          if (!raf) raf = requestAnimationFrame(tick);
+          armPump();
+        } else {
+          last = 0;
+          stopPump();
+        }
+      }
+    }
   };
 
   const request = (): void => {
     inputAt = performance.now();
     slowestFrameMs = 0;
     if (!raf && !disposed && !document.hidden) raf = requestAnimationFrame(tick);
+    armPump();
   };
 
   const onResize = (): void => {
@@ -149,6 +188,7 @@ export async function mountStage(
   };
   const onVisibility = (): void => {
     if (document.hidden) {
+      stopPump();
       cancelAnimationFrame(raf);
       raf = 0;
       last = 0;
@@ -199,6 +239,7 @@ export async function mountStage(
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      stopPump();
       cancelAnimationFrame(raf);
       window.removeEventListener("scroll", request);
       window.removeEventListener("resize", onResize);
