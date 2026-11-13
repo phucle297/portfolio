@@ -37,6 +37,7 @@ import {
   type BrowserContextOptions,
   type Page,
 } from "@playwright/test";
+import { knownEngineFailure } from "./known-failures";
 
 const OUT = process.env.A11Y_OUT ?? join(process.cwd(), "test-results", "a11y");
 /** Key scroll progress per section (`KEY_PROGRESS` in @shared/lib/timeline, kf-01…kf-06). */
@@ -425,6 +426,7 @@ async function scrollToProgress(page: Page, p: number): Promise<void> {
 // all of them, whichever worker ran them.
 
 test("full tier at 1440×900, at each of the 6 key scroll positions", async ({ browser }) => {
+  knownEngineFailure(["firefox"], "Firefox crashes the page on the full tier (Page crashed)");
   test.setTimeout(240_000);
   const page = await open(browser, { gpu: true });
   await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 90_000 });
@@ -470,6 +472,7 @@ const QA_SWEEP_PLANT =
 test("regression: a looping non-canvas backdrop on the full tier fails, never deferred", async ({
   browser,
 }) => {
+  knownEngineFailure(["firefox"], "Firefox crashes the page on the full tier (Page crashed)");
   test.setTimeout(120_000);
   const page = await open(browser, { gpu: true });
   await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 90_000 });
@@ -550,6 +553,7 @@ for (const plant of STEPPED_PLANTS) {
   test(`regression: stepped backdrop (${plant.name}) on the full tier never settles and is never deferred`, async ({
     browser,
   }) => {
+    knownEngineFailure(["firefox"], "Firefox crashes the page on the full tier (Page crashed)");
     test.setTimeout(150_000);
     const page = await open(browser, { gpu: true });
     await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 90_000 });

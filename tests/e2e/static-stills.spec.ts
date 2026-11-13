@@ -19,7 +19,6 @@ import {
   type Page,
 } from "@playwright/test";
 import sharp from "sharp";
-import { knownEngineFailure } from "./known-failures";
 
 const SECTIONS = ["hello", "journey", "work", "services", "process", "contact"] as const;
 const COPY_HIDDEN = `.home-section__body, body > header, body > footer, .rail, .home-scrim, .skip-link
@@ -118,8 +117,10 @@ test.describe("PF-02 static tier: desktop and tablet", () => {
   ]) {
     test(`${viewport.name}: each section shows its own key-state still, full viewport`, async ({
       browser,
+      browserName,
     }) => {
-      knownEngineFailure(["webkit"], "PF-02 key-state still does not advance on Playwright WebKit");
+      // Architect ruling (PF-05 attempt 5): intermittent on Playwright WebKit, no retries.
+      test.skip(browserName === "webkit", "Flaky on WebKit, tracked in PF-45");
       const page = await staticPage(browser, { viewport });
       await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
       for (const [index] of SECTIONS.entries()) {
@@ -226,8 +227,10 @@ async function recordFades(page: Page): Promise<void> {
 test.describe("PF-02 cross-fade", () => {
   test("effect duration is 320 ms, and no frame is darker than the darker of the two stills, both ways", async ({
     browser,
+    browserName,
   }) => {
-    knownEngineFailure(["webkit"], "PF-02 cross-fade measurement fails on Playwright WebKit");
+    // Architect ruling (PF-05 attempt 5): intermittent on Playwright WebKit, no retries.
+    test.skip(browserName === "webkit", "Flaky on WebKit, tracked in PF-45");
     test.setTimeout(180_000);
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
@@ -322,8 +325,12 @@ test.describe("PF-02 cross-fade", () => {
     await context.close();
   });
 
-  test("reduced motion: the still changes instantly, no fade runs", async ({ browser }) => {
-    knownEngineFailure(["webkit"], "PF-02 reduced-motion still swap fails on Playwright WebKit");
+  test("reduced motion: the still changes instantly, no fade runs", async ({
+    browser,
+    browserName,
+  }) => {
+    // Architect ruling (PF-05 attempt 5): intermittent on Playwright WebKit, no retries.
+    test.skip(browserName === "webkit", "Flaky on WebKit, tracked in PF-45");
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       reducedMotion: "reduce",
