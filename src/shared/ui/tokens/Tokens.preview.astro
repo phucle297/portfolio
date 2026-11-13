@@ -1,0 +1,202 @@
+---
+// Preview of the design tokens (shown by /ui-preview/ only, never in production).
+interface Props {
+  ground: "bg" | "surface";
+}
+const { ground } = Astro.props;
+
+const colours = [
+  "bg",
+  "surface",
+  "surface-2",
+  "line",
+  "line-strong",
+  "text",
+  "muted",
+  "accent",
+  "accent-2",
+  "ink",
+  "focus",
+  "error",
+];
+const type = [
+  { name: "h1", sample: "Darkroom", family: "serif" },
+  { name: "h2", sample: "Selected work", family: "serif" },
+  { name: "body", sample: "Ships calm, fast interfaces.", family: "sans" },
+  { name: "eyebrow", sample: "01 · Service", family: "mono" },
+  { name: "mono", sample: "PRINT 03 · 2026", family: "mono" },
+];
+const spaces = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 30, 35];
+const radii = ["xs", "sm", "md", "pill"];
+const motion = ["micro", "ui", "enter", "scene", "scene-max"];
+---
+
+<div class="tokens" data-ground={ground}>
+  <h3>Colour</h3>
+  <ul class="swatches">
+    {colours.map((c) => (
+      <li>
+        <span class="swatch" style={`background: var(--${c})`} />
+        <code>--{c}</code>
+      </li>
+    ))}
+  </ul>
+
+  <h3>Type (mobile step, then desktop)</h3>
+  {type.map((t) => (
+    <div class="type">
+      <code>--type-{t.name}</code>
+      <p class={`sample sample--${t.name}`} style={`font-family: var(--font-${t.family})`}>
+        {t.sample}
+      </p>
+    </div>
+  ))}
+
+  <h3>Spacing</h3>
+  <ul class="bars">
+    {spaces.map((s) => (
+      <li>
+        <span class="bar" style={`width: var(--space-${s})`} />
+        <code>--space-{s}</code>
+      </li>
+    ))}
+  </ul>
+
+  <h3>Radii</h3>
+  <ul class="radii">
+    {radii.map((r) => (
+      <li>
+        <span class="radius" style={`border-radius: var(--radius-${r})`} />
+        <code>--radius-{r}</code>
+      </li>
+    ))}
+  </ul>
+
+  <h3>Motion (hover or focus a chip; instant under reduced motion)</h3>
+  <ul class="motion">
+    {motion.map((m) => (
+      <li>
+        <button type="button" class="chip" style={`--chip-t: var(--t-${m})`}>
+          --t-{m}
+        </button>
+      </li>
+    ))}
+  </ul>
+</div>
+
+<style>
+  .tokens {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  h3 {
+    margin: var(--space-6) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--type-eyebrow-mobile);
+    font-weight: 500;
+    letter-spacing: var(--tracking-eyebrow);
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    display: grid;
+    gap: var(--space-1);
+    justify-items: start;
+  }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: var(--type-mono-mobile);
+    color: var(--text);
+  }
+
+  .swatch,
+  .radius {
+    width: var(--space-16);
+    height: var(--space-12);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+  }
+
+  .radius {
+    background: var(--surface-2);
+  }
+
+  .bar {
+    height: var(--space-4);
+    background: var(--accent);
+  }
+
+  .sample {
+    margin: 0;
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+
+  .sample--h1 {
+    font-size: var(--type-h1-mobile);
+    line-height: var(--leading-h1);
+  }
+
+  .sample--h2 {
+    font-size: var(--type-h2-mobile);
+    line-height: var(--leading-h2);
+  }
+
+  .sample--body {
+    font-size: var(--type-body-mobile);
+    line-height: var(--leading-body);
+  }
+
+  .sample--eyebrow {
+    font-size: var(--type-eyebrow-mobile);
+    letter-spacing: var(--tracking-eyebrow);
+    text-transform: uppercase;
+  }
+
+  .sample--mono {
+    font-size: var(--type-mono-mobile);
+  }
+
+  @media (min-width: 64rem) {
+    .sample--h1 {
+      font-size: var(--type-h1-desktop);
+    }
+    .sample--h2 {
+      font-size: var(--type-h2-desktop);
+    }
+    .sample--body {
+      font-size: var(--type-body-desktop);
+    }
+  }
+
+  .chip {
+    min-height: var(--tap-min);
+    padding: 0 var(--space-4);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    transition:
+      background-color var(--chip-t) var(--ease-out),
+      color var(--chip-t) var(--ease-out);
+  }
+
+  .chip:hover,
+  .chip:focus-visible {
+    background: var(--accent);
+    color: var(--ink);
+  }
+</style>

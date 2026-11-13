@@ -5,11 +5,13 @@ import { siteConfig } from "@shared/config";
 interface Props {
   /** Prefix for section anchors: "" on the home page, "/" elsewhere. */
   anchorBase?: string;
+  /** The page has the 3D scene: keep the Safelight's slot while the full tier can still mount. */
+  scene?: boolean;
 }
-const { anchorBase = "" } = Astro.props;
+const { anchorBase = "", scene = false } = Astro.props;
 ---
 
-<header class="site-header" data-at-top>
+<header class="site-header" data-at-top data-scene-page={scene ? "" : undefined}>
   <div class="site-header__inner">
     <a class="site-header__brand" href={anchorBase === "" ? "#hello" : "/"}>
       {profile.name}
@@ -39,7 +41,6 @@ const { anchorBase = "" } = Astro.props;
         class="site-header__toggle site-header__safelight"
         data-safelight-toggle
         aria-pressed="true"
-        hidden
       >
         <span class="site-header__bulb" aria-hidden="true">
           ●
@@ -48,10 +49,49 @@ const { anchorBase = "" } = Astro.props;
       </button>
       <a class="site-header__pill" href={`${anchorBase}#contact`}>
         <span class="site-header__dot" aria-hidden="true"></span>
-        Open for freelance
+        <span class="site-header__pill-full">Open for freelance</span>
+        <span class="site-header__pill-short">Freelance</span>
       </a>
+      <button
+        type="button"
+        class="site-header__menu-btn"
+        data-menu-open
+        aria-expanded="false"
+        aria-controls="site-menu-sheet"
+        aria-haspopup="dialog"
+      >
+        MENU <span aria-hidden="true">≡</span>
+      </button>
     </div>
   </div>
+  <dialog
+    class="menu-sheet"
+    id="site-menu-sheet"
+    data-menu-sheet
+    aria-labelledby="site-menu-title"
+    tabindex="-1"
+  >
+    <div class="menu-sheet__bar">
+      <h2 id="site-menu-title" class="menu-sheet__title">
+        Menu
+      </h2>
+      <button type="button" class="menu-sheet__close" data-menu-close>
+        Close
+      </button>
+    </div>
+    <ul class="menu-sheet__list" role="list">
+      {siteConfig.nav.map((item) => (
+        <li>
+          <a href={`${anchorBase}#${item.id}`} data-section-link={item.id}>
+            <span class="menu-sheet__num" aria-hidden="true">
+              {item.number}
+            </span>
+            {item.label}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </dialog>
 </header>
 
 <script>
@@ -64,6 +104,7 @@ const { anchorBase = "" } = Astro.props;
     setSafelight,
     setUserMotion,
   } from "@shared/lib/motion";
+  import { initMenuSheet } from "../lib/menu-sheet";
 
   const toggle = document.querySelector<HTMLButtonElement>("[data-motion-toggle]");
   const state = toggle?.querySelector<HTMLElement>("[data-motion-state]");
@@ -96,6 +137,7 @@ const { anchorBase = "" } = Astro.props;
       { passive: true },
     );
     syncTop();
+    initMenuSheet(header);
   }
 
   if (toggle) {
@@ -106,13 +148,12 @@ const { anchorBase = "" } = Astro.props;
     render();
   }
 
-  // Safelight: only meaningful while the 3D scene runs (CSS hides it on the static tier).
+  // Safelight: only meaningful while the 3D scene runs (CSS shows it on the full tier only).
   const safelight = document.querySelector<HTMLButtonElement>("[data-safelight-toggle]");
   if (safelight) {
     const renderSafelight = (): void => {
       safelight.setAttribute("aria-pressed", String(safelightOn()));
     };
-    safelight.hidden = false;
     safelight.addEventListener("click", () => {
       setSafelight(!safelightOn());
     });
@@ -203,7 +244,8 @@ const { anchorBase = "" } = Astro.props;
   }
 
   .site-header__toggle,
-  .site-header__pill {
+  .site-header__pill,
+  .site-header__menu-btn {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
@@ -266,6 +308,23 @@ const { anchorBase = "" } = Astro.props;
     display: none;
   }
 
+  /* Where the scene can still start (JS ran and motion is on: the pre-paint "js" / "motion-ok"
+     classes; a fine pointer and a header wide enough to show the toggles; a page with the scene,
+     marked server-side with data-scene-page rather than :has(), which would make every DOM
+     change under <html> a style-invalidation candidate) the Safelight keeps its slot from the
+     first paint, invisible and out of the accessibility tree until the full tier mounts.
+     Revealing it then is a paint, not a reflow: before, the button took its 133 px only on
+     mount, which moved the Motion toggle and the centred nav 66-133 px sideways after load
+     (layout shift at 1440x900, TASK-20261112-14). */
+  @media (min-width: 901px) and (pointer: fine) {
+    :global(html.js.motion-ok:not([data-tier="full"]))
+      .site-header[data-scene-page]
+      .site-header__safelight {
+      display: inline-flex;
+      visibility: hidden;
+    }
+  }
+
   .site-header__bulb {
     color: var(--muted);
     transition: color var(--t-micro) var(--ease-out);
@@ -294,6 +353,23 @@ const { anchorBase = "" } = Astro.props;
     box-shadow: 0 0 12px var(--accent-2);
   }
 
+  /* Short "Freelance" label is phone-only; one of the two spans is `display: none` so the
+     accessible name is never both strings at once. */
+  .site-header__pill-short {
+    display: none;
+  }
+
+  /* MENU is phone-only and needs JS (the sheet is a <dialog>). Without JS the desktop nav
+     stays visible, including below 767 px, so the six section links remain reachable. */
+  .site-header__menu-btn {
+    display: none;
+    min-width: 2.75rem;
+    border: 1px solid var(--line-strong);
+    background: rgb(14 10 8 / 0.6);
+    color: var(--text);
+    cursor: pointer;
+  }
+
   @media (max-width: 1100px) {
     .site-header__num {
       display: none;
@@ -320,6 +396,124 @@ const { anchorBase = "" } = Astro.props;
 
     .site-header__toggle {
       display: none;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .site-header__pill-full {
+      display: none;
+    }
+
+    .site-header__pill-short {
+      display: inline;
+    }
+
+    /* With JS: logo + Freelance pill + MENU on one row; the section rail and skill chips are
+       hidden by their own components at this width. */
+    :global(html.js) .site-header__inner {
+      flex-wrap: nowrap;
+      gap: 0.75rem;
+      padding-block: 0;
+    }
+
+    :global(html.js) .site-header__nav {
+      display: none;
+    }
+
+    :global(html.js) .site-header__menu-btn {
+      display: inline-flex;
+    }
+  }
+
+  /* ---------- Mobile menu sheet (full-screen dialog; not in flow, so open/close has no CLS) ----------
+     position: fixed / inset: 0 keeps the sheet out of .site-header's border box. PF-27 (PR #18)
+     sets --header-bottom from that box; opening the sheet must not move it.
+     z-index 22 keeps the sheet and its backdrop above PF-27's progress bar (z-index 21).
+     The header itself is 20, so the modal top layer plus this z-index is what stacks above the bar. */
+  .menu-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 22;
+    width: 100vw;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .menu-sheet::backdrop {
+    z-index: 22;
+    background: var(--bg);
+  }
+
+  .menu-sheet__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: var(--header-h);
+    padding-inline: var(--gutter);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .menu-sheet__title {
+    font: 400 1.6rem/1 var(--font-serif);
+  }
+
+  .menu-sheet__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: rgb(14 10 8 / 0.6);
+    color: var(--text);
+    font: 500 0.75rem/1 var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .menu-sheet__list {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 1.25rem var(--gutter) 2rem;
+    list-style: none;
+  }
+
+  .menu-sheet__list a {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    min-height: 2.75rem;
+    padding-block: 0.55rem;
+    color: var(--text);
+    font: 400 2rem/1 var(--font-serif);
+    text-decoration: none;
+  }
+
+  .menu-sheet__list a:hover,
+  .menu-sheet__list a[aria-current="true"] {
+    color: var(--accent-2);
+  }
+
+  .menu-sheet__num {
+    font: 500 0.75rem/1 var(--font-mono);
+    letter-spacing: 0.12em;
+    color: var(--accent-2);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .menu-sheet {
+      transition: none;
     }
   }
 </style>

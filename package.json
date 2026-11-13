@@ -46,6 +46,7 @@
     "oxfmt": "0.78.0",
     "oxlint": "1.93.0",
     "oxlint-tsgolint": "7.0.2006",
+    "sharp": "0.35.5",
     "steiger": "0.10.0",
     "typescript": "^6.0.3",
     "typescript-7": "npm:typescript@7.0.2",

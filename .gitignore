@@ -31,3 +31,5 @@ lighthouse/
 # test output
 test-results/
 playwright-report/
+.lighthouseci/
+lhci-report/
