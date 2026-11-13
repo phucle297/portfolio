@@ -25,7 +25,24 @@ import {
   type BrowserType,
   type Page,
 } from "@playwright/test";
+import sharp from "sharp";
 import { isProbe, isSceneChunk, recordRequests, scrollThrough, spoofHardwareGpu } from "./helpers";
+
+/**
+ * One animation frame after the switch (PF-09 AC1, PM ruling 2026-11-14), sampled in the page.
+ * `cover` is what paints the viewport where the scene was: the live `scene` (a canvas whose WebGL
+ * context is not lost, so it still holds its last frame), the current section's `still`, an
+ * `other-still:<section>` (a decoded still of another section), the `section-bg` (an opaque
+ * background on the current section or its ancestors below `body`), or `bare` (none of these: the
+ * page/body background or a transparent hole). The stills and the scene are viewport-fixed and
+ * cover the whole viewport, so one classification per frame covers every point.
+ */
+interface Frame {
+  /** ms since the change event. */
+  t: number;
+  cover: string;
+  still: { section: string; shown: boolean; loaded: boolean };
+}
 
 interface Probe {
   contexts: number;
@@ -42,8 +59,14 @@ interface Probe {
       lost: number;
       contexts: number;
       canvases: number;
+      /** The scene host still has `is-ready` (the canvas is faded in). */
+      sceneReady: boolean;
     };
   };
+  /** Every frame from the switch until the current still is shown and loaded (+2 frames, ≤ 3 s). */
+  frames: Frame[];
+  /** ms from the switch to the first frame with the current section's still shown and loaded. */
+  stillAfter: number | null;
 }
 
 declare global {
@@ -97,8 +120,77 @@ async function instrument(page: Page): Promise<void> {
       for (const entry of list.getEntries()) cls += Number(Reflect.get(entry, "value") ?? 0);
     }).observe({ type: "layout-shift", buffered: true });
 
+    const frames: Frame[] = [];
+    let stillAfter: number | null = null;
+    // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs inside the init script
+    const painted = (el: Element): boolean => {
+      for (let n: Element | null = el; n; n = n.parentElement) {
+        const style = getComputedStyle(n);
+        if (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          Number(style.opacity) === 0
+        )
+          return false;
+      }
+      return true;
+    };
+    // Same rule as `currentStill()` below (kept in the page so every frame can be sampled).
+    // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs inside the init script
+    const sectionAtMiddle = (): HTMLElement | undefined =>
+      Array.from(document.querySelectorAll<HTMLElement>("main section[id]")).find((s) => {
+        const r = s.getBoundingClientRect();
+        return r.top <= innerHeight / 2 && r.bottom > innerHeight / 2;
+      });
+    const stillOf = (section: HTMLElement | undefined): Frame["still"] => {
+      const img = section?.querySelector<HTMLImageElement>(".still img");
+      if (!section || !img) return { section: section?.id ?? "", shown: false, loaded: false };
+      const r = img.getBoundingClientRect();
+      return {
+        section: section.id,
+        shown: painted(img) && r.bottom > 0 && r.top < innerHeight && r.width > 0 && r.height > 0,
+        loaded: img.complete && img.naturalWidth > 0,
+      };
+    };
+    // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs inside the init script
+    const opaque = (color: string): boolean => {
+      const m = /rgba?\(([^)]+)\)/.exec(color);
+      if (!m) return false;
+      const parts = (m[1] ?? "").split(/[\s,/]+/).filter(Boolean);
+      return parts.length < 4 || Number(parts[3]) >= 0.99;
+    };
+    const coverOf = (section: HTMLElement | undefined): string => {
+      const canvas = document.querySelector<HTMLCanvasElement>("[data-scene] canvas");
+      const gl = canvas ? contexts.find((c) => c.canvas === canvas) : undefined;
+      if (canvas && gl && !gl.isContextLost() && painted(canvas)) return "scene";
+      for (const img of document.querySelectorAll<HTMLImageElement>("[data-still] img")) {
+        if (!img.complete || img.naturalWidth === 0 || !painted(img)) continue;
+        const id = img.closest("section[id]")?.id ?? "";
+        return id === section?.id ? "still" : `other-still:${id}`;
+      }
+      for (let n: Element | null = section ?? null; n && n !== document.body; n = n.parentElement) {
+        const style = getComputedStyle(n);
+        if (style.backgroundImage !== "none" || opaque(style.backgroundColor)) return "section-bg";
+      }
+      return "bare";
+    };
+
     window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", (event) => {
       if (!event.matches) return;
+      const switchAt = performance.now();
+      let extra = 0;
+      const sample = (): void => {
+        const t = performance.now() - switchAt;
+        const section = sectionAtMiddle();
+        const still = stillOf(section);
+        frames.push({ t, cover: coverOf(section), still });
+        if (still.shown && still.loaded) {
+          stillAfter ??= t;
+          extra += 1;
+        }
+        if (extra <= 2 && t < 3000) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
       const before = { tier: document.documentElement.dataset.tier ?? "", draws };
       requestAnimationFrame(() => {
         switched = {
@@ -109,16 +201,45 @@ async function instrument(page: Page): Promise<void> {
             lost: lost(),
             contexts: contexts.length,
             canvases: document.querySelectorAll("[data-scene] canvas").length,
+            sceneReady:
+              document.querySelector("[data-scene]")?.classList.contains("is-ready") ?? false,
           },
         };
       });
     });
 
-    window.pf09 = () => ({ contexts: contexts.length, lost: lost(), draws, cls, switched });
+    window.pf09 = () => ({
+      contexts: contexts.length,
+      lost: lost(),
+      draws,
+      cls,
+      switched,
+      frames,
+      stillAfter,
+    });
   });
 }
 
 const probe = (page: Page): Promise<Probe> => page.evaluate(() => window.pf09());
+
+/** Poster still images (desktop `d-N`, mobile `m-N`). */
+const isStillImage = (url: string): boolean => /\/_astro\/[dm]-\d+\./.test(url);
+
+/** AC1 budget: the current section's still is visible and fully loaded this soon after the switch. */
+const STILL_BUDGET_MS = 500;
+
+/** Mean Rec. 709 luma (0-255) of a screenshot, averaged over a 48 × 30 grid. */
+async function luma(png: Buffer): Promise<number> {
+  const { data, info } = await sharp(png)
+    .resize(48, 30, { fit: "fill" })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let sum = 0;
+  for (let i = 0; i + 2 < data.length; i += 3)
+    sum += 0.2126 * (data[i] ?? 0) + 0.7152 * (data[i + 1] ?? 0) + 0.0722 * (data[i + 2] ?? 0);
+  return sum / (info.width * info.height);
+}
 
 async function fullTier(page: Page): Promise<void> {
   await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 30_000 });
@@ -182,8 +303,11 @@ test.describe("PF-09 reduced motion switched on mid-visit (M3-AC2)", () => {
       await spoofHardwareGpu(page);
       await page.goto("/");
       await fullTier(page);
+      // While 3D runs (full tier) no still image is fetched: no preload bytes (AC1).
+      const whileLive = recordRequests(page);
       await scrollToP(page, p);
       const urls = recordRequests(page);
+      expect(whileLive.filter(isStillImage), "still images requested while 3D runs").toEqual([]);
       const live = await probe(page);
       expect(live.contexts, "one WebGL context while the scene is live").toBe(1);
       expect(live.lost).toBe(0);
@@ -200,11 +324,34 @@ test.describe("PF-09 reduced motion switched on mid-visit (M3-AC2)", () => {
       expect(switched?.nextFrame.draws, "no draw call after the switch").toBe(
         switched?.before.draws,
       );
+      expect(
+        switched?.nextFrame.sceneReady,
+        "scene hidden (is-ready removed) by the next frame",
+      ).toBe(false);
 
-      // The current section's still is shown (and its image arrives).
-      const still = await currentStill(page);
-      expect(still.shown, `still of #${still.section} on screen`).toBe(true);
-      await expect.poll(async () => (await currentStill(page)).loaded).toBe(true);
+      // The current section's still is shown once its image has arrived and decoded (a still only
+      // takes over when it can be painted; at p = 0.6 the lazy Services image is fetched only now).
+      // AC1: within 500 ms of the switch, timed in the page from the change event to the first
+      // frame where it is shown and loaded. Until then no frame is bare (see `Frame`).
+      await expect
+        .poll(async () => (await probe(page)).stillAfter, {
+          message: "the current section's still on screen, image loaded",
+          timeout: 3000,
+        })
+        .not.toBeNull();
+      const { frames, stillAfter } = await probe(page);
+      test.info().annotations.push({
+        type: "still",
+        description: `after ${stillAfter?.toFixed(0)} ms; covers ${[...new Set(frames.map((f) => f.cover))].join(", ")}`,
+      });
+      expect(stillAfter, "ms from the switch to the still shown and loaded").toBeLessThanOrEqual(
+        STILL_BUDGET_MS,
+      );
+      expect(
+        frames.filter((f) => f.cover === "bare"),
+        "frames with nothing over the page background",
+      ).toEqual([]);
+      expect(await currentStill(page)).toMatchObject({ shown: true, loaded: true });
       await expect(page.locator("[data-scene] canvas")).toHaveCount(0, { timeout: 3000 });
 
       // The render loop stays stopped and nothing 3D is requested again, even while scrolling.
@@ -439,23 +586,31 @@ test.describe("PF-09 no layout shift (M1-AC15)", () => {
  */
 const ENGINES: readonly BrowserType[] = [chromium, firefox, webkit];
 
+function launch(engine: BrowserType): ReturnType<BrowserType["launch"]> {
+  return engine.launch(
+    // Explicit options for every engine: under the test runner, launch() merges the config's
+    // `launchOptions` (CHROME_PATH as executablePath, Chrome-only args) into whatever is passed,
+    // so Firefox and WebKit set their own binary and no args (else they start Chrome or reject
+    // the flags).
+    engine === chromium
+      ? {
+          ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
+          args: [
+            "--enable-unsafe-swiftshader",
+            "--use-angle=swiftshader",
+            "--ignore-gpu-blocklist",
+          ],
+        }
+      : { executablePath: engine.executablePath(), args: [] },
+  );
+}
+
 test.describe("PF-09 the current section's still after a mid-visit switch, every engine", () => {
   for (const engine of ENGINES) {
     test(`${engine.name()}: at p = 0.6 the Services still is picked, decoded and shown`, async ({
       baseURL,
     }) => {
-      const browser = await engine.launch(
-        engine === chromium
-          ? {
-              ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
-              args: [
-                "--enable-unsafe-swiftshader",
-                "--use-angle=swiftshader",
-                "--ignore-gpu-blocklist",
-              ],
-            }
-          : {},
-      );
+      const browser = await launch(engine);
       try {
         const context = await browser.newContext({
           ...(baseURL === undefined ? {} : { baseURL }),
@@ -488,6 +643,90 @@ test.describe("PF-09 the current section's still after a mid-visit switch, every
           ),
         );
         expect(shown).toEqual([services]);
+        await context.close();
+      } finally {
+        await browser.close();
+      }
+    });
+  }
+});
+
+/**
+ * AC1 (PM ruling 2026-11-14): until the still appears, no blank frame and no luminance flash, and
+ * no still bytes are fetched while 3D runs. Method, per engine:
+ * - The Services still's image response is held until a screenshot of the gap is taken, so the
+ *   gap between the switch and the still is long enough to observe on every engine (it is only
+ *   ~50-150 ms unheld). The 500 ms budget is checked unheld, in the tests above.
+ * - Every animation frame from the switch on is classified in the page (`Frame.cover`): no frame
+ *   may be `bare` (page/body background or a transparent hole where the scene was).
+ * - Luminance: mean luma of a downscaled screenshot just before the switch (the live scene's
+ *   last frame), during the held gap, and once the still is shown. The gap must stay within
+ *   ±LUMA_TOLERANCE of the range spanned by the before and after frames (a flash to white or a
+ *   drop to black falls outside it). Screenshots are the composited pixels, so this also covers
+ *   what the in-page classification cannot see.
+ */
+const LUMA_TOLERANCE = 12;
+
+test.describe("PF-09 no blank frame or flash while the still loads, every engine", () => {
+  for (const engine of ENGINES) {
+    test(`${engine.name()}: at p = 0.6 the gap until the Services still is covered, no flash, no preload`, async ({
+      baseURL,
+    }) => {
+      const browser = await launch(engine);
+      try {
+        const context = await browser.newContext({
+          ...(baseURL === undefined ? {} : { baseURL }),
+          viewport: { width: 1440, height: 900 },
+        });
+        const page = await context.newPage();
+        await instrument(page);
+        await spoofHardwareGpu(page);
+        await page.goto("/");
+        await fullTier(page);
+        const whileLive = recordRequests(page);
+        await scrollToP(page, 0.6);
+        const index = await page.evaluate(
+          () => document.querySelector<HTMLElement>("#services [data-still]")?.dataset.still ?? "",
+        );
+        expect(index, "the Services section has a still").not.toBe("");
+        expect(whileLive.filter(isStillImage), "still images requested while 3D runs").toEqual([]);
+
+        const hold = Promise.withResolvers<undefined>();
+        await page.route(new RegExp(`/_astro/[dm]-${index}\\.`), async (route) => {
+          await hold.promise;
+          await route.continue();
+        });
+        const before = await page.screenshot();
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
+        await page.waitForTimeout(100);
+        const gap = await page.screenshot();
+        hold.resolve(undefined);
+        await expect
+          .poll(async () => (await probe(page)).stillAfter, { timeout: 5000 })
+          .not.toBeNull();
+        await expect
+          .poll(async () => currentStill(page), { timeout: 5000 })
+          .toEqual({ section: "services", shown: true, loaded: true });
+        const after = await page.screenshot();
+
+        const { frames } = await probe(page);
+        const [b, g, a] = await Promise.all([luma(before), luma(gap), luma(after)]);
+        test.info().annotations.push({
+          type: "gap",
+          description: `luma before ${b.toFixed(1)}, gap ${g.toFixed(1)}, after ${a.toFixed(1)}; ${frames.length} frames, covers ${[...new Set(frames.map((f) => f.cover))].join(", ")}`,
+        });
+        expect(frames.length, "frames sampled from the switch").toBeGreaterThan(0);
+        expect(
+          frames.filter((f) => f.cover === "bare"),
+          "frames with nothing over the page background",
+        ).toEqual([]);
+        expect(g, "gap luma not below the before/after range").toBeGreaterThanOrEqual(
+          Math.min(b, a) - LUMA_TOLERANCE,
+        );
+        expect(g, "gap luma not above the before/after range").toBeLessThanOrEqual(
+          Math.max(b, a) + LUMA_TOLERANCE,
+        );
         await context.close();
       } finally {
         await browser.close();
