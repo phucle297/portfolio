@@ -93,10 +93,17 @@ jobs:
           # PF-03: axe-core scan across tiers and states (report in test-results/a11y, uploaded below).
           - group: a11y
             args: tests/e2e/a11y.spec.ts
-          # PF-05 (#8): the engine-neutral stand-ins, here on Chromium like every group. Firefox and
-          # WebKit run on the box (`--project=firefox|webkit`); the runner has only Chrome.
+          # PF-05 (#8): the engine-neutral stand-ins on Chromium, then the whole suite on Firefox and
+          # WebKit (their projects in playwright.config.ts: static tier plus opt-outs listed with
+          # reasons in tests/e2e/projects.ts). Known engine failures are test.fail + PF-45.
           - group: cross-browser
             args: tests/e2e/cross-browser.spec.ts
+          - group: firefox
+            project: firefox
+            args: ""
+          - group: webkit
+            project: webkit
+            args: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -105,13 +112,17 @@ jobs:
           name: dist
           path: dist
       # Same engine the box/QA verifies with: the runner image's preinstalled Google Chrome
-      # (playwright.config.ts honours CHROME_PATH). Chromium only; no browser download to cache.
+      # (playwright.config.ts honours CHROME_PATH). Chromium groups need no browser download.
       - run: /usr/bin/google-chrome --version
-      # PF-05 (#8) adds firefox and webkit projects; CI runs Chromium only (QA L2 on #4).
-      - run: bunx playwright test ${{ matrix.args }} --project=chromium --reporter=list,html
+      # PF-05 (#8): Firefox and WebKit groups install their Playwright browser with OS deps.
+      - if: ${{ matrix.project && matrix.project != 'chromium' }}
+        run: bunx playwright install --with-deps ${{ matrix.project }}
+      # Chromium groups stay as #4 set them (--project=chromium, CHROME_PATH). Firefox and WebKit
+      # get no CHROME_PATH: m2-keys and probe-cost-webgl-disabled would launch Chrome with it.
+      - run: bunx playwright test ${{ matrix.args }} --project=${{ matrix.project || 'chromium' }} --reporter=list,html
         env:
           E2E_PREBUILT: "1" # serve the shared dist; do not rebuild
-          CHROME_PATH: /usr/bin/google-chrome
+          CHROME_PATH: ${{ (matrix.project || 'chromium') == 'chromium' && '/usr/bin/google-chrome' || '' }}
           PLAYWRIGHT_HTML_OPEN: never
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
