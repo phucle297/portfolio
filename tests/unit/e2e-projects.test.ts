@@ -14,31 +14,70 @@ import {
  * unless CHROMIUM_ONLY_SPECS opts it out with a reason. It asks Playwright itself (`--list`, no
  * browser, no server), so a config change that narrows the projects fails here.
  *
- * The inventory and pattern pins must fail if a spec is deleted or an opt-out is widened or added.
+ * The derived inventory must fail if a spec is deleted; the pattern pins must fail if an opt-out
+ * is widened or added.
  */
 const root = resolve(import.meta.dirname, "../..");
 const e2eDir = join(root, "tests/e2e");
 const ENGINES = ["chromium", "firefox", "webkit"] as const;
 
-/** Pinned inventory of tests/e2e/*.spec.ts. Deleting a spec must fail this list. */
-const EXPECTED_SPECS: readonly string[] = [
-  "contact-form.spec.ts",
-  "cross-browser.spec.ts",
-  "m2-keys.spec.ts",
-  "m2-qa-b.spec.ts",
-  "m2.spec.ts",
-  "mobile-menu.spec.ts",
-  "owner-content.spec.ts",
-  "probe-cost-webgl-disabled.spec.ts",
-  "probe-cost.spec.ts",
-  "seo.spec.ts",
-  "serif-once.spec.ts",
-  "static-stills.spec.ts",
-  "static.spec.ts",
-  "structure.spec.ts",
-  "tiers.spec.ts",
-  "ui-preview.spec.ts",
-];
+/**
+ * Derived spec inventory (no hand pin). A spec counts as expected when git knows it: it is in the
+ * tree at the merge-base with main (so a spec that main has must not disappear in a branch, even
+ * in a committed deletion), in HEAD, or in the index (so an uncommitted deletion fails too). New
+ * specs from main arrive with the merge and need no edit here. Removing a spec on purpose means
+ * listing it in RETIRED_SPECS with a reason, which a reviewer sees.
+ *
+ * The baseline ref is E2E_SPEC_BASELINE_REF, else origin/main, else main. With no baseline (for
+ * example a shallow CI clone) the guard fails and says so; set E2E_SPEC_BASELINE_REF=HEAD to
+ * accept the weaker HEAD-only check explicitly, or fetch main (`fetch-depth: 0`).
+ */
+const RETIRED_SPECS: readonly { spec: string; reason: string }[] = [];
+
+const git = (...args: string[]): { ok: boolean; out: string } => {
+  const r = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  return { ok: r.status === 0, out: r.status === 0 ? r.stdout.trim() : r.stderr.trim() };
+};
+
+const specLines = (out: string): string[] =>
+  out
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((f) => f.startsWith("tests/e2e/") && f.endsWith(".spec.ts"))
+    .map((f) => relative(e2eDir, join(root, f)));
+
+interface Baseline {
+  ref: string;
+  base: string;
+  specs: string[];
+}
+
+function baselineSpecs(): Baseline | string {
+  const candidates = process.env.E2E_SPEC_BASELINE_REF
+    ? [process.env.E2E_SPEC_BASELINE_REF]
+    : ["origin/main", "main"];
+  for (const ref of candidates) {
+    if (!git("rev-parse", "--verify", "--quiet", `${ref}^{commit}`).ok) continue;
+    const base = git("merge-base", "HEAD", ref);
+    if (!base.ok) return `no merge-base between HEAD and ${ref}: ${base.out}`;
+    const tree = git("ls-tree", "-r", "--name-only", base.out, "--", "tests/e2e");
+    if (!tree.ok) return `git ls-tree ${base.out} failed: ${tree.out}`;
+    return { ref, base: base.out, specs: specLines(tree.out) };
+  }
+  return `no baseline ref (${candidates.join(", ")}); fetch main or set E2E_SPEC_BASELINE_REF=HEAD`;
+}
+
+function derivedInventory(): { baseline: Baseline | string; expected: string[] } {
+  const baseline = baselineSpecs();
+  const head = specLines(git("ls-tree", "-r", "--name-only", "HEAD", "--", "tests/e2e").out);
+  const index = specLines(git("ls-files", "--", "tests/e2e").out);
+  const fromBase = typeof baseline === "string" ? [] : baseline.specs;
+  const retired = new Set(RETIRED_SPECS.map((r) => r.spec));
+  const expected = [...new Set([...fromBase, ...head, ...index])]
+    .filter((f) => !retired.has(f))
+    .toSorted((a, b) => a.localeCompare(b));
+  return { baseline, expected };
+}
 
 /** Pinned opt-out pattern sources, per engine group. Widening or adding a pattern must fail. */
 const EXPECTED_PATTERNS = {
@@ -118,10 +157,14 @@ describe("e2e projects: specs are cross-browser by default (PF-05)", () => {
   ];
   const specs = specsOnDisk();
 
-  it("pins the e2e spec inventory", () => {
-    expect(specs.map((f) => relative(e2eDir, f)).toSorted((a, b) => a.localeCompare(b))).toEqual([
-      ...EXPECTED_SPECS,
-    ]);
+  it("keeps every spec git knows about (derived inventory: main baseline, HEAD, index)", () => {
+    const { baseline, expected } = derivedInventory();
+    expect(typeof baseline === "string" ? baseline : "", "spec baseline").toBe("");
+    const onDisk = new Set(specs.map((f) => relative(e2eDir, f)));
+    const missing = expected.filter((f) => !onDisk.has(f));
+    expect(missing, "e2e specs deleted (list them in RETIRED_SPECS with a reason)").toEqual([]);
+    expect(expected.length).toBeGreaterThan(0);
+    for (const r of RETIRED_SPECS) expect(r.reason.trim().length, r.spec).toBeGreaterThan(10);
   });
 
   it("pins opt-out patterns and the engines they apply to", () => {

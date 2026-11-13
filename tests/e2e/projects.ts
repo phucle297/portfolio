@@ -12,8 +12,9 @@
  * Chromium stays the full suite. SwiftShader stands in for a GPU there; full tier on real Firefox
  * and Safari is the manual matrix.
  *
- * The unit guard pins the spec inventory and the exact patterns and engines below. Widening or
- * adding a pattern, or deleting a spec, must fail that test.
+ * The unit guard derives the spec inventory from git (main baseline, HEAD, index) and pins the
+ * exact patterns and engines below. Widening or adding a pattern, or deleting a spec, must fail
+ * that test.
  */
 export interface OptOut {
   /** Matched against the absolute spec path (specs) or the full test title (tests). */
