@@ -86,6 +86,9 @@ jobs:
             args: tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts
           - group: probe-cost
             args: tests/e2e/probe-cost.spec.ts tests/e2e/probe-cost-webgl-disabled.spec.ts
+          # PF-03: axe-core scan across tiers and states (report in test-results/a11y, uploaded below).
+          - group: a11y
+            args: tests/e2e/a11y.spec.ts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
