@@ -11,6 +11,13 @@ const VIEWPORTS = [
   { name: "390×844", width: 390, height: 844 },
 ] as const;
 
+declare global {
+  interface Window {
+    /** Set by the fonts.ready parse probe's init script (QA L1). */
+    pf27FontsProbe?: { installed: boolean; duringParse: number; afterParse: number };
+  }
+}
+
 const bar = (page: Page) => page.locator(".home-progress");
 const fill = (page: Page) => page.locator("[data-progress]");
 
@@ -58,7 +65,10 @@ const scrollToRatio = async (page: Page, ratio: number): Promise<void> => {
 /** Force the static tier on a wide viewport by failing the WebGL probe. */
 const forceStatic = async (page: Page): Promise<void> => {
   await page.route(/probe\.worker/, (route) =>
-    route.fulfill({ contentType: "text/javascript", body: "postMessage(false);" }),
+    route.fulfill({
+      contentType: "text/javascript",
+      body: "postMessage(false);",
+    }),
   );
 };
 
@@ -326,9 +336,13 @@ test.describe("PF-27 progress bar under the header", () => {
    * flushness of the bar stays on the --header-bottom ResizeObserver path.
    */
   test("the fill driver does not read document.fonts.ready during HTML parse", async ({ page }) => {
+    // Init scripts run before the parser has created <html>, so the probe records on window
+    // (document.documentElement is still null here). The probe also counts reads after
+    // parse, so the test proves the hook was installed and would have seen a parse-time read.
     await page.addInitScript({
-      content: `document.documentElement.dataset.pf27FontsParse = "0";
-        (function () {
+      content: `(function () {
+          var probe = { installed: false, duringParse: 0, afterParse: 0 };
+          window.pf27FontsProbe = probe;
           var fonts = document.fonts;
           if (!fonts) return;
           var desc =
@@ -338,18 +352,26 @@ test.describe("PF-27 progress bar under the header", () => {
           Object.defineProperty(fonts, "ready", {
             configurable: true,
             get: function () {
-              if (document.readyState === "loading") {
-                document.documentElement.dataset.pf27FontsParse = "1";
-              }
+              if (document.readyState === "loading") probe.duringParse += 1;
+              else probe.afterParse += 1;
               return getReady ? getReady.call(fonts) : Promise.resolve(fonts);
             },
           });
+          probe.installed = true;
         })();`,
     });
     await page.goto("/");
     await expect(bar(page)).toBeVisible();
-    const accessed = await page.evaluate(() => document.documentElement.dataset.pf27FontsParse);
-    expect(accessed, "document.fonts.ready was not read while readyState was loading").toBe("0");
+    // The driver still registers fonts.ready after the first frame (font swaps remeasure).
+    await expect
+      .poll(() => page.evaluate(() => window.pf27FontsProbe?.afterParse ?? 0), { timeout: 5_000 })
+      .toBeGreaterThan(0);
+    const probe = await page.evaluate(() => window.pf27FontsProbe);
+    expect(probe?.installed, "fonts.ready probe is installed before the page parses").toBe(true);
+    expect(
+      probe?.duringParse,
+      "document.fonts.ready was not read while readyState was loading",
+    ).toBe(0);
   });
 
   test.describe("no JS", () => {
