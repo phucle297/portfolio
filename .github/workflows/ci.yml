@@ -47,6 +47,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - run: bun run build
+      # Built-HTML contract for PF-13: no form[action^=mailto] (unit tests stay hermetic).
+      - run: bun tools/no-mailto-action.ts
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
@@ -65,6 +67,8 @@ jobs:
         # Explicit groups instead of --shard: every job stays well under 20 min (the 300 s sweeps
         # get their own jobs) and the render-loop test runs alone in a fresh browser, so a previous
         # full-tier test's SwiftShader backlog cannot eat its 60 s budget (TASK-20261112-10 INV-1).
+        # TASK-18: m2-qa-b split into sweep-1600 (B-7 1600×1000 scroll sweeps) + the rest.
+        # app-features: e2e specs that landed on main after #4 branched and were otherwise ungrouped.
         include:
           - group: render-loop
             args: tests/e2e/tiers.spec.ts --grep "render loop is on demand"
@@ -75,7 +79,11 @@ jobs:
           - group: m2
             args: tests/e2e/m2.spec.ts tests/e2e/m2-keys.spec.ts
           - group: m2-qa-b
-            args: tests/e2e/m2-qa-b.spec.ts
+            args: tests/e2e/m2-qa-b.spec.ts --grep-invert "scroll sweep at 1600"
+          - group: sweep-1600
+            args: tests/e2e/m2-qa-b.spec.ts --grep "scroll sweep at 1600"
+          - group: app-features
+            args: tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts
           - group: probe-cost
             args: tests/e2e/probe-cost.spec.ts tests/e2e/probe-cost-webgl-disabled.spec.ts
     steps:

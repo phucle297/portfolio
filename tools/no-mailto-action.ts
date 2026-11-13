@@ -3,13 +3,13 @@
  * Chrome flags that as MixedContentWarning on HTTPS, which drops Lighthouse Best Practices
  * to 0.77 (is-on-https + inspector-issues). The visible <a href="mailto:"> is fine.
  *
- * Used by tests/unit/no-mailto-action.test.ts. Rebuilds dist/ with `astro build` when it is
- * missing or older than the contact section source. Call `astro build` directly so this
- * cannot recurse through `bun run build`.
+ * Unit tests cover the parser and the Contact section source (no production build). After
+ * `astro build`, run this file as a CLI (`bun tools/no-mailto-action.ts`) to check dist/index.html.
+ * It does not invoke a build, so Vitest's default 5 s cap cannot be blown on a clean tree.
  */
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 export const mailtoAction = (tag: string): string | null => {
   const match = /\baction\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/iu.exec(tag);
@@ -30,20 +30,36 @@ export const formMailtoActions = (html: string): string[] => {
 
 export const builtIndexPath = (root = process.cwd()): string => join(root, "dist/index.html");
 
-export const ensureBuiltIndex = (root = process.cwd()): string => {
+export const contactSectionPath = (root = process.cwd()): string =>
+  join(root, "src/_pages/home/ui/ContactSection.astro");
+
+/** Built-page contract: no form mailto action, contact form present, mailto link present. */
+export const assertContactFormContract = (html: string, label: string): void => {
+  const found = formMailtoActions(html);
+  if (found.length > 0) {
+    throw new Error(`${label} contains form mailto action(s): ${found.join(", ")}`);
+  }
+  if (!/<form\b[^>]*\bdata-contact-form\b/u.test(html)) {
+    throw new Error(`${label} is missing form[data-contact-form]`);
+  }
+  if (!/<a\b[^>]*\bhref="mailto:/u.test(html) && !/<a\b[^>]*mailto:/u.test(html)) {
+    throw new Error(`${label} is missing a mailto: link`);
+  }
+};
+
+/** Read dist/index.html. Does not build — call this only after `astro build`. */
+export const readBuiltIndex = (root = process.cwd()): string => {
   const dist = builtIndexPath(root);
-  const source = join(root, "src/_pages/home/ui/ContactSection.astro");
-  const stale =
-    !existsSync(dist) || (existsSync(source) && statSync(source).mtimeMs > statSync(dist).mtimeMs);
-  if (stale) {
-    const result = spawnSync("bun", ["x", "astro", "build"], {
-      cwd: root,
-      stdio: "inherit",
-      env: { ...process.env, ASTRO_TELEMETRY_DISABLED: "1" },
-    });
-    if (result.status !== 0) {
-      throw new Error(`astro build failed with status ${result.status}`);
-    }
+  if (!existsSync(dist)) {
+    throw new Error(`missing ${dist}; run astro build first`);
   }
   return readFileSync(dist, "utf8");
 };
+
+const isCli =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isCli) {
+  assertContactFormContract(readBuiltIndex(), "dist/index.html");
+  process.stdout.write("no-mailto-action: dist/index.html ok\n");
+}
