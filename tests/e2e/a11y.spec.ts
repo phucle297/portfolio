@@ -10,9 +10,10 @@
  * Every violation (any impact) is written to test-results/a11y/ (override with A11Y_OUT) so minor
  * and moderate ones are visible too.
  *
- * Determinism (QA-PF03-1): every scan first waits until the page has settled — no finite Web
- * Animation or CSS transition is running or pending, and every scroll-revealed block in view is
- * revealed at full effective opacity — for three frames in a row. No fixed sleeps.
+ * Determinism (QA-PF03-1): every scan first waits until the page has settled — no Web Animation
+ * (finite or infinite) or CSS transition is running or pending, and every scroll-revealed block in
+ * view is revealed at full effective opacity — for three frames in a row, and then nothing moves
+ * or mutates for a quiet window longer than any step interval (attempt 6). No fixed sleeps.
  * Error-state contrast (QA-PF03-2): at 1440 axe can only file the error texts under "incomplete"
  * (a still image sits behind the translucent card), so the error state is also scanned at 390×844,
  * where axe must judge them (they must be color-contrast *passes*), and a computed-contrast
@@ -80,19 +81,59 @@ const AA_NORMAL = 4.5;
  *    `style` on the page, the scroll position and the computed opacity of each section body
  *    must be identical to the previous frame. A crossfade between sections or beats therefore
  *    always finishes before axe runs, wherever it comes from.
+ *
+ * Stepped backdrops (attempt 6, QA a5 M1): a backdrop that changes in discrete steps (a
+ * `steps()` / `step-end` loop, a blink, a carousel tick) looks still for every frame between two
+ * steps, so "3 still frames" alone let a 150 ms – 2.4 s step loop through. So rule 1 also counts
+ * INFINITE animations (there are none on the site; the WebGL scene is not a Web Animation), and
+ * the page must then stay quiet for a whole window longer than the longest step interval
+ * (QUIET_WINDOW_MS): no animation of any kind running or pending, no DOM mutation anywhere
+ * (attributes, nodes or text, seen by a MutationObserver, which catches JS-driven steps), no change
+ * of the frame signature, every frame of the window. Any of those restarts the window. A page
+ * that never goes quiet fails with what kept it busy.
  */
+/**
+ * A stepped backdrop is caught when it steps at least once inside this window, so it must be longer
+ * than the longest step interval to catch (QA a5 M1: 150 ms to 2.4 s), with margin.
+ */
+const QUIET_WINDOW_MS = 3000;
+/** Budget for one settle: the slowest real settle plus several quiet windows. */
+const SETTLE_TIMEOUT_MS = 30_000;
+
 async function settle(page: Page): Promise<void> {
   await page.evaluate(() => {
     Reflect.set(window, "a11ySettledFrames", 0);
     Reflect.set(window, "a11ySettleSig", "");
+    Reflect.set(window, "a11yQuietSince", null);
+    const log: string[] = [];
+    Reflect.set(window, "a11yMutations", log);
+    const previous: unknown = Reflect.get(window, "a11yObserver");
+    if (previous instanceof MutationObserver) previous.disconnect();
+    const observer = new MutationObserver((records) => {
+      Reflect.set(window, "a11yMutated", true);
+      for (const r of records.slice(0, 5)) {
+        const t = r.target instanceof Element ? r.target : r.target.parentElement;
+        log.push(
+          `${r.type}${r.attributeName ? ` [${r.attributeName}]` : ""} on ${t?.tagName ?? "?"}.${t?.className ?? ""}`,
+        );
+      }
+      log.splice(0, Math.max(0, log.length - 10));
+    });
+    observer.observe(document, {
+      subtree: true,
+      attributes: true,
+      childList: true,
+      characterData: true,
+    });
+    Reflect.set(window, "a11yObserver", observer);
+    Reflect.set(window, "a11yMutated", false);
   });
   const settled = page.waitForFunction(
-    () => {
-      const movingList = document.getAnimations().filter((animation) => {
-        const iterations = animation.effect?.getComputedTiming().iterations ?? 1;
-        if (iterations === Number.POSITIVE_INFINITY) return false;
-        return animation.pending || animation.playState === "running";
-      });
+    (quietMs) => {
+      // Any animation, finite or infinite, that is running or about to run (attempt 6).
+      const movingList = document
+        .getAnimations()
+        .filter((animation) => animation.pending || animation.playState === "running");
       const unrevealedList = Array.from(document.querySelectorAll("[data-reveal]")).filter((el) => {
         const style = getComputedStyle(el);
         if (style.display === "none") return false;
@@ -135,14 +176,25 @@ async function settle(page: Page): Promise<void> {
       ]);
       const scrubbing = sig !== Reflect.get(window, "a11ySettleSig");
       Reflect.set(window, "a11ySettleSig", sig);
+      const mutated = Reflect.get(window, "a11yMutated") === true;
+      Reflect.set(window, "a11yMutated", false);
       Reflect.set(
         window,
         "a11ySettleWhy",
         JSON.stringify({
           moving: movingList.map((a) => {
             const t = a.effect instanceof KeyframeEffect ? a.effect.target : null;
-            return `${a.constructor.name} ${a.playState}${a.pending ? " pending" : ""} on ${t?.tagName ?? "?"}.${t?.className ?? ""} t=${String(a.currentTime)}`;
+            const name = a instanceof CSSAnimation ? ` "${a.animationName}"` : "";
+            const pseudo =
+              a.effect instanceof KeyframeEffect && a.effect.pseudoElement
+                ? a.effect.pseudoElement
+                : "";
+            return `${a.constructor.name}${name} ${a.playState}${a.pending ? " pending" : ""} on ${t?.tagName ?? "?"}.${t?.className ?? ""}${pseudo} iterations=${String(a.effect?.getComputedTiming().iterations)} t=${String(a.currentTime)}`;
           }),
+          mutations: (() => {
+            const log: unknown = Reflect.get(window, "a11yMutations");
+            return Array.isArray(log) ? log.map(String) : [];
+          })(),
           unrevealed: unrevealedList.map((el) => {
             const r = el.getBoundingClientRect();
             return `${el.className} revealed=${String(el.hasAttribute("data-revealed"))} rect=${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}x${Math.round(r.height)} op=${getComputedStyle(el).opacity}`;
@@ -151,13 +203,19 @@ async function settle(page: Page): Promise<void> {
           scrollY: window.scrollY,
         }),
       );
-      const still = movingList.length === 0 && unrevealedList.length === 0 && !scrubbing;
+      const still =
+        movingList.length === 0 && unrevealedList.length === 0 && !scrubbing && !mutated;
       const frames = still ? Number(Reflect.get(window, "a11ySettledFrames")) + 1 : 0;
       Reflect.set(window, "a11ySettledFrames", frames);
-      return frames >= 3;
+      // The quiet window starts at the first still frame and restarts on any disturbance.
+      const now = performance.now();
+      const previous: unknown = Reflect.get(window, "a11yQuietSince");
+      const since = still ? (typeof previous === "number" ? previous : now) : null;
+      Reflect.set(window, "a11yQuietSince", since);
+      return frames >= 3 && since !== null && now - since >= quietMs;
     },
-    null,
-    { polling: "raf", timeout: 20_000 },
+    QUIET_WINDOW_MS,
+    { polling: "raf", timeout: SETTLE_TIMEOUT_MS },
   );
   try {
     await settled;
@@ -167,6 +225,13 @@ async function settle(page: Page): Promise<void> {
       .evaluate(() => String(Reflect.get(window, "a11ySettleWhy")))
       .catch(() => "unknown");
     throw new Error(`page never settled: ${why}`, { cause: error });
+  } finally {
+    await page
+      .evaluate(() => {
+        const observer: unknown = Reflect.get(window, "a11yObserver");
+        if (observer instanceof MutationObserver) observer.disconnect();
+      })
+      .catch(() => undefined);
   }
 }
 
@@ -220,6 +285,11 @@ function record(state: string, result: AxeResults, judgement: Judgement): void {
     JSON.stringify({ state, findings, contrast: judgement.nodes }, null, 1),
   );
 }
+
+// Runtime budget per state (attempt 6): every settle now waits out a 3 s quiet window and every
+// judge round shoots a 3 s series, so a state that scrolls through several rounds needs more than
+// the 60 s default. A budget only; no verdict threshold depends on it.
+test.describe.configure({ timeout: 240_000 });
 
 // Frozen to the three PF-40 Services selectors (reviewer condition): fails the whole spec otherwise.
 assertFiledFindings(FILED_FINDINGS);
@@ -404,8 +474,18 @@ test("regression: a looping non-canvas backdrop on the full tier fails, never de
   const page = await open(browser, { gpu: true });
   await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 90_000 });
   await scrollToProgress(page, KEY_PROGRESS[0]);
-  await page.addStyleTag({ content: QA_SWEEP_PLANT });
+  // The real page settles first, so the refusal below is the plant's doing.
   await settle(page);
+  await page.addStyleTag({ content: QA_SWEEP_PLANT });
+  // Attempt 6: settle() itself now refuses a looping backdrop (infinite animations count); the
+  // judge below must still fail it on its own (soft, so both layers are always checked).
+  const refusal = await settle(page).then(
+    () => "settled",
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  );
+  expect
+    .soft(refusal, "settle() must never settle on a looping backdrop")
+    .toMatch(/^page never settled.*qa-sweep/u);
   const result = await new AxeBuilder({ page }).analyze();
   const state = "regression: QA sweep plant behind .hello__subtitle, full tier key 1";
   const judgement = await judgeIncompleteContrast(page, result, state, {
@@ -433,6 +513,91 @@ test("regression: a looping non-canvas backdrop on the full tier fails, never de
     judgement.nodes.filter((n) => n.verdict === "deferred" && !n.railNumeral).map((n) => n.target),
   ).toEqual([]);
 });
+
+/**
+ * Regression (QA a5 gate @d7618ab, M1 Medium): a backdrop that changes in discrete STEPS behind
+ * copy on the full tier. QA's q3/q4 plant: a #000/#fff `step-end` blink on a ::before behind
+ * `.hello__lede` (text #3a2a22, 1.53:1 half the time), at both ends of the range QA found passing
+ * (150 ms and 2.4 s periods), plus the same blink driven by a JS timer (a class toggle every
+ * 1.2 s, no Web Animation at all). Before attempt 6 settle() ignored infinite animations and the
+ * judge read a step between its two shot pairs as canvas show-through, so these passed (deferred
+ * to the canvas). Now BOTH layers must refuse them on their own: settle() never settles, and the
+ * judge, run anyway on the stepping page, fails or leaves the text undecided, never deferred.
+ */
+const QA_BLINK = "0%, 49.9% { background: #000; } 50%, 100% { background: #fff; }";
+const STEPPED_PLANTS = [
+  {
+    name: "150 ms step-end CSS blink",
+    css: `@keyframes qa-blink { ${QA_BLINK} } .hello__lede { color: #3a2a22 !important; position: relative; z-index: 0; } .hello__lede::before { content: ""; position: absolute; inset: 0; z-index: -1; animation: qa-blink 150ms step-end infinite; }`,
+    timerMs: 0,
+    settleWhy: "qa-blink",
+  },
+  {
+    name: "2400 ms step-end CSS blink",
+    css: `@keyframes qa-blink { ${QA_BLINK} } .hello__lede { color: #3a2a22 !important; position: relative; z-index: 0; } .hello__lede::before { content: ""; position: absolute; inset: 0; z-index: -1; animation: qa-blink 2400ms step-end infinite; }`,
+    timerMs: 0,
+    settleWhy: "qa-blink",
+  },
+  {
+    name: "2400 ms JS-timer blink (class toggle every 1.2 s)",
+    css: '.hello__lede { color: #3a2a22 !important; position: relative; z-index: 0; } .hello__lede::before { content: ""; position: absolute; inset: 0; z-index: -1; background: #fff; } .hello__lede.qa-dark::before { background: #000; }',
+    timerMs: 1200,
+    settleWhy: "attributes [class]",
+  },
+] as const;
+
+for (const plant of STEPPED_PLANTS) {
+  test(`regression: stepped backdrop (${plant.name}) on the full tier never settles and is never deferred`, async ({
+    browser,
+  }) => {
+    test.setTimeout(150_000);
+    const page = await open(browser, { gpu: true });
+    await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 90_000 });
+    await scrollToProgress(page, KEY_PROGRESS[0]);
+    // The real page settles first, so the refusal below is the plant's doing.
+    await settle(page);
+    await page.addStyleTag({ content: plant.css });
+    if (plant.timerMs > 0)
+      await page.evaluate((ms) => {
+        const lede = document.querySelector(".hello__lede");
+        lede?.classList.add("qa-dark");
+        setInterval(() => lede?.classList.toggle("qa-dark"), ms);
+      }, plant.timerMs);
+    // 1. settle() must refuse the stepping page, and say what kept it busy.
+    const refusal = await settle(page).then(
+      () => "settled",
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    process.stdout.write(`regression · ${plant.name}: settle → ${refusal.slice(0, 400)}\n`);
+    // Soft: the judge below is checked too, whatever settle() did, so each layer is proven alone.
+    expect
+      .soft(refusal, "settle() must never settle on a stepped backdrop")
+      .toMatch(/^page never settled/u);
+    expect.soft(refusal, "the refusal names the stepping source").toContain(plant.settleWhy);
+    // 2. The judge on its own, as if settle had passed, must not let it through either.
+    const result = await new AxeBuilder({ page }).analyze();
+    const state = `regression: ${plant.name} behind .hello__lede, full tier key 1`;
+    const judgement = await judgeIncompleteContrast(page, result, state, {
+      scroll: false,
+      settle,
+      findings: [],
+    });
+    await page.context().close();
+    const lede = judgement.nodes.find((n) => n.target.includes("hello__lede"));
+    const axeViolation = result.violations
+      .filter((rule) => rule.id === "color-contrast")
+      .some((rule) => rule.nodes.some((node) => node.target.join(" ").includes("hello__lede")));
+    process.stdout.write(
+      `regression · ${plant.name}: judge → ${lede ? `${lede.verdict} (${lede.reason})` : "not incomplete"}; axe violation: ${axeViolation}\n`,
+    );
+    expect(
+      axeViolation || lede?.verdict === "fail" || lede?.verdict === "undecided",
+      "the stepped backdrop behind .hello__lede must FAIL the judge",
+    ).toBe(true);
+    expect(lede?.verdict, "never deferred as canvas").not.toBe("deferred");
+    expect(lede?.canvasBacked ?? false, "not canvas-backed").toBe(false);
+  });
+}
 
 test("static tier at 390×844", async ({ browser }) => {
   const page = await open(browser, {

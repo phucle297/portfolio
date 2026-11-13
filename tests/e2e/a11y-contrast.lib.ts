@@ -10,10 +10,15 @@
  *    ancestors' opacity), font size and weight (large text = ≥ 24 px, or ≥ 18.66 px and bold),
  *    and its glyph line boxes (Range rects of its own text nodes) clipped to the viewport and to
  *    any overflow-clipping ancestor.
+ *    Attempt 6 (QA a5 M1, stepped backdrops): step 2 is now a TIME SERIES of 8 shots over ~3 s
+ *    (SERIES_AT_MS, longer than the 2.4 s longest step interval to catch), each with the canvas
+ *    visible and, on the full tier, again with it hidden at the same instant. "Moved" / "moved with
+ *    the canvas hidden" compare NEIGHBOURING shots of one kind; "canvas shows through" compares the
+ *    visible and hidden shot of one instant; a pixel's ratio is its worst over all visible shots.
  * 2. Make every glyph on the page transparent (`-webkit-text-fill-color`, decorations, shadows),
  *    so a screenshot shows exactly what is painted behind the text: ancestor backgrounds,
  *    ::before / ::after overlays and gradients with their opacity, stills and the WebGL canvas.
- *    Take two screenshots two frames and 150 ms apart.
+ *    Take the shots (see attempt 6 above).
  * 3. In the page (canvas 2D decode, no Node image library), for every pixel inside the node's
  *    glyph boxes composite the text colour (normalised by the browser, so oklch / color() /
  *    color-mix / hsl / named colours are read correctly) over that pixel and compute the WCAG
@@ -23,9 +28,9 @@
  * 4. Verdict: ratio ≥ 4.5 (≥ 3 for large text) → pass; below → FAIL, except the section-rail
  *    numerals over the live canvas, a known carded defect (PF-23), which are DEFERRED and listed
  *    with their measured ratio. A node whose backdrop
- *    changed between the two screenshots (> 1 % of its pixels by > 3 levels) is undecidable.
+ *    changed between two neighbouring shots (> 1 % of its pixels by > 3 levels) is undecidable.
  *    It is DEFERRED to PF-04 (listed by name) only when that motion is provably the canvas
- *    (attempt 5): the same two shots retaken with the canvas `visibility:hidden` are still, the
+ *    (attempt 5): the canvas-hidden shots (`visibility:hidden`) are still all through the series, the
  *    canvas visibly shows through at ≥ 50 % of the glyph pixels (they change when it is hidden),
  *    ≥ 99 % of the moving pixels are such pixels, and elementsFromPoint finds the canvas under
  *    ≥ 95 % of sampled glyph pixels. Any other moving backdrop is UNDECIDED and FAILS. A node with no painted glyph pixels at all also FAILS
@@ -79,8 +84,15 @@ const HIDE_CSS = `*, *::before, *::after, *::marker, *::placeholder {
   -webkit-text-fill-color: transparent !important; text-decoration-color: transparent !important;
   text-shadow: none !important; caret-color: transparent !important; }`;
 
-/** Gap between the two shots of a pair: any backdrop change in it is motion. */
-const STILL_GAP_MS = 150;
+/**
+ * When each shot of the series is taken, from the first (attempt 6, QA a5 M1). Irregular gaps,
+ * none longer than 600 ms, spanning more than the 2.4 s longest step interval to catch: a backdrop
+ * holding each step ≥ 75 ms (a 150 ms loop) up to 1.2 s (a 2.4 s loop) is caught between two
+ * neighbouring shots.
+ */
+const SERIES_AT_MS = [0, 170, 430, 790, 1270, 1830, 2410, 2990] as const;
+/** The series must really have spanned this long (screenshots can be slow, never too fast). */
+const SERIES_MIN_WINDOW_MS = 2900;
 /** A backdrop pixel "changed" when a channel moved by more than this many levels. */
 const PIXEL_TOLERANCE = 3;
 /** More than this share of a node's pixels changing = the backdrop is not still. */
@@ -339,18 +351,13 @@ async function measure(
     },
     { id: HIDE_ID, css: HIDE_CSS },
   );
-  const shoot = async (): Promise<[string, string]> => {
-    await frames(page);
-    const a = (await page.screenshot({ scale: "css" })).toString("base64");
-    await frames(page);
-    await page.waitForTimeout(STILL_GAP_MS);
-    const b = (await page.screenshot({ scale: "css" })).toString("base64");
-    return [a, b];
-  };
-  const [first, second] = await shoot();
-  // Attempt 5 (QA Medium): the same pair again with the WebGL canvas hidden. Motion that is
-  // still there without the canvas is not the canvas; pixels that change when the canvas is
-  // hidden are pixels where the canvas actually shows through behind the glyphs.
+  // Attempt 6 (QA a5 M1): one interleaved series over a window longer than the longest step
+  // interval, instead of a visible pair followed by a canvas-hidden pair. At each of SERIES_AT_MS
+  // a shot with the canvas visible, then one with it hidden (full tier with a canvas; otherwise
+  // the visible shot only). Motion is judged between NEIGHBOURING shots of the same kind, so a
+  // backdrop that steps anywhere in the window is seen moving, and seen moving WITHOUT the canvas
+  // too (never mistaken for canvas show-through); show-through is visible vs hidden at the same
+  // instant. Irregular gaps avoid aliasing with a regular step period.
   const hasCanvas = await page.evaluate(
     ({ id, css }) => {
       if (document.documentElement.dataset.tier !== "full") return false;
@@ -359,11 +366,44 @@ async function measure(
       style.id = id;
       style.textContent = css;
       document.head.append(style);
+      // Starts disabled (canvas shown); a <style>'s sheet exists only once it is connected.
+      if (style.sheet) style.sheet.disabled = true;
       return true;
     },
     { id: HIDE_CANVAS_ID, css: HIDE_CANVAS_CSS },
   );
-  const [third, fourth] = hasCanvas ? await shoot() : [first, second];
+  const canvasHidden = async (hidden: boolean): Promise<void> => {
+    await page.evaluate(
+      ([id, on]) => {
+        const style = document.getElementById(id);
+        if (style instanceof HTMLStyleElement && style.sheet) style.sheet.disabled = !on;
+      },
+      [HIDE_CANVAS_ID, hidden] as const,
+    );
+    await frames(page);
+  };
+  const visibleShots: string[] = [];
+  const hiddenShots: string[] = [];
+  await frames(page);
+  const t0 = Date.now();
+  for (const at of SERIES_AT_MS) {
+    const wait = t0 + at - Date.now();
+    // oxlint-disable-next-line no-await-in-loop -- shots are a time series
+    if (wait > 0) await page.waitForTimeout(wait);
+    // oxlint-disable-next-line no-await-in-loop -- shots are a time series
+    if (hasCanvas) await canvasHidden(false);
+    // oxlint-disable-next-line no-await-in-loop -- shots are a time series
+    visibleShots.push((await page.screenshot({ scale: "css" })).toString("base64"));
+    if (hasCanvas) {
+      // oxlint-disable-next-line no-await-in-loop -- shots are a time series
+      await canvasHidden(true);
+      // oxlint-disable-next-line no-await-in-loop -- shots are a time series
+      hiddenShots.push((await page.screenshot({ scale: "css" })).toString("base64"));
+    }
+  }
+  const windowMs = Date.now() - t0;
+  if (windowMs < SERIES_MIN_WINDOW_MS)
+    throw new Error(`shot series spanned ${windowMs} ms < ${SERIES_MIN_WINDOW_MS} ms`);
   await page.evaluate(
     (ids) => {
       for (const id of ids) document.getElementById(id)?.remove();
@@ -372,9 +412,9 @@ async function measure(
   );
   await frames(page);
   return page.evaluate(
-    async ({ list, shots, filed, percentile, tol }) => {
-      const [a, b, hidA, hidB] = await Promise.all(
-        shots.map(async (b64) => {
+    async ({ list, visible, hidden, filed, percentile, tol }) => {
+      const decoded = await Promise.all(
+        [...visible, ...hidden].map(async (b64) => {
           const bytes = Uint8Array.from(atob(b64), (c) => c.codePointAt(0) ?? 0);
           const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
           const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
@@ -384,7 +424,11 @@ async function measure(
           return ctx.getImageData(0, 0, bitmap.width, bitmap.height);
         }),
       );
-      if (!a || !b || !hidA || !hidB) throw new Error("decode failed");
+      const vis = decoded.slice(0, visible.length);
+      // Without a canvas the hidden series is the visible one (nothing to hide).
+      const hid = hidden.length > 0 ? decoded.slice(visible.length) : vis;
+      const a = vis[0];
+      if (!a || vis.length < 2 || hid.length !== vis.length) throw new Error("decode failed");
       const differs = (p: ImageData, q: ImageData, i: number): boolean =>
         Math.abs((p.data[i] ?? 0) - (q.data[i] ?? 0)) > tol ||
         Math.abs((p.data[i + 1] ?? 0) - (q.data[i + 1] ?? 0)) > tol ||
@@ -535,22 +579,40 @@ async function measure(
               const i = (y * a.width + x) * 4;
               if (seen.has(i)) continue;
               seen.add(i);
-              const br = a.data[i] ?? 0;
-              const bg = a.data[i + 1] ?? 0;
-              const bb = a.data[i + 2] ?? 0;
-              const onCanvas = differs(a, hidA, i) || differs(b, hidB, i);
+              // Neighbouring shots of the same kind: any change anywhere in the window is motion.
+              let moved = false;
+              let movedHidden = false;
+              let onCanvas = false;
+              for (let k = 0; k < vis.length; k += 1) {
+                const v = vis[k];
+                const h = hid[k];
+                const vNext = vis[k + 1];
+                const hNext = hid[k + 1];
+                if (!v || !h) continue;
+                if (vNext && differs(v, vNext, i)) moved = true;
+                if (hNext && differs(h, hNext, i)) movedHidden = true;
+                if (differs(v, h, i)) onCanvas = true;
+              }
               if (onCanvas) canvasVisible += 1;
-              if (differs(a, b, i)) {
+              if (moved) {
                 unstable += 1;
                 if (onCanvas) unstableOnCanvas += 1;
               }
-              if (differs(hidA, hidB, i)) unstableHidden += 1;
-              const fr = tr * alpha + br * (1 - alpha);
-              const fg = tg * alpha + bg * (1 - alpha);
-              const fb = tb * alpha + bb * (1 - alpha);
-              const l1 = lum(fr, fg, fb);
-              const l2 = lum(br, bg, bb);
-              ratios.push((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05));
+              if (movedHidden) unstableHidden += 1;
+              // The pixel's ratio is its WORST over every visible shot of the window.
+              let worst = Number.POSITIVE_INFINITY;
+              for (const v of vis) {
+                const br = v.data[i] ?? 0;
+                const bg = v.data[i + 1] ?? 0;
+                const bb = v.data[i + 2] ?? 0;
+                const fr = tr * alpha + br * (1 - alpha);
+                const fg = tg * alpha + bg * (1 - alpha);
+                const fb = tb * alpha + bb * (1 - alpha);
+                const l1 = lum(fr, fg, fb);
+                const l2 = lum(br, bg, bb);
+                worst = Math.min(worst, (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05));
+              }
+              ratios.push(worst);
             }
         ratios.sort((x, y) => x - y);
         const ratio =
@@ -583,7 +645,8 @@ async function measure(
     },
     {
       list: selectors,
-      shots: [first, second, third, fourth],
+      visible: visibleShots,
+      hidden: hiddenShots,
       filed: findings,
       percentile: RATIO_PERCENTILE,
       tol: PIXEL_TOLERANCE,
