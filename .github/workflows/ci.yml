@@ -1,0 +1,172 @@
+# CI for the portfolio (TASK-20261112-10).
+# Stage 1 (fast-gate): cheap static checks + unit tests, one matrix job per check, fail-fast.
+# Stage 2 (needs stage 1): build once -> dist artifact, then e2e (explicit groups), Lighthouse CI
+# (mobile + desktop, 3 runs, build-plan §3 budgets) on that dist; budget:check (PF-06) in parallel with its own build.
+# Rollback: revert the PR that added this file (or delete .github/workflows/ci.yml).
+name: CI
+
+on:
+  pull_request:
+    paths-ignore: ["**/*.md", "docs/**", "LICENSE"]
+  push:
+    branches: [main]
+    paths-ignore: ["**/*.md", "docs/**", "LICENSE"]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  LEFTHOOK: "0" # never install git hooks on the runner
+  ASTRO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  # ---------------------------------------------------------------- stage 1
+  fast-gate:
+    name: fast-gate (${{ matrix.check }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: true
+      matrix:
+        check: [check, typecheck, "lint:oxlint", "lint:fsd", "format:check", test]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: bun run ${{ matrix.check }}
+
+  # ---------------------------------------------------------------- stage 2
+  build:
+    needs: fast-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: bun run build
+      # Built-HTML contract for PF-13: no form[action^=mailto] (unit tests stay hermetic).
+      - run: bun tools/no-mailto-action.ts
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+          if-no-files-found: error
+
+  e2e:
+    name: e2e (${{ matrix.group }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: true
+      matrix:
+        # Explicit groups instead of --shard: every job stays well under 20 min (the 300 s sweeps
+        # get their own jobs) and the render-loop test runs alone in a fresh browser, so a previous
+        # full-tier test's SwiftShader backlog cannot eat its 60 s budget (TASK-20261112-10 INV-1).
+        # TASK-18: m2-qa-b split into sweep-1600 (B-7 1600×1000 scroll sweeps) + the rest.
+        # app-features: e2e specs that landed on main after #4 branched and were otherwise ungrouped.
+        include:
+          - group: render-loop
+            args: tests/e2e/tiers.spec.ts --grep "render loop is on demand"
+          - group: tiers
+            args: tests/e2e/tiers.spec.ts --grep-invert "render loop is on demand"
+          - group: static-structure-content
+            args: tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts
+          - group: m2
+            args: tests/e2e/m2.spec.ts tests/e2e/m2-keys.spec.ts
+          - group: m2-qa-b
+            args: tests/e2e/m2-qa-b.spec.ts --grep-invert "scroll sweep at 1600"
+          - group: sweep-1600
+            args: tests/e2e/m2-qa-b.spec.ts --grep "scroll sweep at 1600"
+          - group: app-features
+            args: tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts
+          - group: probe-cost
+            args: tests/e2e/probe-cost.spec.ts tests/e2e/probe-cost-webgl-disabled.spec.ts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      # Same engine the box/QA verifies with: the runner image's preinstalled Google Chrome
+      # (playwright.config.ts honours CHROME_PATH). Chromium only; no browser download to cache.
+      - run: /usr/bin/google-chrome --version
+      - run: bunx playwright test ${{ matrix.args }} --reporter=list,html
+        env:
+          E2E_PREBUILT: "1" # serve the shared dist; do not rebuild
+          CHROME_PATH: /usr/bin/google-chrome
+          PLAYWRIGHT_HTML_OPEN: never
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-${{ matrix.group }}
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore
+
+  lighthouse:
+    name: lighthouse (${{ matrix.form }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: true
+      matrix:
+        form: [mobile, desktop]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - run: npx --yes @lhci/cli@0.16.1 autorun --config=tools/ci/lighthouserc.${{ matrix.form }}.json
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lighthouse-${{ matrix.form }}
+          path: lhci-report
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # PF-06's budget:check (PR #5) replaces the old tools/ci/bundle-budget.mjs. It makes its own
+  # build (hidden source maps, needed to split three.js vs scene code) and measures transfer in
+  # Chrome, so it does not use the shared dist and runs alongside `build`.
+  bundle-size:
+    name: budget-check
+    needs: fast-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: bun run budget:check -- --json budget.json
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: budget
+          path: budget.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # One stable check for branch protection: green only if every job above passed.
+  ci-ok:
+    if: ${{ always() }}
+    needs: [fast-gate, build, e2e, lighthouse, bundle-size]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: |
+          echo "One or more CI jobs did not succeed: ${{ join(needs.*.result, ', ') }}"
+          exit 1
+      - run: echo "All CI jobs passed."
