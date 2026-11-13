@@ -1,0 +1,112 @@
+---
+import { previews } from "../model/previews";
+---
+
+<header class="ui-preview__head">
+  <p class="ui-preview__eyebrow">Dev and PR previews only · not in production</p>
+  <h1>Component library</h1>
+  <p>Every shared UI component in each state, on the page background and on a surface.</p>
+  <nav aria-label="Components">
+    <ul>
+      {previews.map((p) => (
+        <li>
+          <a href={`#${p.id}`}>{p.title}</a>
+        </li>
+      ))}
+    </ul>
+  </nav>
+</header>
+
+{previews.map(({ id, title, Component }) => (
+  <section class="ui-preview__section" id={id} aria-labelledby={`${id}-title`}>
+    <h2 id={`${id}-title`}>{title}</h2>
+    <div class="ui-preview__grounds">
+      <div class="ui-preview__ground" data-ground="bg">
+        <p class="ui-preview__label">On --bg</p>
+        <Component ground="bg" />
+      </div>
+      <div class="ui-preview__ground" data-ground="surface">
+        <p class="ui-preview__label">On --surface</p>
+        <Component ground="surface" />
+      </div>
+    </div>
+  </section>
+))}
+
+<style>
+  .ui-preview__head,
+  .ui-preview__section {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: var(--space-12) var(--gutter) 0;
+  }
+
+  h1 {
+    margin: 0 0 var(--space-4);
+    font-family: var(--font-serif);
+    font-size: var(--type-h2-mobile);
+    font-weight: 400;
+    line-height: var(--leading-h2);
+  }
+
+  h2 {
+    margin: 0 0 var(--space-6);
+    font-family: var(--font-serif);
+    font-size: var(--type-h2-mobile);
+    font-weight: 400;
+    line-height: var(--leading-h2);
+  }
+
+  .ui-preview__eyebrow,
+  .ui-preview__label {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-mono);
+    font-size: var(--type-eyebrow-mobile);
+    letter-spacing: var(--tracking-eyebrow);
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  nav ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: var(--space-6) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap-min);
+    padding: 0 var(--space-4);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .ui-preview__grounds {
+    display: grid;
+    gap: var(--space-6);
+  }
+
+  .ui-preview__ground {
+    position: relative;
+    padding: var(--space-6);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+  }
+
+  .ui-preview__ground[data-ground="surface"] {
+    background: var(--surface);
+  }
+
+  @media (min-width: 64rem) {
+    .ui-preview__grounds {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+</style>
