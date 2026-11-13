@@ -197,6 +197,11 @@ test.describe("PF-13 contact form", () => {
     await expect(freelance(page)).toBeChecked();
     await expect(nameInput(page)).toBeFocused();
     await expect(projectType(page)).toBeVisible();
+    // The jump still leaves #contact in the address bar, and Name stays focused after the
+    // scroll settles (Firefox used to clear focus after its fragment jump).
+    await expect(page).toHaveURL(/#contact$/u);
+    await page.waitForTimeout(300);
+    await expect(nameInput(page)).toBeFocused();
 
     await fullTime(page).check();
     await page.locator("#hello [data-start-project]").focus();
