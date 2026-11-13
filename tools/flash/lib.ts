@@ -207,8 +207,8 @@ export type CatchUpStepFn = (
   shown: number,
   target: number,
   dt: number,
-  sinceCut: number,
-) => { shown: number; cut: boolean };
+  clock: { sinceCut: number; sinceSweep: number },
+) => { shown: number; cut: boolean; swept: boolean };
 
 /** What the screen shows at time `t` (s): progress `p`, reached by a cut or by a sweep. */
 export interface ShownSample {
@@ -237,11 +237,12 @@ export function replayCatchUp(
   const dt = 1 / fps;
   let shown = p0;
   let lastCut = Number.NEGATIVE_INFINITY;
+  let lastSweep = Number.NEGATIVE_INFINITY;
   const out: ShownSample[] = [{ t: 0, p: shown, cut: false }];
   for (let k = 1; k < fps * (inputEnd + snapSeconds + 1); k += 1) {
     const t = k * dt;
     const goal = target(t);
-    const next = step(shown, goal, dt, t - lastCut);
+    const next = step(shown, goal, dt, { sinceCut: t - lastCut, sinceSweep: t - lastSweep });
     let { cut } = next;
     shown = next.shown;
     const settled =
@@ -251,6 +252,7 @@ export function replayCatchUp(
       shown = goal;
     }
     if (cut) lastCut = t;
+    if (next.swept) lastSweep = t;
     out.push({ t, p: shown, cut });
     if (settled && t >= inputEnd) break;
   }

@@ -23,7 +23,8 @@
  * 1. "scroll": a constant-rate 0 → 100 % scroll in `--seconds` (16 s, M2-AC11's scripted scroll);
  * 2. fast inputs, replayed at 60 fps through the stage's own catch-up (`catchUpStep`, imported
  *    from src/_pages/home/lib/catch-up.ts, snap at 1.5 s): End and Home, every section link
- *    (jump between any two section starts) and whole-page scrollbar drags (0.25–8 s, both ways).
+ *    (jump between any two section starts), scrollbar drags between any two section starts or
+ *    the page end (0.25–12 s), and mixed input (End right after a scroll, End / Home in turn).
  *    A sweep is assumed to show every captured frame it passes (strict); a cut shows only its end.
  * Pass: no region over 3 flashes in any 1 s window in any scenario, and the lights-on ramp
  * spans ≥ 4 % of scroll. Also reported: the shortest constant-rate full scroll that stays safe,
@@ -44,6 +45,7 @@ import {
   CUT_GAP,
   MAX_SWEEP_PER_SECOND,
   MIN_CUT_SECONDS,
+  QUIET_SECONDS,
 } from "../../src/_pages/home/lib/catch-up.ts";
 import { SECTIONS } from "../../src/shared/lib/timeline/timeline.ts";
 import {
@@ -63,8 +65,8 @@ import {
 
 /** Mirrors `IDLE_BUDGET_MS` in src/_pages/home/lib/stage.ts (unit-tested). */
 export const SNAP_SECONDS = 1.5;
-/** Scrollbar drags over the whole page, in seconds per page (fast flick to slow drag). */
-export const DRAG_SECONDS = [0.25, 0.5, 1, 2, 4, 8];
+/** Scrollbar drag durations (fast flick to slow drag), between any two section starts or ends. */
+export const DRAG_SECONDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 12];
 export const FRAMES = 384;
 export const MIN_RAMP = 0.04;
 
@@ -286,12 +288,14 @@ const jump = (name: string, p0: number, p1: number): Input => ({
   inputEnd: 0,
 });
 const drag = (duration: number, p0: number, p1: number): Input => ({
-  name: `drag ${p0 < p1 ? "down" : "up"} in ${duration} s`,
+  name: `drag ${p0} → ${p1} in ${duration} s`,
   p0,
   target: (t) => p0 + (p1 - p0) * Math.min(1, t / duration),
   inputEnd: duration,
 });
-const JUMP_KEYS = ["jumpDown", "jumpUp", "anchor", "drag"] as const;
+/** Section starts plus the page end: where links land and drags start or stop. */
+const STOPS = [...SECTIONS.map((section) => section.start), 1];
+const JUMP_KEYS = ["jumpDown", "jumpUp", "anchor", "drag", "combo"] as const;
 type JumpKey = (typeof JUMP_KEYS)[number];
 const SCENARIOS: Record<JumpKey, Input[]> = {
   jumpDown: [jump("End (top → bottom)", 0, 1)],
@@ -301,7 +305,24 @@ const SCENARIOS: Record<JumpKey, Input[]> = {
       jump(`#${from.id} → #${to.id}`, from.start, to.start),
     ),
   ),
-  drag: DRAG_SECONDS.flatMap((sec) => [drag(sec, 0, 1), drag(sec, 1, 0)]),
+  drag: DRAG_SECONDS.flatMap((sec) =>
+    STOPS.flatMap((p0) => STOPS.filter((p1) => p1 !== p0).map((p1) => drag(sec, p0, p1))),
+  ),
+  // Mixed input: End shortly after a small scroll, and End / Home pressed in turn.
+  combo: [
+    ...[0.1, 0.3, 0.6, 1, 1.5].map((after) => ({
+      name: `scroll 0 → 0.05 in 0.5 s, End ${after} s later`,
+      p0: 0,
+      target: (t: number) => (t < 0.5 + after ? 0.1 * Math.min(t, 0.5) : 1),
+      inputEnd: 0.5 + after,
+    })),
+    ...[0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1, 1.5].map((every) => ({
+      name: `End / Home in turn every ${every} s for 4 s`,
+      p0: 0,
+      target: (t: number) => (Math.floor(t / every) % 2 === 0 ? 1 : 0),
+      inputEnd: 4,
+    })),
+  ],
 };
 type Key = "scroll" | JumpKey;
 const KEYS: Key[] = ["scroll", ...JUMP_KEYS];
@@ -321,11 +342,13 @@ const runs: Record<JumpKey, Run[]> = {
   jumpUp: runAll(SCENARIOS.jumpUp),
   anchor: runAll(SCENARIOS.anchor),
   drag: runAll(SCENARIOS.drag),
+  combo: runAll(SCENARIOS.combo),
 };
 /** The catch-up before PF-14's fix (plain exponential, τ 0.15 s): reported, not gated. */
 const legacyStep: CatchUpStepFn = (shown, target, dt) => ({
   shown: shown + (target - shown) * (1 - Math.exp(-dt / CATCH_UP_SECONDS)),
   cut: false,
+  swept: true,
 });
 const legacyEnd = replay(legacyStep, jump("End (top → bottom)", 0, 1));
 
@@ -355,6 +378,7 @@ for (const kind of ["general", "red"] as const)
     const jumpUp = worstRun("jumpUp");
     const anchor = worstRun("anchor");
     const dragged = worstRun("drag");
+    const combo = worstRun("combo");
     const r: RegionResult = {
       region: c,
       kind,
@@ -367,11 +391,13 @@ for (const kind of ["general", "red"] as const)
       jumpUp: jumpUp.fps,
       anchor: anchor.fps,
       drag: dragged.fps,
+      combo: combo.fps,
       input: {
         jumpDown: jumpDown.name,
         jumpUp: jumpUp.name,
         anchor: anchor.name,
         drag: dragged.name,
+        combo: combo.name,
       },
       legacyEnd: pathFlashesPerSecond(series, legacyEnd, kind),
     };
@@ -424,13 +450,14 @@ const lines = [
       jumpDown: "jump top → bottom (End)",
       jumpUp: "jump bottom → top (Home)",
       anchor: `section links (${SCENARIOS.anchor.length} jumps between section starts)`,
-      drag: `scrollbar drags over the whole page (${DRAG_SECONDS.join(", ")} s, both ways)`,
+      drag: `scrollbar drags between any two section starts / page end (${SCENARIOS.drag.length} drags, ${DRAG_SECONDS.join(", ")} s)`,
+      combo: `mixed input (${SCENARIOS.combo.length}: End right after a scroll, End / Home in turn)`,
     }[key];
     const which = key === "scroll" ? "" : `; worst: ${w.input[key]}`;
     return `| ${label} | ${cellName(w.region)} (${w.kind}, ${w.transitions} transitions over the page${which}) | ${fmt(w[key], 1)} | ${w[key] <= MAX_FLASHES_PER_SECOND ? "pass" : "FAIL"} |`;
   }),
   "",
-  `- Catch-up: exponential τ ${CATCH_UP_SECONDS} s, sweep ≤ ${MAX_SWEEP_PER_SECOND} of the page per s, gaps > ${CUT_GAP} cut (≤ 1 cut per ${MIN_CUT_SECONDS} s), snap ${SNAP_SECONDS} s after the last input`,
+  `- Catch-up: exponential τ ${CATCH_UP_SECONDS} s, sweep ≤ ${MAX_SWEEP_PER_SECOND} of the page per s, gaps > ${CUT_GAP} held then cut (≥ ${QUIET_SECONDS} s after a sweep, ≥ ${MIN_CUT_SECONDS} s between cuts), snap ${SNAP_SECONDS} s after the last input`,
   `- Pre-fix catch-up (plain τ ${CATCH_UP_SECONDS} s exponential) on this capture, End: ${cellName(worst("legacyEnd").region)} (${worst("legacyEnd").kind}) ${fmt(worst("legacyEnd").legacyEnd, 1)} flashes/s (not gated; shows the check still catches it)`,
   "",
   `- Shortest constant-rate full scroll that stays ≤ 3 flashes/s: **${fmt(safeSeconds)} s**`,

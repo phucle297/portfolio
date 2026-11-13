@@ -7,6 +7,7 @@ import {
   CUT_GAP,
   MAX_SWEEP_PER_SECOND,
   MIN_CUT_SECONDS,
+  QUIET_SECONDS,
 } from "../../src/_pages/home/lib/catch-up";
 import {
   type CatchUpStepFn,
@@ -128,7 +129,9 @@ describe("flash check mirrors the stage's idle budget", () => {
 const legacyStep: CatchUpStepFn = (shown, target, dt) => ({
   shown: shown + (target - shown) * (1 - Math.exp(-dt / CATCH_UP_SECONDS)),
   cut: false,
+  swept: true,
 });
+const IDLE = { sinceCut: Number.POSITIVE_INFINITY, sinceSweep: Number.POSITIVE_INFINITY };
 const N = 384;
 /** A red region that turns on and off every 27 frames (14 transitions over the page), like r4c3. */
 const strobe = Array.from({ length: N }, (_, i) => (Math.floor(i / 27) % 2 === 0 ? 0 : 40));
@@ -156,24 +159,27 @@ const dragFps = (step: CatchUpStepFn, seconds: number, p0: number, p1: number): 
 describe("stage catch-up is motion-safe on big jumps (PF-14 / M3-AC10)", () => {
   it("small gaps ease exactly as the τ 0.15 s exponential", () => {
     const dt = 1 / 60;
-    const next = catchUpStep(0.5, 0.505, dt, Number.POSITIVE_INFINITY);
+    const next = catchUpStep(0.5, 0.505, dt, IDLE);
     expect(next.cut).toBe(false);
+    expect(next.swept).toBe(true);
     expect(next.shown).toBeCloseTo(0.5 + 0.005 * (1 - Math.exp(-dt / CATCH_UP_SECONDS)), 12);
   });
 
-  it("sweeps no faster than MAX_SWEEP_PER_SECOND, and cuts gaps over CUT_GAP at most every MIN_CUT_SECONDS", () => {
+  it("sweeps no faster than MAX_SWEEP_PER_SECOND; holds, then cuts, gaps over CUT_GAP", () => {
     const dt = 1 / 60;
     // Within CUT_GAP: capped sweep.
-    const capped = catchUpStep(0, CUT_GAP * 0.99, dt, Number.POSITIVE_INFINITY);
+    const capped = catchUpStep(0, CUT_GAP * 0.99, dt, IDLE);
     expect(capped.cut).toBe(false);
     expect(capped.shown).toBeCloseTo(MAX_SWEEP_PER_SECOND * dt, 12);
-    // Over CUT_GAP: one cut, straight to the target.
-    expect(catchUpStep(0, 1, dt, Number.POSITIVE_INFINITY)).toEqual({ shown: 1, cut: true });
-    // Too soon after the last cut: capped sweep instead.
-    const soon = catchUpStep(1, 0, dt, MIN_CUT_SECONDS - dt);
-    expect(soon.cut).toBe(false);
-    expect(soon.shown).toBeCloseTo(1 - MAX_SWEEP_PER_SECOND * dt, 12);
-    expect(catchUpStep(1, 0, dt, MIN_CUT_SECONDS).cut).toBe(true);
+    // Over CUT_GAP, quiet: one cut, straight to the target.
+    expect(catchUpStep(0, 1, dt, IDLE)).toEqual({ shown: 1, cut: true, swept: false });
+    // Too soon after a cut or a sweep: hold (no sweep, no cut).
+    const held = { shown: 1, cut: false, swept: false };
+    expect(catchUpStep(1, 0, dt, { ...IDLE, sinceCut: MIN_CUT_SECONDS - dt })).toEqual(held);
+    expect(catchUpStep(1, 0, dt, { ...IDLE, sinceSweep: QUIET_SECONDS - dt })).toEqual(held);
+    expect(
+      catchUpStep(1, 0, dt, { sinceCut: MIN_CUT_SECONDS, sinceSweep: QUIET_SECONDS }).cut,
+    ).toBe(true);
   });
 
   it("regression: End / Home and far section links strobe with the old catch-up, not the new one", () => {
@@ -194,10 +200,15 @@ describe("stage catch-up is motion-safe on big jumps (PF-14 / M3-AC10)", () => {
 
   it("regression: fast scrollbar drags strobe with the old catch-up, not the new one", () => {
     expect(dragFps(legacyStep, 0.5, 0, 1)).toBeGreaterThan(3);
-    for (const seconds of [0.25, 0.5, 1, 2, 4, 8, 16]) {
-      expect(dragFps(catchUpStep, seconds, 0, 1)).toBeLessThanOrEqual(3);
-      expect(dragFps(catchUpStep, seconds, 1, 0)).toBeLessThanOrEqual(3);
-    }
+    for (const seconds of [0.25, 0.5, 1, 1.5, 2, 3, 4, 8, 16])
+      for (const [p0, p1] of [
+        [0, 1],
+        [1, 0],
+        [0.12, 0.84],
+        [0.84, 0.12],
+        [0.3, 0.68],
+      ] as const)
+        expect(dragFps(catchUpStep, seconds, p0, p1)).toBeLessThanOrEqual(3);
   });
 
   it("hammering End / Home cuts at most twice in any 1 s", () => {

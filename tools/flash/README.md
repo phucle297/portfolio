@@ -32,8 +32,8 @@ The method is in the header of `check.ts`, and the model is in `lib.ts` (unit-te
 - **Flashes:** opposing luminance transitions per region, with hysteresis.
 - **Timing scenarios:**
   - a 16 s constant scroll;
-  - fast inputs replayed at 60 fps through the stage's own catch-up (`catchUpStep` in `src/_pages/home/lib/catch-up.ts`): End, Home, every section link, and whole-page scrollbar drags (0.25–8 s, both ways).
-- **Big jumps are cut, not swept (PF-14):** the scene never sweeps faster than 1/8 of the page per second, and a gap over 10 % of the page is crossed with one cut, at most one cut every 0.5 s. A sweep straight through the page used to strobe the red safelight at 7 flashes/s on End/Home.
+  - fast inputs replayed at 60 fps through the stage's own catch-up (`catchUpStep` in `src/_pages/home/lib/catch-up.ts`): End, Home, every section link, scrollbar drags between any two section starts or the page end (0.25–12 s), and mixed input (End right after a scroll, End / Home pressed in turn).
+- **Big jumps are cut, not swept (PF-14):** the scene never sweeps faster than 1/8 of the page per second. A gap over 10 % of the page is not swept: the scene holds, then crosses it with one cut, no sooner than 1 s after its last sweep and 0.5 s after its last cut. A sweep straight through the page used to strobe the red safelight at 7 flashes/s on End/Home.
 
 ## CI
 

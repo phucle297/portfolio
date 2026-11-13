@@ -82,8 +82,9 @@ export async function mountStage(
   let last = 0;
   let inputAt = 0;
   let slowestFrameMs = 0;
-  /** When the scene last cut straight to the scroll position (catch-up.ts), ms. */
+  /** When the scene last cut straight to the scroll position / last swept (catch-up.ts), ms. */
   let lastCutAt = Number.NEGATIVE_INFINITY;
+  let lastSweepAt = Number.NEGATIVE_INFINITY;
   let frames = 0;
   let rafs = 0;
   let disposed = false;
@@ -105,9 +106,13 @@ export async function mountStage(
     slowestFrameMs = Math.max(slowestFrameMs, frameMs);
     last = now;
     // Eased, speed-capped, and cut on big jumps: never a strobe (M3-AC10, catch-up.ts).
-    const next = catchUpStep(shown, target, dt, (now - lastCutAt) / 1000);
+    const next = catchUpStep(shown, target, dt, {
+      sinceCut: (now - lastCutAt) / 1000,
+      sinceSweep: (now - lastSweepAt) / 1000,
+    });
     shown = next.shown;
     if (next.cut) lastCutAt = now;
+    if (next.swept) lastSweepAt = now;
     const settled =
       Math.abs(target - shown) < SETTLE_EPSILON ||
       performance.now() - inputAt + 3 * slowestFrameMs >= IDLE_BUDGET_MS;
