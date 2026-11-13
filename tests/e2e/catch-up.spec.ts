@@ -13,7 +13,7 @@ import {
   type StageFrame,
   type StageState,
 } from "../../src/_pages/home/lib/catch-up";
-import { openScene, settle } from "./helpers";
+import { openScene } from "./helpers";
 
 // Instant End / Home / wheel scrolling: the input is a jump, so the stage alone decides how the
 // scene gets there (see m2-keys.spec.ts for why the box needs this flag).
@@ -34,11 +34,31 @@ interface Recorded {
   frames: { frame: StageFrame; state: StageState; shown: number }[];
 }
 
+/**
+ * Waits until the page has stopped scrolling and the stage has stopped rendering (no frame for
+ * 0.6 s). Unlike helpers.ts `settle`, it does not require the scene to match the scroll position,
+ * so a broken stage fails the assertions below rather than a timeout.
+ */
+const quiet = async (page: Page): Promise<void> => {
+  await page.waitForFunction(
+    async () =>
+      new Promise<boolean>((resolve) => {
+        const frames = window.darkroomTest?.frames();
+        const y = scrollY;
+        setTimeout(() => {
+          resolve(window.darkroomTest?.frames() === frames && scrollY === y);
+        }, 600);
+      }),
+    null,
+    { timeout: 30_000 },
+  );
+};
+
 const toTop = async (page: Page): Promise<void> => {
   await page.evaluate(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
   });
-  await settle(page);
+  await quiet(page);
 };
 
 const trace = async (page: Page): Promise<Recorded> =>
@@ -66,7 +86,7 @@ test.describe("PF-14 stage applies stageStep exactly", () => {
     await page.locator("body").click({ position: { x: 5, y: 500 } });
     await page.evaluate(() => window.darkroomTest?.startTrace());
     await page.keyboard.press("End");
-    await settle(page);
+    await quiet(page);
     const rec = await trace(page);
     const moving = rec.frames.filter((f) => f.frame.target > 0);
     expect(moving.length, "frames after End").toBeGreaterThan(2);
@@ -102,12 +122,12 @@ test.describe("PF-14 stage applies stageStep exactly", () => {
     await page.locator("body").click({ position: { x: 5, y: 500 } });
     await page.evaluate(() => window.darkroomTest?.startTrace());
     await page.keyboard.press("End");
-    await settle(page);
+    await quiet(page);
     await page.keyboard.press("Home");
-    await settle(page);
+    await quiet(page);
     await page.mouse.move(700, 450);
     await page.mouse.wheel(0, 2400);
-    await settle(page);
+    await quiet(page);
     // Scrollbar-style drag 0.2 → 0.6 over ~1.5 s, then a quick back-and-forth around 0.5.
     await page.evaluate(
       async () =>
@@ -127,7 +147,7 @@ test.describe("PF-14 stage applies stageStep exactly", () => {
           requestAnimationFrame(step);
         }),
     );
-    await settle(page);
+    await quiet(page);
     const rec = await trace(page);
     expect(rec.frames.length).toBeGreaterThan(20);
     expect(replayDivergence(rec)).toBe(0);
