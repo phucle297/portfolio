@@ -7,6 +7,10 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const PORT = Number(process.env.E2E_PORT ?? 4510);
 
+/** CI builds once and shares `dist/`; with E2E_PREBUILT=1 the e2e server only previews it. */
+const PREVIEW = `bun run preview -- --host 127.0.0.1 --port ${PORT}`;
+const SERVER = process.env.E2E_PREBUILT === "1" ? PREVIEW : `bun run build && ${PREVIEW}`;
+
 /**
  * End-to-end tests against the production build (`astro build` + `astro preview`).
  * Uses the system Chrome when CHROME_PATH is set (the box has no Playwright browser download);
@@ -29,7 +33,7 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: `bun run build && bun run preview -- --host 127.0.0.1 --port ${PORT}`,
+    command: SERVER,
     url: `http://127.0.0.1:${PORT}/`,
     reuseExistingServer: false,
     timeout: 180_000,
