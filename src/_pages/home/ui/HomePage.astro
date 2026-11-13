@@ -22,6 +22,68 @@ import WorkSection from "./WorkSection.astro";
 <ProcessSection />
 <ContactSection />
 
+<!--
+  Progress fill: a tiny inline driver (rAF-throttled, transform: scaleX only) always runs when
+  JS is present, on every tier. CSS animation-timeline: scroll() is a progressive enhancement;
+  some engines advertise the property but treat animation-duration: auto as 0s, so a no-JS
+  CSS-only fill cannot be trusted. Without JS the bar is hidden, never stuck empty or full.
+  The scrollable height (scrollHeight - innerHeight) is never read during HTML parse, and
+  document.fonts.ready is not touched during parse either (accessing it flushes layout;
+  PF-27 QA L1). Height is measured in a ResizeObserver on <html> and <body> (whose first
+  callback runs after layout, before first paint), and again on load, fonts ready
+  (registered from a rAF, not at parse) and resize, so late content or a font swap can't
+  leave it stale and the fill is 100 % exactly at the bottom (QA M1). Scroll handlers do
+  no layout reads. First-paint flushness of the bar under the header comes from the
+  --header-bottom ResizeObserver path in BaseLayout.
+  No module import, so this does not add to the initial JS budget.
+-->
+<script is:inline>
+  (function () {
+    const fill = document.querySelector("[data-progress]");
+    const root = fill && fill.parentElement;
+    if (!fill || !root) return;
+    let max = 0;
+    let queued = false;
+    const paint = function () {
+      queued = false;
+      if (root.hasAttribute("data-progress-js")) return;
+      // JS owns the fill from here: switch off the CSS scroll-timeline animation, which
+      // would otherwise keep running and override this inline transform.
+      if (!root.hasAttribute("data-progress-inline")) root.setAttribute("data-progress-inline", "");
+      const p = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+      fill.style.transform = "scaleX(" + p.toFixed(4) + ")";
+    };
+    const onScroll = function () {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(paint);
+    };
+    const measure = function () {
+      max = document.documentElement.scrollHeight - window.innerHeight;
+      paint();
+    };
+    const remeasure = function () {
+      requestAnimationFrame(measure);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", remeasure);
+    window.addEventListener("load", remeasure);
+    // fonts.ready flushes layout. Register it after the first frame, never during parse
+    // (PF-27 QA L1). ResizeObserver + load already remeasure; first-paint bar placement
+    // comes from the --header-bottom path in BaseLayout.
+    requestAnimationFrame(function () {
+      if (document.fonts) document.fonts.ready.then(remeasure);
+    });
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver(measure);
+      observer.observe(document.documentElement);
+      if (document.body) observer.observe(document.body);
+    } else {
+      remeasure();
+    }
+  })();
+</script>
+
 <style>
   /* Text over the scene always sits on a scrim (design.md Tokens), limited to the left
      ~740 px at 1600 so it never dims the scene's subject. */
@@ -47,17 +109,16 @@ import WorkSection from "./WorkSection.astro";
     display: none;
   }
 
-  /* Scroll progress line (pinned full tier only; the rail and nav carry the same information). */
+  /* Scroll progress line: fixed flush under the header (PF-27). Takes no layout space.
+     --header-bottom is the header's real bottom edge, set before first paint and kept in
+     sync on resize, so the bar is never behind the header and survives header-height
+     changes (mobile, scrolled state, later PF-11). Shown on every tier, including static. */
   .home-progress {
-    display: none;
-  }
-
-  :global(html[data-pin="on"]) .home-progress {
     position: fixed;
-    right: var(--gutter);
-    bottom: 1.25rem;
-    left: var(--gutter);
-    z-index: 4;
+    top: var(--header-bottom, var(--header-h));
+    right: 0;
+    left: 0;
+    z-index: 21;
     display: block;
     height: 2px;
     background: var(--line);
@@ -70,5 +131,52 @@ import WorkSection from "./WorkSection.astro";
     background: var(--accent);
     transform: scaleX(0);
     transform-origin: 0 50%;
+    transition: none;
+  }
+
+  /* CSS scroll timeline drives the fill without JS. Longhands (not the animation shorthand)
+     so the bundler cannot drop animation-duration; scroll-driven animations need `auto`. */
+  @supports (animation-timeline: scroll()) {
+    .home-progress span {
+      animation-name: home-progress-fill;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll();
+    }
+  }
+
+  @keyframes home-progress-fill {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+
+  /* A JS driver owns the fill (full-tier copy layer, or the inline driver on every tier):
+     cancel the CSS scroll-timeline animation. Without JS the bar is hidden (below). */
+  .home-progress[data-progress-js] span,
+  .home-progress[data-progress-inline] span {
+    animation: none;
+  }
+
+  /* No JS: hide the track. CSS scroll timelines are not reliable enough across engines
+     (supports() can be true while duration: auto is a no-op) to guarantee the fill moves. */
+  :global(html:not(.js)) .home-progress {
+    display: none;
+  }
+
+  /* The global reduced-motion rule would force animation-duration: 0.01ms and freeze a
+     scroll-driven fill. This is a position indicator, not decorative motion. */
+  @media (prefers-reduced-motion: reduce) {
+    .home-progress span {
+      transition: none;
+      transition-duration: 0s !important;
+      /* Override the global 0.01ms animation freeze so a working scroll timeline, if any,
+         can still track position. The JS driver already paints instantly. */
+      animation-duration: unset !important;
+    }
   }
 </style>
