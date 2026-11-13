@@ -14,6 +14,7 @@ import { contact } from "../../src/entities/profile/model/content";
 import { PUBLIC_EMAIL } from "../../src/shared/config/contact";
 import { KEY_PROGRESS, beatProgress } from "../../src/shared/lib/timeline";
 import { inSequence, openScene, scrollToP, settle } from "./helpers";
+import { knownEngineFailure } from "./known-failures";
 
 const errors = contact.form.errors;
 const modes = contact.form.modes;
@@ -167,6 +168,7 @@ test.describe("PF-13 contact form", () => {
   test("a valid submit opens the prefilled mailto and announces what happened", async ({
     page,
   }) => {
+    knownEngineFailure(["firefox"], "Playwright's Firefox does not report the mailto: navigation");
     expect(PUBLIC_EMAIL, "PUBLIC_EMAIL must be set for this AC").toBeTruthy();
     await page.goto("/");
     await page.locator("#contact").scrollIntoViewIfNeeded();
