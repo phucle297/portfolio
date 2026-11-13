@@ -37,8 +37,10 @@ export function driveProgress(p: number): void {
 /** Hand the bar back to CSS scroll timeline, or to the inline JS fallback. */
 export function releaseProgress(): void {
   const fill = fillEl();
-  rootEl()?.removeAttribute("data-progress-js");
-  if (supportsScrollTimeline()) {
+  const root = rootEl();
+  root?.removeAttribute("data-progress-js");
+  // The inline driver cancels the CSS animation once it paints, so it owns the fill again.
+  if (supportsScrollTimeline() && root?.hasAttribute("data-progress-inline") !== true) {
     fill?.style.removeProperty("transform");
     return;
   }

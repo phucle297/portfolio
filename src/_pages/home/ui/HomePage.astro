@@ -47,6 +47,9 @@ import WorkSection from "./WorkSection.astro";
     const paint = function () {
       queued = false;
       if (root.hasAttribute("data-progress-js")) return;
+      // JS owns the fill from here: switch off the CSS scroll-timeline animation, which
+      // would otherwise keep running and override this inline transform.
+      if (!root.hasAttribute("data-progress-inline")) root.setAttribute("data-progress-inline", "");
       const p = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
       fill.style.transform = "scaleX(" + p.toFixed(4) + ")";
     };
@@ -66,7 +69,7 @@ import WorkSection from "./WorkSection.astro";
     window.addEventListener("resize", remeasure);
     window.addEventListener("load", remeasure);
     // fonts.ready flushes layout. Register it after the first frame, never during parse
-    // (PF-27 QA L1). ResizeObserver + load already remasure; first-paint bar placement
+    // (PF-27 QA L1). ResizeObserver + load already remeasure; first-paint bar placement
     // comes from the --header-bottom path in BaseLayout.
     requestAnimationFrame(function () {
       if (document.fonts) document.fonts.ready.then(remeasure);
@@ -152,8 +155,10 @@ import WorkSection from "./WorkSection.astro";
     }
   }
 
-  /* Full-tier copy layer takes over with the scene's smoothed p. */
-  .home-progress[data-progress-js] span {
+  /* A JS driver owns the fill (full-tier copy layer, or the inline driver on every tier):
+     cancel the CSS scroll-timeline animation. Without JS the bar is hidden (below). */
+  .home-progress[data-progress-js] span,
+  .home-progress[data-progress-inline] span {
     animation: none;
   }
 

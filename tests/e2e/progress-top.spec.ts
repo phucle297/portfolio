@@ -374,6 +374,40 @@ test.describe("PF-27 progress bar under the header", () => {
     ).toBe(0);
   });
 
+  /**
+   * QA (attempt 3): once a JS driver paints the fill, the CSS scroll-timeline animation must be
+   * cancelled, or it keeps running and overrides the driver's inline transform. Checked on the
+   * static tier and with reduced motion, where the inline driver owns the fill.
+   */
+  test.describe("JS driver cancels the CSS scroll-timeline animation", () => {
+    for (const mode of ["static", "reduced motion"] as const) {
+      test(`${mode}: no running animations on the fill after the driver paints`, async ({
+        page,
+      }) => {
+        if (mode === "static") await forceStatic(page);
+        else await page.emulateMedia({ reducedMotion: "reduce" });
+        await openAt(page, 1440, 900);
+        if (mode === "static") {
+          await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
+        }
+        await scrollToRatio(page, 0.3);
+        await settle(page);
+        const running = await fill(page).evaluate((el) =>
+          el
+            .getAnimations()
+            .filter((a) => a.playState === "running")
+            .map((a) => (a instanceof CSSAnimation ? a.animationName : a.constructor.name)),
+        );
+        expect(running, `running animations on [data-progress]: ${running.join(", ")}`).toEqual([]);
+        // The fill still tracks scroll: the driver, not the CSS timeline, painted it.
+        const expected = await page.evaluate(
+          () => scrollY / (document.documentElement.scrollHeight - innerHeight),
+        );
+        expect(Math.abs((await scaleX(page)) - expected)).toBeLessThanOrEqual(0.02);
+      });
+    }
+  });
+
   test.describe("no JS", () => {
     for (const viewport of VIEWPORTS) {
       test(`${viewport.name}: the bar is CSS-driven or hidden, never stuck, with no errors`, async ({
