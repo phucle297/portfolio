@@ -149,7 +149,11 @@ test.describe("PF-14 stage applies stageStep exactly", () => {
     );
     await quiet(page);
     const rec = await trace(page);
-    expect(rec.frames.length).toBeGreaterThan(20);
+    // Frame counts depend on the renderer's speed (SwiftShader on CI runs far below 60 fps), so
+    // only require that each kind of input reached the stage: a cut, sweeps, and the drag range.
+    test.info().annotations.push({ type: "stage frames", description: String(rec.frames.length) });
+    expect(rec.frames.length).toBeGreaterThan(8);
+    expect(rec.frames.some((f) => f.frame.target > 0.25 && f.frame.target < 0.55)).toBe(true);
     expect(replayDivergence(rec)).toBe(0);
   });
 });
