@@ -35,19 +35,19 @@ interface Recorded {
 }
 
 /**
- * Waits until the page has stopped scrolling and the stage has stopped rendering (no frame for
- * 0.6 s). Unlike helpers.ts `settle`, it does not require the scene to match the scroll position,
- * so a broken stage fails the assertions below rather than a timeout.
+ * Waits until the page has stopped scrolling and the stage's render loop has stopped (no frame
+ * scheduled). Unlike helpers.ts `settle`, it does not require the scene to match the scroll
+ * position, so a broken stage fails the assertions below rather than a timeout; and it does not
+ * depend on the frame rate (CI SwiftShader frames can take longer than any fixed quiet window).
  */
 const quiet = async (page: Page): Promise<void> => {
   await page.waitForFunction(
     async () =>
       new Promise<boolean>((resolve) => {
-        const frames = window.darkroomTest?.frames();
         const y = scrollY;
         setTimeout(() => {
-          resolve(window.darkroomTest?.frames() === frames && scrollY === y);
-        }, 600);
+          resolve(scrollY === y && window.darkroomTest?.idle() === true);
+        }, 300);
       }),
     null,
     { timeout: 30_000 },

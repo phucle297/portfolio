@@ -30,6 +30,8 @@ export interface StageTestHook {
   info: () => RenderInfo;
   /** Number of frames rendered since mount. */
   frames: () => number;
+  /** Whether no frame is scheduled (the render loop has stopped). */
+  idle: () => boolean;
   /** Number of requestAnimationFrame callbacks run since mount (M2-AC10). */
   rafs: () => number;
   /** The progress the scene and the copy layer currently show (smoothed scroll progress). */
@@ -180,6 +182,7 @@ export async function mountStage(
       info: () => darkroom.info(),
       frames: () => frames,
       rafs: () => rafs,
+      idle: () => raf === 0,
       shown: () => drawn,
       pinned: () => copy.pinned(),
       safelight: () => safelight,
