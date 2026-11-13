@@ -61,6 +61,28 @@ const toTop = async (page: Page): Promise<void> => {
   await quiet(page);
 };
 
+/** Give the document the keyboard so End/Home scroll the page, not <main tabindex=-1>. */
+const armKeyboard = async (page: Page): Promise<void> => {
+  await page.locator("body").click({ position: { x: 5, y: 500 } });
+  await page.evaluate(() => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body) active.blur();
+  });
+};
+
+/** Press End and wait until the page itself has jumped (before the scene catch-up). */
+const pressEnd = async (page: Page): Promise<void> => {
+  await page.keyboard.press("End");
+  await page.waitForFunction(
+    () => {
+      const max = document.documentElement.scrollHeight - innerHeight;
+      return max > 0 && scrollY / max > 0.99;
+    },
+    null,
+    { timeout: 10_000 },
+  );
+};
+
 const trace = async (page: Page): Promise<Recorded> =>
   page.evaluate(() => {
     const hook = window.darkroomTest;
@@ -83,9 +105,9 @@ test.describe("PF-14 stage applies stageStep exactly", () => {
   test("End holds the scene, then crosses with a single cut", async ({ page }) => {
     await openScene(page);
     await toTop(page);
-    await page.locator("body").click({ position: { x: 5, y: 500 } });
+    await armKeyboard(page);
     await page.evaluate(() => window.darkroomTest?.startTrace());
-    await page.keyboard.press("End");
+    await pressEnd(page);
     await quiet(page);
     const rec = await trace(page);
     const moving = rec.frames.filter((f) => f.frame.target > 0);
@@ -97,7 +119,7 @@ test.describe("PF-14 stage applies stageStep exactly", () => {
     );
     expect(
       jumps,
-      `drawn progress per frame: ${shown.map((p) => p.toFixed(3)).join(" ")}`,
+      `drawn ${shown.map((p) => p.toFixed(3)).join(" ")} targets ${rec.frames.map((f) => f.frame.target.toFixed(3)).join(" ")}`,
     ).toHaveLength(1);
     const cut = jumps[0] ?? 0;
     expect(shown[cut] ?? 0).toBeGreaterThanOrEqual(1 - CUT_LEAD_GAP);
@@ -121,9 +143,9 @@ test.describe("PF-14 stage applies stageStep exactly", () => {
   }) => {
     await openScene(page);
     await toTop(page);
-    await page.locator("body").click({ position: { x: 5, y: 500 } });
+    await armKeyboard(page);
     await page.evaluate(() => window.darkroomTest?.startTrace());
-    await page.keyboard.press("End");
+    await pressEnd(page);
     await quiet(page);
     await page.keyboard.press("Home");
     await quiet(page);
