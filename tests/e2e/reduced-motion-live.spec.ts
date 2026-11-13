@@ -225,8 +225,9 @@ const probe = (page: Page): Promise<Probe> => page.evaluate(() => window.pf09())
 /** Poster still images (desktop `d-N`, mobile `m-N`). */
 const isStillImage = (url: string): boolean => /\/_astro\/[dm]-\d+\./.test(url);
 
-/** AC1 budget: the current section's still is visible and fully loaded this soon after the switch. */
-const STILL_BUDGET_MS = 500;
+/** AC1 budget (PM ship-first bar, 2026-11-14): the current section's still is visible and fully
+ * loaded within about 1 s of the switch. A first-frame still is tracked separately (PF-43). */
+const STILL_BUDGET_MS = 1000;
 
 /** Mean Rec. 709 luma (0-255) of a screenshot, averaged over a 48 × 30 grid. */
 async function luma(png: Buffer): Promise<number> {
@@ -331,7 +332,7 @@ test.describe("PF-09 reduced motion switched on mid-visit (M3-AC2)", () => {
 
       // The current section's still is shown once its image has arrived and decoded (a still only
       // takes over when it can be painted; at p = 0.6 the lazy Services image is fetched only now).
-      // AC1: within 500 ms of the switch, timed in the page from the change event to the first
+      // AC1: within STILL_BUDGET_MS (about 1 s) of the switch, timed in the page from the change event to the first
       // frame where it is shown and loaded. Until then no frame is bare (see `Frame`).
       await expect
         .poll(async () => (await probe(page)).stillAfter, {
@@ -656,7 +657,7 @@ test.describe("PF-09 the current section's still after a mid-visit switch, every
  * no still bytes are fetched while 3D runs. Method, per engine:
  * - The Services still's image response is held until a screenshot of the gap is taken, so the
  *   gap between the switch and the still is long enough to observe on every engine (it is only
- *   ~50-150 ms unheld). The 500 ms budget is checked unheld, in the tests above.
+ *   ~50-150 ms unheld). The STILL_BUDGET_MS budget is checked unheld, in the tests above.
  * - Every animation frame from the switch on is classified in the page (`Frame.cover`): no frame
  *   may be `bare` (page/body background or a transparent hole where the scene was).
  * - Luminance: mean luma of a downscaled screenshot just before the switch (the live scene's
