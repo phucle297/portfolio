@@ -46,7 +46,16 @@ const quiet = async (page: Page): Promise<void> => {
       new Promise<boolean>((resolve) => {
         const y = scrollY;
         setTimeout(() => {
-          resolve(scrollY === y && window.darkroomTest?.idle() === true);
+          // idle() is raf===0, which is also briefly true in the middle of a tick. A 300 ms
+          // sample can land there during the End hold and return before the cut. Confirm on
+          // the next animation frame that the loop has really stopped.
+          if (scrollY !== y || window.darkroomTest?.idle() !== true) {
+            resolve(false);
+            return;
+          }
+          requestAnimationFrame(() => {
+            resolve(scrollY === y && window.darkroomTest?.idle() === true);
+          });
         }, 300);
       }),
     null,
