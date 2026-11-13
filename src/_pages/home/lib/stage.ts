@@ -147,7 +147,8 @@ export async function mountStage(
   draw();
   // Fade in over the poster after the first frame.
   requestAnimationFrame(() => {
-    host.classList.add("is-ready");
+    // Disposed in the same frame it mounted (reduced motion switched on mid-start): no fade-in.
+    if (!disposed) host.classList.add("is-ready");
   });
 
   if (exposeTestHook) {
