@@ -77,7 +77,7 @@ jobs:
           - group: static-structure-content
             args: tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts
           - group: m2
-            args: tests/e2e/m2.spec.ts tests/e2e/m2-keys.spec.ts
+            args: tests/e2e/m2.spec.ts tests/e2e/m2-keys.spec.ts tests/e2e/catch-up.spec.ts
           - group: m2-qa-b
             args: tests/e2e/m2-qa-b.spec.ts --grep-invert "scroll sweep at 1600"
           - group: sweep-1600

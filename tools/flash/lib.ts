@@ -13,6 +13,14 @@
  * Transitions use hysteresis from the last turning point, so slow drifts that add up to 0.1 count
  * once, and noise below the threshold never counts.
  */
+import {
+  CATCH_UP_SECONDS,
+  SETTLE_EPSILON,
+  stageAt,
+  type StageFrame,
+  type StageState,
+  type StageStepResult,
+} from "../../src/_pages/home/lib/catch-up.ts";
 
 export const GENERAL_DELTA = 0.1;
 export const GENERAL_DARK_MAX = 0.8;
@@ -202,13 +210,8 @@ export function rampSpan(
   return { from, to, span: to - from };
 }
 
-/** One frame of the stage's scroll catch-up (src/_pages/home/lib/catch-up.ts `catchUpStep`). */
-export type CatchUpStepFn = (
-  shown: number,
-  target: number,
-  dt: number,
-  clock: { sinceCut: number; sinceSweep: number },
-) => { shown: number; cut: boolean; swept: boolean };
+/** The stage's per-frame state transition (src/_pages/home/lib/catch-up.ts `stageStep`). */
+export type StageStepFn = (state: StageState, frame: StageFrame) => StageStepResult;
 
 /** What the screen shows at time `t` (s): progress `p`, reached by a cut or by a sweep. */
 export interface ShownSample {
@@ -218,46 +221,57 @@ export interface ShownSample {
 }
 
 /**
- * Replays the stage's render loop (stage.ts `tick`) for one input: the scene starts at `p0`, the
- * scroll target follows `target(t)` from t = 0 (input lasts until `inputEnd` s), frames run at `fps`, and, as in the stage, the
- * scene snaps to the target (a cut) once `snapSeconds` after the last input would be overrun,
- * or settles within `epsilon`. Returns the shown progress per frame, starting at t = 0.
+ * Replays the stage's render loop (stage.ts `tick`) for one input through `step`: the scene starts
+ * at `p0`, the scroll target follows `target(t)` from t = 0 (input lasts until `inputEnd` s),
+ * frames run at `fps`, and, as in the stage, the frame is over budget once `snapSeconds` after the
+ * last input would be overrun (three frames' look-ahead). Returns the shown progress per frame,
+ * starting at t = 0, until the step settles after the input.
  */
 export function replayCatchUp(
-  step: CatchUpStepFn,
+  step: StageStepFn,
   p0: number,
   target: (t: number) => number,
   inputEnd: number,
-  {
-    fps = 60,
-    snapSeconds,
-    epsilon = 1e-4,
-  }: { fps?: number; snapSeconds: number; epsilon?: number },
+  { fps = 60, snapSeconds }: { fps?: number; snapSeconds: number },
 ): ShownSample[] {
   const dt = 1 / fps;
-  let shown = p0;
-  let lastCut = Number.NEGATIVE_INFINITY;
-  let lastSweep = Number.NEGATIVE_INFINITY;
-  const out: ShownSample[] = [{ t: 0, p: shown, cut: false }];
+  let state = stageAt(p0);
+  const out: ShownSample[] = [{ t: 0, p: state.shown, cut: false }];
   for (let k = 1; k < fps * (inputEnd + snapSeconds + 1); k += 1) {
     const t = k * dt;
-    const goal = target(t);
-    const next = step(shown, goal, dt, { sinceCut: t - lastCut, sinceSweep: t - lastSweep });
-    let { cut } = next;
-    shown = next.shown;
-    const settled =
-      Math.abs(goal - shown) < epsilon || t - Math.min(t, inputEnd) + 3 * dt >= snapSeconds;
-    if (settled && shown !== goal) {
-      cut ||= Math.abs(goal - shown) >= epsilon;
-      shown = goal;
-    }
-    if (cut) lastCut = t;
-    if (next.swept) lastSweep = t;
-    out.push({ t, p: shown, cut });
-    if (settled && t >= inputEnd) break;
+    const next = step(state, {
+      target: target(t),
+      dt,
+      elapsed: dt,
+      overBudget: t - Math.min(t, inputEnd) + 3 * dt >= snapSeconds,
+    });
+    state = next.state;
+    out.push({ t, p: state.shown, cut: next.cut });
+    if (next.settled && t >= inputEnd) break;
   }
   return out;
 }
+
+/** The catch-up before PF-14 (plain τ 0.15 s exponential, same settle / snap), for comparison. */
+export const legacyStageStep: StageStepFn = (state, frame) => {
+  const { target, dt, elapsed } = frame;
+  let shown = state.shown + (target - state.shown) * (1 - Math.exp(-dt / CATCH_UP_SECONDS));
+  const settled = Math.abs(target - shown) < SETTLE_EPSILON || frame.overBudget;
+  const cut = settled && Math.abs(target - shown) >= SETTLE_EPSILON;
+  if (settled) shown = target;
+  return {
+    state: {
+      shown,
+      lead: shown,
+      path: [],
+      sinceCut: cut ? 0 : state.sinceCut + elapsed,
+      sinceSweep: 0,
+    },
+    cut,
+    swept: !cut,
+    settled,
+  };
+};
 
 /**
  * Expands replayed frames into the states the scene passes through: a sweep from one frame to the

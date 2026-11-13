@@ -5,12 +5,11 @@
  */
 import { onSafelightChange, safelightOn } from "@shared/lib/motion";
 import { clamp } from "@shared/lib/timeline";
-import { catchUpStep } from "./catch-up";
+import { stageAt, stageStep, type StageFrame, type StageState } from "./catch-up";
 import { createCopyLayer } from "./copy-layer";
 import { createDarkroom, type Darkroom, type RenderInfo } from "./darkroom";
 import type { Tier } from "./tiers";
 
-const SETTLE_EPSILON = 1e-4;
 /**
  * Idle budget after the last scroll (or resize): rendering must have stopped this long after
  * scrolling stops, even when frames are slow (M2-AC10, QA B-4). Each frame looks three of the
@@ -39,7 +38,18 @@ export interface StageTestHook {
   pinned: () => boolean;
   /** Whether the safelight is on. */
   safelight: () => boolean;
+  /**
+   * Starts recording every catch-up frame (its input and the state after it) from the current
+   * state; `trace()` returns what was recorded. The e2e replays it through stageStep (PF-14).
+   */
+  startTrace: () => void;
+  trace: () => StageTrace;
   tier: Tier;
+}
+
+export interface StageTrace {
+  start: StageState;
+  frames: { frame: StageFrame; state: StageState; shown: number }[];
 }
 
 declare global {
@@ -77,21 +87,25 @@ export async function mountStage(
   const copy = createCopyLayer();
   let safelight = safelightOn();
   darkroom.setSafelight(safelight);
-  let shown = scrollProgress();
+  /** Catch-up state (catch-up.ts): the shown progress and its clocks. Only stageStep moves it. */
+  let scene = stageAt(scrollProgress());
   let raf = 0;
   let last = 0;
+  /** Previous tick's timestamp, kept across idle (the catch-up clocks run in real time). */
+  let prevTick = 0;
   let inputAt = 0;
   let slowestFrameMs = 0;
-  /** When the scene last cut straight to the scroll position / last swept (catch-up.ts), ms. */
-  let lastCutAt = Number.NEGATIVE_INFINITY;
-  let lastSweepAt = Number.NEGATIVE_INFINITY;
   let frames = 0;
   let rafs = 0;
+  let trace: StageTrace | null = null;
   let disposed = false;
 
+  /** The progress last drawn (scene and copy layer). */
+  let drawn = scene.shown;
   const draw = (): RenderInfo => {
-    darkroom.set(shown);
-    copy.update(shown);
+    drawn = scene.shown;
+    darkroom.set(drawn);
+    copy.update(drawn);
     frames += 1;
     return darkroom.render();
   };
@@ -100,28 +114,23 @@ export async function mountStage(
     raf = 0;
     rafs += 1;
     if (disposed || document.hidden) return;
-    const target = scrollProgress();
     const frameMs = last ? now - last : 1000 / 60;
-    const dt = Math.min(0.1, frameMs / 1000);
     slowestFrameMs = Math.max(slowestFrameMs, frameMs);
     last = now;
-    // Eased, speed-capped, and cut on big jumps: never a strobe (M3-AC10, catch-up.ts).
-    const next = catchUpStep(shown, target, dt, {
-      sinceCut: (now - lastCutAt) / 1000,
-      sinceSweep: (now - lastSweepAt) / 1000,
-    });
-    shown = next.shown;
-    if (next.cut) lastCutAt = now;
-    if (next.swept) lastSweepAt = now;
-    const settled =
-      Math.abs(target - shown) < SETTLE_EPSILON ||
-      performance.now() - inputAt + 3 * slowestFrameMs >= IDLE_BUDGET_MS;
-    if (settled) {
-      if (Math.abs(target - shown) >= SETTLE_EPSILON) lastCutAt = now;
-      shown = target;
-    }
+    // The whole per-frame transition is stageStep's (eased, speed-capped, held and cut on big
+    // jumps: never a strobe, M3-AC10); its result is applied as is (PF-14, QA M1).
+    const frame: StageFrame = {
+      target: scrollProgress(),
+      dt: Math.min(0.1, frameMs / 1000),
+      elapsed: prevTick ? (now - prevTick) / 1000 : frameMs / 1000,
+      overBudget: performance.now() - inputAt + 3 * slowestFrameMs >= IDLE_BUDGET_MS,
+    };
+    const next = stageStep(scene, frame);
+    prevTick = now;
+    scene = next.state;
     draw();
-    if (!settled) raf = requestAnimationFrame(tick);
+    trace?.frames.push({ frame, state: scene, shown: drawn });
+    if (!next.settled) raf = requestAnimationFrame(tick);
     else last = 0;
   };
 
@@ -164,16 +173,20 @@ export async function mountStage(
   if (exposeTestHook) {
     window.darkroomTest = {
       set: (p) => {
-        shown = clamp(p);
+        scene = { ...stageAt(clamp(p)), sinceCut: scene.sinceCut, sinceSweep: scene.sinceSweep };
         return draw();
       },
       state: () => darkroom.state(),
       info: () => darkroom.info(),
       frames: () => frames,
       rafs: () => rafs,
-      shown: () => shown,
+      shown: () => drawn,
       pinned: () => copy.pinned(),
       safelight: () => safelight,
+      startTrace: () => {
+        trace = { start: scene, frames: [] };
+      },
+      trace: () => trace ?? { start: scene, frames: [] },
       tier,
     };
   }

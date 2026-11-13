@@ -41,11 +41,12 @@ import { chromium, type Page } from "@playwright/test";
 import sharp from "sharp";
 import {
   CATCH_UP_SECONDS,
-  catchUpStep,
   CUT_GAP,
+  CUT_LEAD_GAP,
   MAX_SWEEP_PER_SECOND,
   MIN_CUT_SECONDS,
   QUIET_SECONDS,
+  stageStep,
 } from "../../src/_pages/home/lib/catch-up.ts";
 import { SECTIONS } from "../../src/shared/lib/timeline/timeline.ts";
 import {
@@ -58,10 +59,12 @@ import {
   sweepStates,
   transitions,
   worstFlashesPerSecond,
-  type CatchUpStepFn,
+  legacyStageStep,
   type Kind,
   type RegionFrame,
+  type StageStepFn,
 } from "./lib.ts";
+import { REVERSAL_SLACK, reversalGrid, reversalName, type RegionSeries } from "./reversals.ts";
 
 /** Mirrors `IDLE_BUDGET_MS` in src/_pages/home/lib/stage.ts (unit-tested). */
 export const SNAP_SECONDS = 1.5;
@@ -326,7 +329,7 @@ const SCENARIOS: Record<JumpKey, Input[]> = {
 };
 type Key = "scroll" | JumpKey;
 const KEYS: Key[] = ["scroll", ...JUMP_KEYS];
-const replay = (step: CatchUpStepFn, input: Input) =>
+const replay = (step: StageStepFn, input: Input) =>
   sweepStates(
     replayCatchUp(step, input.p0, input.target, input.inputEnd, { snapSeconds: SNAP_SECONDS }),
     n,
@@ -336,7 +339,7 @@ interface Run {
   states: { t: number; p: number }[];
 }
 const runAll = (inputs: Input[]): Run[] =>
-  inputs.map((input) => ({ name: input.name, states: replay(catchUpStep, input) }));
+  inputs.map((input) => ({ name: input.name, states: replay(stageStep, input) }));
 const runs: Record<JumpKey, Run[]> = {
   jumpDown: runAll(SCENARIOS.jumpDown),
   jumpUp: runAll(SCENARIOS.jumpUp),
@@ -345,12 +348,7 @@ const runs: Record<JumpKey, Run[]> = {
   combo: runAll(SCENARIOS.combo),
 };
 /** The catch-up before PF-14's fix (plain exponential, τ 0.15 s): reported, not gated. */
-const legacyStep: CatchUpStepFn = (shown, target, dt) => ({
-  shown: shown + (target - shown) * (1 - Math.exp(-dt / CATCH_UP_SECONDS)),
-  cut: false,
-  swept: true,
-});
-const legacyEnd = replay(legacyStep, jump("End (top → bottom)", 0, 1));
+const legacyEnd = replay(legacyStageStep, jump("End (top → bottom)", 0, 1));
 
 interface RegionResult extends Record<Key, number> {
   region: number;
@@ -433,6 +431,31 @@ for (const key of KEYS) {
 const rampValue = litRamp?.span ?? lumRamp.span;
 if (rampValue < MIN_RAMP) failures.push(`lights-on ramp ${fmt(rampValue * 100, 1)} % < 4 %`);
 
+// Back-and-forth input (QA's 2079-pattern reversal grid, tools/flash/reversals.ts): outside the
+// 3 flashes/s gate, but gated against regressing from the pre-fix catch-up, per pattern (≤ old
+// + 0.5/s), in the mean and in the worst case (PF-14 AC1, PM ruling 2026-11-14 b).
+const regionSeries: RegionSeries[] = [];
+for (let c = 0; c < cells; c += 1)
+  for (const kind of ["general", "red"] as const)
+    regionSeries.push({
+      values: frames.map((f) => (kind === "general" ? f.regions.luminance : f.regions.red)[c] ?? 0),
+      kind,
+      name: `r${Math.floor(c / cols)}c${c % cols}`,
+    });
+const reversals = reversalGrid(stageStep, legacyStageStep, regionSeries, n, SNAP_SECONDS);
+for (const r of reversals.regressions)
+  failures.push(
+    `reversals: ${reversalName(r)} flashes ${fmt(r.head, 1)}/s > pre-fix ${fmt(r.legacy, 1)} + ${REVERSAL_SLACK}`,
+  );
+if (reversals.mean.head > reversals.mean.legacy)
+  failures.push(
+    `reversals: mean ${fmt(reversals.mean.head)}/s > pre-fix ${fmt(reversals.mean.legacy)}`,
+  );
+if (reversals.worst.head.head > reversals.worst.legacy.legacy)
+  failures.push(
+    `reversals: worst ${fmt(reversals.worst.head.head, 1)}/s > pre-fix ${fmt(reversals.worst.legacy.legacy, 1)}`,
+  );
+
 // ---- Report ------------------------------------------------------------------------------------
 const cellName = (c: number): string => `r${Math.floor(c / cols)}c${c % cols}`;
 const lines = [
@@ -457,7 +480,8 @@ const lines = [
     return `| ${label} | ${cellName(w.region)} (${w.kind}, ${w.transitions} transitions over the page${which}) | ${fmt(w[key], 1)} | ${w[key] <= MAX_FLASHES_PER_SECOND ? "pass" : "FAIL"} |`;
   }),
   "",
-  `- Catch-up: exponential τ ${CATCH_UP_SECONDS} s, sweep ≤ ${MAX_SWEEP_PER_SECOND} of the page per s, gaps > ${CUT_GAP} held then cut (≥ ${QUIET_SECONDS} s after a sweep, ≥ ${MIN_CUT_SECONDS} s between cuts), snap ${SNAP_SECONDS} s after the last input`,
+  `- Catch-up (stageStep): exponential lead τ ${CATCH_UP_SECONDS} s, shown follows it at ≤ ${MAX_SWEEP_PER_SECOND} of the page per s; gaps > ${CUT_GAP} held, then one cut once the lead is within ${CUT_LEAD_GAP} of the scroll position (≥ ${QUIET_SECONDS} s after a sweep, ≥ ${MIN_CUT_SECONDS} s between cuts); snap ${SNAP_SECONDS} s after the last input`,
+  `- Back-and-forth input (not in the 3/s gate; ${reversals.rows.length}-pattern reversal grid, gated against the pre-fix catch-up): mean **${fmt(reversals.mean.head)}**/s (pre-fix ${fmt(reversals.mean.legacy)}), worst **${fmt(reversals.worst.head.head, 1)}**/s (${reversalName(reversals.worst.head)}; pre-fix worst ${fmt(reversals.worst.legacy.legacy, 1)}), above 3/s: **${reversals.over3.head}** (pre-fix ${reversals.over3.legacy}); worse than pre-fix: ${reversals.worse} (over + ${REVERSAL_SLACK}/s: **${reversals.regressions.length}**), better: ${reversals.better}`,
   `- Pre-fix catch-up (plain τ ${CATCH_UP_SECONDS} s exponential) on this capture, End: ${cellName(worst("legacyEnd").region)} (${worst("legacyEnd").kind}) ${fmt(worst("legacyEnd").legacyEnd, 1)} flashes/s (not gated; shows the check still catches it)`,
   "",
   `- Shortest constant-rate full scroll that stays ≤ 3 flashes/s: **${fmt(safeSeconds)} s**`,
@@ -481,6 +505,16 @@ writeFileSync(
       renderer,
       worst: Object.fromEntries(KEYS.map((key) => [key, worst(key)])),
       legacyEnd: worst("legacyEnd"),
+      reversals: {
+        patterns: reversals.rows.length,
+        mean: reversals.mean,
+        worst: { head: reversals.worst.head, legacy: reversals.worst.legacy },
+        over3: reversals.over3,
+        worse: reversals.worse,
+        better: reversals.better,
+        regressions: reversals.regressions,
+        pass: reversals.pass,
+      },
       safeSeconds,
       lightsOnRamp: litRamp,
       lightsOnRamp1090: litRamp1090,
@@ -499,6 +533,15 @@ writeFileSync(
     ...results.map(
       (r) =>
         `${cellName(r.region)},${r.kind},${r.transitions},${KEYS.map((k) => fmt(r[k], 2)).join(",")},${fmt(r.legacyEnd, 2)}`,
+    ),
+  ].join("\n"),
+);
+writeFileSync(
+  join(outDir, "reversals.csv"),
+  [
+    "shape,center,amp,period,head_fps,head_region,legacy_fps",
+    ...reversals.rows.map(
+      (r) => `${r.shape},${r.center},${r.amp},${r.period},${r.head},${r.headRegion},${r.legacy}`,
     ),
   ].join("\n"),
 );
