@@ -82,6 +82,27 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
     }
   }
 
+  /* PF-48: at the pin viewport, Hello's in-flow box already matches the pinned layout
+     (first viewport, same padding and vertical centering). When data-pin="on" later
+     promotes the body to position:fixed, the H1 and first-screen copy do not jump.
+     Other sections stay in normal flow, so a static / no-GPU visit still shows Contact. */
+  @media (min-width: 1200px) and (min-height: 760px) {
+    .home-section--hello {
+      justify-content: flex-start;
+    }
+
+    .home-section--hello .home-section__body {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      width: 100%;
+      max-width: none;
+      min-height: 100vh;
+      margin: 0;
+      padding: calc(var(--header-h) + 1.5rem) var(--gutter) 4.5rem;
+    }
+  }
+
   /* ---------- Pinned copy (full tier on large viewports, see lib/copy-layer.ts) ----------
      Each section's copy is pinned over the scene and scrubbed by the shared timeline: the
      copy layer writes --copy-o / --copy-y. Copy is never display:none / visibility:hidden, and
@@ -100,6 +121,11 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
     opacity: var(--copy-o, 0);
     transform: translate3d(0, var(--copy-y, 0), 0);
     pointer-events: none;
+  }
+
+  /* If --copy-o is not set yet, Hello stays visible under the pin layout. */
+  :global(html[data-pin="on"]) .home-section--hello .home-section__body {
+    opacity: var(--copy-o, 1);
   }
 
   /* Only the copy itself takes the pointer; empty space falls through to the page, so a click
