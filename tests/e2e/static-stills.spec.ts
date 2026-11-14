@@ -19,13 +19,18 @@ import {
   type Page,
 } from "@playwright/test";
 import sharp from "sharp";
+import {
+  assertExactPreloadCandidate,
+  computeSrcsetPick,
+  normalizeAssetUrl,
+  parseSrcset,
+  preloadPickedCandidate,
+} from "./preload-candidate";
 
 const SECTIONS = ["hello", "journey", "work", "services", "process", "contact"] as const;
 const COPY_HIDDEN = `.home-section__body, body > header, body > footer, .rail, .home-scrim, .skip-link
   { visibility: hidden !important; }`;
 const KB = 1024;
-
-const absoluteUrl = (url: string, base: string): string => new URL(url, base).href;
 
 async function staticPage(
   browser: Browser,
@@ -407,7 +412,7 @@ test.describe("PF-02 poster budget and LCP", () => {
       });
       expect(timing.first).toBeLessThan(timing.loadEvent);
       expect(timing.othersBefore).toEqual([]);
-      // The head preload for this viewport must resolve to the still actually shown.
+      // The head preload for this viewport must be the exact candidate shown (PF-56).
       const preloadMatch = await page.evaluate(() => {
         const img = document.querySelector<HTMLImageElement>(".still img");
         const currentSrc = img?.currentSrc ?? "";
@@ -415,29 +420,59 @@ test.describe("PF-02 poster budget and LCP", () => {
         const active = Array.from(
           document.querySelectorAll<HTMLLinkElement>('link[rel="preload"][as="image"]'),
         ).find((link) => link.media === "" || matchMedia(link.media).matches);
+        const resources = performance.getEntriesByType("resource").flatMap((entry) => {
+          if (!(entry instanceof PerformanceResourceTiming)) return [];
+          return [
+            {
+              name: entry.name,
+              initiatorType: entry.initiatorType,
+              startTime: entry.startTime,
+            },
+          ];
+        });
         if (active === undefined) {
-          return { base: document.baseURI, shownRaw, href: "", srcset: "" };
+          return {
+            base: document.baseURI,
+            shownRaw,
+            href: "",
+            srcset: "",
+            resources,
+            viewportWidth: window.innerWidth,
+            dpr: window.devicePixelRatio,
+          };
         }
         const href = active.getAttribute("href") ?? "";
         const srcset =
           active.imageSrcset !== ""
             ? active.imageSrcset
             : (active.getAttribute("imagesrcset") ?? "");
-        return { base: document.baseURI, shownRaw, href, srcset };
+        return {
+          base: document.baseURI,
+          shownRaw,
+          href,
+          srcset,
+          resources,
+          viewportWidth: window.innerWidth,
+          dpr: window.devicePixelRatio,
+        };
       });
-      const shown =
-        preloadMatch.shownRaw === "" ? "" : absoluteUrl(preloadMatch.shownRaw, preloadMatch.base);
-      const hrefFromLink =
-        preloadMatch.href === "" ? "" : absoluteUrl(preloadMatch.href, preloadMatch.base);
-      const srcsetUrls = preloadMatch.srcset
-        .split(",")
-        .map((part) => part.trim().split(/\s+/)[0] ?? "")
-        .filter((u) => u !== "")
-        .map((u) => absoluteUrl(u, preloadMatch.base));
-      const matched = srcsetUrls.find((u) => u === shown);
-      const preloadHref = hrefFromLink !== "" ? hrefFromLink : (matched ?? srcsetUrls[0] ?? "");
+      const shown = normalizeAssetUrl(preloadMatch.shownRaw, preloadMatch.base);
+      const hrefFromLink = normalizeAssetUrl(preloadMatch.href, preloadMatch.base);
+      const candidates = parseSrcset(preloadMatch.srcset, preloadMatch.base);
+      let picked = preloadPickedCandidate({
+        href: hrefFromLink,
+        candidateUrls: candidates.map((c) => c.url),
+        resources: preloadMatch.resources,
+      });
+      if (picked === "") {
+        picked = computeSrcsetPick({
+          candidates,
+          viewportWidth: preloadMatch.viewportWidth,
+          dpr: preloadMatch.dpr,
+        });
+      }
       expect(shown).not.toBe("");
-      expect(preloadHref).toBe(shown);
+      assertExactPreloadCandidate(shown, picked);
       // Painted in the first viewport (an LCP candidate, not hidden or transparent).
       const painted = await page.evaluate(() => {
         const img = document.querySelector<HTMLImageElement>(".still img");
