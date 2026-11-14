@@ -25,6 +25,8 @@ const COPY_HIDDEN = `.home-section__body, body > header, body > footer, .rail, .
   { visibility: hidden !important; }`;
 const KB = 1024;
 
+const absoluteUrl = (url: string, base: string): string => new URL(url, base).href;
+
 async function staticPage(
   browser: Browser,
   options: BrowserContextOptions & { javaScriptEnabled?: boolean } = {},
@@ -399,11 +401,43 @@ test.describe("PF-02 poster budget and LCP", () => {
         const nav = performance.getEntriesByType("navigation")[0];
         const loadEvent = nav instanceof PerformanceNavigationTiming ? nav.loadEventStart : 0;
         const first = starts[0] ?? Number.POSITIVE_INFINITY;
-        const othersBefore = srcs.filter((_, i) => i > 0 && (starts[i] ?? 0) < first);
+        // PF-52: count same-ms ties so a competing still is not treated as "after" the first.
+        const othersBefore = srcs.filter((_, i) => i > 0 && (starts[i] ?? 0) <= first);
         return { first, loadEvent, othersBefore };
       });
       expect(timing.first).toBeLessThan(timing.loadEvent);
       expect(timing.othersBefore).toEqual([]);
+      // The head preload for this viewport must resolve to the still actually shown.
+      const preloadMatch = await page.evaluate(() => {
+        const img = document.querySelector<HTMLImageElement>(".still img");
+        const currentSrc = img?.currentSrc ?? "";
+        const shownRaw = currentSrc === "" ? (img?.src ?? "") : currentSrc;
+        const active = Array.from(
+          document.querySelectorAll<HTMLLinkElement>('link[rel="preload"][as="image"]'),
+        ).find((link) => link.media === "" || matchMedia(link.media).matches);
+        if (active === undefined) {
+          return { base: document.baseURI, shownRaw, href: "", srcset: "" };
+        }
+        const href = active.getAttribute("href") ?? "";
+        const srcset =
+          active.imageSrcset !== ""
+            ? active.imageSrcset
+            : (active.getAttribute("imagesrcset") ?? "");
+        return { base: document.baseURI, shownRaw, href, srcset };
+      });
+      const shown =
+        preloadMatch.shownRaw === "" ? "" : absoluteUrl(preloadMatch.shownRaw, preloadMatch.base);
+      const hrefFromLink =
+        preloadMatch.href === "" ? "" : absoluteUrl(preloadMatch.href, preloadMatch.base);
+      const srcsetUrls = preloadMatch.srcset
+        .split(",")
+        .map((part) => part.trim().split(/\s+/)[0] ?? "")
+        .filter((u) => u !== "")
+        .map((u) => absoluteUrl(u, preloadMatch.base));
+      const matched = srcsetUrls.find((u) => u === shown);
+      const preloadHref = hrefFromLink !== "" ? hrefFromLink : (matched ?? srcsetUrls[0] ?? "");
+      expect(shown).not.toBe("");
+      expect(preloadHref).toBe(shown);
       // Painted in the first viewport (an LCP candidate, not hidden or transparent).
       const painted = await page.evaluate(() => {
         const img = document.querySelector<HTMLImageElement>(".still img");
