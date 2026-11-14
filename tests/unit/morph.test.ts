@@ -361,7 +361,7 @@ describe("Safelight modifier", () => {
     }
   });
 
-  it("keeps locate() and evaluate() independent of the toggle", () => {
+  it("keeps locate() and evaluate() independent of the safelight modifier", () => {
     expect(locate(0.5)).toEqual(locate(0.5));
   });
 });
