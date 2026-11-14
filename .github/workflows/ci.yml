@@ -78,6 +78,10 @@ jobs:
             args: tests/e2e/tiers.spec.ts --grep "render loop is on demand"
           - group: tiers
             args: tests/e2e/tiers.spec.ts --grep-invert "render loop is on demand"
+          # PF-50: on-screen boxes of header / H1 / Hello copy over a 3 s reload (spoofed full tier
+          # on SwiftShader). Catches jumps Chrome CLS and Lighthouse miss (PR #33: 98 / 178 px, CLS 0).
+          - group: visible-jump
+            args: tests/e2e/visible-jump.spec.ts
           - group: static-structure-content
             args: tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts
           - group: m2
