@@ -1,8 +1,9 @@
 ---
 import { BaseLayout } from "@app/layouts";
-import { HomePage } from "@pages/home";
+import { HomePage, StillPreload } from "@pages/home";
 ---
 
 <BaseLayout anchorBase="" scene>
+  <StillPreload slot="head" />
   <HomePage />
 </BaseLayout>

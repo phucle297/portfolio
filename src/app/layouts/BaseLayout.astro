@@ -38,6 +38,8 @@ const jsonLdJson = JSON.stringify(jsonLd).replaceAll("<", "\\u003c");
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
+    <!-- Page-specific head tags, early so the preload scanner sees them first (LCP preloads). -->
+    <slot name="head" />
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
     <meta name="theme-color" content={siteConfig.themeColor} />

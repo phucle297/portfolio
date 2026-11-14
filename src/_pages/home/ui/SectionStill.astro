@@ -9,48 +9,22 @@
  * still of the section under the scroll position; see `lib/still-crossfade.ts`. Without JS each
  * still stays sticky inside its own section.
  */
-import { getImage } from "astro:assets";
-import type { ImageMetadata } from "astro";
-import d0 from "./stills/d-0.png";
-import d1 from "./stills/d-1.png";
-import d2 from "./stills/d-2.png";
-import d3 from "./stills/d-3.png";
-import d4 from "./stills/d-4.png";
-import d5 from "./stills/d-5.png";
-import m0 from "./stills/m-0.png";
-import m1 from "./stills/m-1.png";
-import m2 from "./stills/m-2.png";
-import m3 from "./stills/m-3.png";
-import m4 from "./stills/m-4.png";
-import m5 from "./stills/m-5.png";
+import { MOBILE_STILL_MEDIA, sectionStillImages } from "../lib/still-images";
 
 interface Props {
   index: number;
-  /** The first section's still is the LCP candidate: eager, high priority. */
+  /** The first section's still is the LCP candidate: eager, high priority, preloaded (StillPreload). */
   eager?: boolean;
 }
 
-const DESKTOP: readonly ImageMetadata[] = [d0, d1, d2, d3, d4, d5];
-const MOBILE: readonly ImageMetadata[] = [m0, m1, m2, m3, m4, m5];
-
 const { index, eager = false } = Astro.props;
-const desktopSrc = DESKTOP[index];
-const mobileSrc = MOBILE[index];
-if (!desktopSrc || !mobileSrc) throw new Error(`No still for section ${index}`);
-
-const desktop = await getImage({
-  src: desktopSrc,
-  format: "avif",
-  quality: 55,
-  widths: [960, 1440],
-});
-const mobile = await getImage({ src: mobileSrc, format: "avif", quality: 55, widths: [390] });
+const { desktopSrc, mobileSrc, desktop, mobile } = await sectionStillImages(index);
 ---
 
 <div class:list={["still", { "still--intro": index === 0 }]} data-still={index} aria-hidden="true">
   <picture>
     <source
-      media="(max-width: 767px)"
+      media={MOBILE_STILL_MEDIA}
       srcset={mobile.srcSet.attribute}
       sizes="100vw"
       type="image/avif"
