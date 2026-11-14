@@ -347,7 +347,7 @@ describe("M2-AC7 no cuts (state level)", () => {
   // Visibility vs opacity is checked on the real scene graph in scene-graph.test.ts.
 });
 
-describe("Safelight toggle (header)", () => {
+describe("Safelight modifier", () => {
   it("dims only the safelight's face, glow and red light, and leaves evaluate(p) untouched", () => {
     for (const p of [0.03, 0.21, 0.6, 0.96]) {
       const s = evaluate(p);

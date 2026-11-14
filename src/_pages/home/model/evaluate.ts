@@ -274,7 +274,7 @@ export function evaluate(p: number, options: EvaluateOptions = {}): SceneState {
 export const SAFELIGHT_OFF_LEVEL = 0.12;
 
 /**
- * The header's Safelight toggle as a pure modifier on top of `evaluate(p)`: switched off, the
+ * A pure modifier on top of `evaluate(p)`: with the safelight switched off, the
  * lamp's face, glow sprite and red point light drop to `SAFELIGHT_OFF_LEVEL`. Nothing else in
  * the scene changes, and `evaluate(p)` itself stays a function of p only.
  */
