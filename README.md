@@ -258,8 +258,8 @@ frontmatter + `<script>` covers every import in the project.
   `visibility:hidden`; focus inside any section scrolls to where that copy is shown and
   `:focus-within` forces it opaque. Smaller viewports, the static tier and no-JS keep the normal
   document flow (focusables have `scroll-margin-top: 96px`).
-- **Safelight toggle.** A header button (`aria-pressed`, stored in `localStorage.safelight`) dims
-  the safelight's face, glow and red light; it is shown only on the full tier.
+- **Safelight.** The scene uses the designed default (safelight on). There is no header control
+  to switch it off; a previously stored `localStorage.safelight` value is ignored and cleared.
 - **Smoothness check.** `tools/smooth/capture.mjs` renders 384 frames at 1280×800 through the test
   hook; `tools/smooth/smooth.py` (the design's script) flags pops and green pixels and writes a
   CSV; `tools/smooth/luma.py` checks the no-black floor (M2-AC7).

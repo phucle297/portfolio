@@ -9,10 +9,3 @@ export {
   setUserMotion,
   userMotionOn,
 } from "./preferences";
-export {
-  SAFELIGHT_CHANGE_EVENT,
-  SAFELIGHT_STORAGE_KEY,
-  onSafelightChange,
-  safelightOn,
-  setSafelight,
-} from "./safelight";

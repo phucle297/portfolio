@@ -300,10 +300,8 @@ test("B-8: a reload while scrolled keeps the header opaque before its script run
   await expect.poll(() => page.evaluate(() => scrollY), { timeout: 10_000 }).toBeGreaterThan(100);
   await expect.poll(() => held.length).toBeGreaterThan(0);
   const header = page.locator(".site-header");
-  // Not hydrated: the module script still has not cleared the server-rendered at-top state, and
-  // the JS-only Safelight button is still hidden.
+  // Not hydrated: the module script still has not cleared the server-rendered at-top state.
   await expect(header).toHaveAttribute("data-at-top", "");
-  await expect(page.locator("[data-safelight-toggle]")).toBeHidden();
   const before = await header.evaluate((el) => [
     getComputedStyle(el).backgroundImage,
     getComputedStyle(el).backgroundColor,
@@ -397,8 +395,9 @@ test.describe("TASK-14 layout stability at 1440x900", () => {
   });
 
   test("the full tier mounts without moving the header or the Hello copy", async ({ browser }) => {
-    // Shift 2 (0.0035): the Safelight button took its slot only when the full tier mounted, so
-    // the Motion toggle and the centred nav jumped 66-133 px sideways after load.
+    // Shift 2 (0.0035): the old Safelight button took a reserved slot only when the full tier
+    // mounted, so the Motion toggle and the centred nav jumped 66-133 px sideways after load.
+    // The control is gone (PF-49); this still pins that mount must not move the header.
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
     await spoofHardwareGpu(page);
@@ -408,7 +407,7 @@ test.describe("TASK-14 layout stability at 1440x900", () => {
     await expect(toggle).toBeVisible();
     const toggleBefore = await toggle.boundingBox();
     await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 20_000 });
-    await expect(page.locator("[data-safelight-toggle]")).toBeVisible();
+    await expect(page.locator("[data-safelight-toggle]")).toHaveCount(0);
     // Was 132 px to the left once mounted; a late font swap may still nudge it a few px.
     const toggleAfter = await toggle.boundingBox();
     expect(Math.abs((toggleAfter?.x ?? 0) - (toggleBefore?.x ?? 0))).toBeLessThanOrEqual(6);
