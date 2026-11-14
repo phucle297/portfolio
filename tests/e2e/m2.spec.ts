@@ -1,6 +1,6 @@
 /**
  * M2 behaviour on the full tier (SwiftShader stands in for the GPU): pinned copy and its scrub
- * (AC8), native keys / anchors / Tab (AC9), the idle render loop (AC10) and the Safelight toggle.
+ * (AC8), native keys / anchors / Tab (AC9) and the idle render loop (AC10).
  */
 import { expect, test, type Page } from "@playwright/test";
 import { COPY_TRAVEL_PX, copyState, KEY_PROGRESS } from "../../src/shared/lib/timeline";
@@ -216,31 +216,32 @@ test.describe("M2-AC10 render loop idles", () => {
   });
 });
 
-test.describe("Safelight toggle", () => {
-  test("toggles the safelight, persists, and is hidden on the static tier", async ({ page }) => {
+test.describe("PF-49 no Safelight toggle", () => {
+  test("header has no Safelight control, and a saved off value still leaves lights on", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("safelight", "off");
+    });
     await openScene(page);
-    const toggle = page.locator("[data-safelight-toggle]");
-    await expect(toggle).toBeVisible();
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
-    const glowOn = await page.evaluate(() => window.darkroomTest?.state().lamp.glowOpacity ?? -1);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    expect(await page.evaluate(() => window.darkroomTest?.safelight())).toBe(false);
-    expect(await page.evaluate(() => localStorage.getItem("safelight"))).toBe("off");
-    const glowOff = await page.evaluate(() => window.darkroomTest?.state().lamp.glowOpacity ?? -1);
-    expect(glowOff).toBeLessThan(glowOn);
-
-    await page.reload();
-    await page.waitForFunction(() => window.darkroomTest !== undefined, null, { timeout: 20_000 });
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    expect(await page.evaluate(() => window.darkroomTest?.safelight())).toBe(false);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("[data-safelight-toggle]")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /safelight|lights on|lights off/i })).toHaveCount(
+      0,
+    );
+    await expect(page.locator("[data-motion-toggle]")).toBeVisible();
+    await expect(page.locator(".site-header__pill")).toBeVisible();
+    await expect(page.locator(".site-header__nav")).toBeVisible();
+    expect(await page.evaluate(() => window.darkroomTest?.safelight())).toBe(true);
+    // At the top of the page the designed glow is 1; the old "off" modifier would have left 0.12.
+    const glow = await page.evaluate(() => window.darkroomTest?.state().lamp.glowOpacity ?? -1);
+    expect(glow).toBeCloseTo(1, 2);
   });
 
-  test("is hidden on the static tier (reduced motion)", async ({ page }) => {
+  test("static tier also has no Safelight control", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/");
-    await expect(page.locator("[data-safelight-toggle]")).toBeHidden();
+    await expect(page.locator("[data-safelight-toggle]")).toHaveCount(0);
+    await expect(page.locator("[data-motion-toggle]")).toBeVisible();
+    await expect(page.locator(".site-header__pill")).toBeVisible();
   });
 });

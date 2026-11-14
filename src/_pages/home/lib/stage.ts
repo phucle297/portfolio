@@ -3,7 +3,6 @@
  * `set(p)`; rendering is on demand only (scroll, resize, catch-up easing), never while the tab is
  * hidden, and it stops as soon as the scene has caught up with the scroll position.
  */
-import { onSafelightChange, safelightOn } from "@shared/lib/motion";
 import { clamp } from "@shared/lib/timeline";
 import { createCopyLayer } from "./copy-layer";
 import { createDarkroom, type Darkroom, type RenderInfo } from "./darkroom";
@@ -38,7 +37,7 @@ export interface StageTestHook {
   shown: () => number;
   /** Whether the pinned copy layout is on. */
   pinned: () => boolean;
-  /** Whether the safelight is on. */
+  /** Always true: the header Safelight toggle was removed (PF-49). */
   safelight: () => boolean;
   tier: Tier;
 }
@@ -76,8 +75,9 @@ export async function mountStage(
   }
 
   const copy = createCopyLayer();
-  let safelight = safelightOn();
-  darkroom.setSafelight(safelight);
+  // Lights stay on the default (on). A leftover localStorage "safelight" = "off" is ignored
+  // and cleared in startClient (PF-49).
+  darkroom.setSafelight(true);
   let shown = scrollProgress();
   let raf = 0;
   let last = 0;
@@ -138,11 +138,6 @@ export async function mountStage(
   window.addEventListener("scroll", request, { passive: true });
   window.addEventListener("resize", onResize, { passive: true });
   document.addEventListener("visibilitychange", onVisibility);
-  const offSafelight = onSafelightChange(() => {
-    safelight = safelightOn();
-    darkroom.setSafelight(safelight);
-    if (!document.hidden) draw();
-  });
 
   draw();
   // Fade in over the poster after the first frame.
@@ -163,7 +158,7 @@ export async function mountStage(
       rafs: () => rafs,
       shown: () => shown,
       pinned: () => copy.pinned(),
-      safelight: () => safelight,
+      safelight: () => true,
       tier,
     };
   }
@@ -176,7 +171,6 @@ export async function mountStage(
       window.removeEventListener("scroll", request);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
-      offSafelight();
       copy.dispose();
       host.classList.remove("is-ready");
       darkroom.dispose();
