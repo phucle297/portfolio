@@ -35,6 +35,10 @@ jobs:
         check: [check, typecheck, "lint:oxlint", "lint:fsd", "format:check", test]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # PF-05 (#8): the e2e spec-inventory guard (tests/unit/e2e-projects.test.ts) needs
+          # origin/main to find the merge-base; a shallow clone makes it fail on purpose.
+          fetch-depth: ${{ matrix.check == 'test' && '0' || '1' }}
       - uses: ./.github/actions/setup
       - run: bun run ${{ matrix.check }}
 
@@ -89,6 +93,9 @@ jobs:
           # PF-03: axe-core scan across tiers and states (report in test-results/a11y, uploaded below).
           - group: a11y
             args: tests/e2e/a11y.spec.ts
+          # PF-05 (#8): the engine-neutral stand-ins on Chromium. Firefox and WebKit: job e2e-xb.
+          - group: cross-browser
+            args: tests/e2e/cross-browser.spec.ts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -99,7 +106,8 @@ jobs:
       # Same engine the box/QA verifies with: the runner image's preinstalled Google Chrome
       # (playwright.config.ts honours CHROME_PATH). Chromium only; no browser download to cache.
       - run: /usr/bin/google-chrome --version
-      - run: bunx playwright test ${{ matrix.args }} --reporter=list,html
+      # PF-05 (#8) adds firefox and webkit projects; these groups stay Chromium (QA L2 on #4).
+      - run: bunx playwright test ${{ matrix.args }} --project=chromium --reporter=list,html
         env:
           E2E_PREBUILT: "1" # serve the shared dist; do not rebuild
           CHROME_PATH: /usr/bin/google-chrome
@@ -108,6 +116,50 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report-${{ matrix.group }}
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # PF-05 (#8): Firefox and WebKit run the static-tier and cross-browser specs only (PM scope,
+  # attempt 5). Full-tier tests (WebGL scene: B-7 sweeps, contact-form full tier, the hardware-GPU
+  # tier check, a11y full tier, M1-AC15 at D, TASK-14 full tier) stay Chromium-gated here and run
+  # locally on FF/WK; they are listed under PF-45 in the PR. Sharded, no fail-fast, no merge-reports.
+  e2e-xb:
+    name: e2e (${{ matrix.browser }} ${{ matrix.shard }}/2)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - run: bunx playwright install --with-deps ${{ matrix.browser }}
+      # No CHROME_PATH: specs with their own launchOptions would start Chrome with it.
+      - run: >-
+          bunx playwright test --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/2
+          tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts
+          tests/e2e/static-stills.spec.ts tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts
+          tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/ui-preview.spec.ts
+          tests/e2e/cross-browser.spec.ts tests/e2e/a11y.spec.ts
+          --grep-invert "full tier|desktop, hardware GPU|M1-AC15 CLS .* at D$"
+          --reporter=list,html
+        env:
+          E2E_PREBUILT: "1" # serve the shared dist; do not rebuild
+          PLAYWRIGHT_HTML_OPEN: never
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-${{ matrix.browser }}-${{ matrix.shard }}
           path: |
             playwright-report
             test-results
@@ -164,7 +216,7 @@ jobs:
   # One stable check for branch protection: green only if every job above passed.
   ci-ok:
     if: ${{ always() }}
-    needs: [fast-gate, build, e2e, lighthouse, bundle-size]
+    needs: [fast-gate, build, e2e, e2e-xb, lighthouse, bundle-size]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:

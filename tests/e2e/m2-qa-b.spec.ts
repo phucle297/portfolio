@@ -7,6 +7,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { beatAt, beatProgress, HOLDS, KEY_PROGRESS, SECTIONS } from "../../src/shared/lib/timeline";
 import { inSequence, openScene, scrollToP, settle } from "./helpers";
+import { knownEngineFailure } from "./known-failures";
 
 interface B4Watch {
   lastScroll: number;
@@ -87,6 +88,10 @@ for (const viewport of VIEWPORTS) {
     test.use({ viewport });
 
     test.beforeEach(async ({ page, context }) => {
+      knownEngineFailure(
+        ["firefox", "webkit"],
+        "grantPermissions(['clipboard-read', 'clipboard-write']) is Chromium-only in Playwright",
+      );
       // External links (CV on LinkedIn) open in a stub instead of the network.
       await context.route(
         (url) => url.hostname !== "127.0.0.1",

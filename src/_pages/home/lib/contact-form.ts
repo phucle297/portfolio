@@ -119,14 +119,20 @@ export function initContactForm(form: HTMLFormElement): void {
   }
 
   // "Start a project" / "Get a quote": preselect Freelance and move focus to the form.
+  // The jump to #contact is done here, not by the browser: Firefox runs the fragment navigation
+  // after a 0 ms timeout and then clears focus (the section is not focusable), so Name lost focus.
   for (const link of document.querySelectorAll<HTMLAnchorElement>("[data-start-project]")) {
-    link.addEventListener("click", () => {
+    link.addEventListener("click", (event) => {
       const freelance = form.querySelector<HTMLInputElement>('input[data-mode="0"]');
       if (freelance) freelance.checked = true;
       syncMode(form);
-      window.setTimeout(() => {
-        form.querySelector<HTMLInputElement>("#contact-name")?.focus({ preventScroll: true });
-      }, 0);
+      const modified = event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey;
+      const target = document.querySelector<HTMLElement>(link.hash || "#contact");
+      if (event.defaultPrevented || modified || !target) return;
+      event.preventDefault();
+      if (location.hash !== link.hash) history.pushState(null, "", link.hash);
+      target.scrollIntoView();
+      form.querySelector<HTMLInputElement>("#contact-name")?.focus({ preventScroll: true });
     });
   }
 

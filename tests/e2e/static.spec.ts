@@ -359,7 +359,10 @@ test.describe("TASK-14 layout stability at 1440x900", () => {
 
   test("Hello copy and header keep their layout while the web fonts are still missing", async ({
     browser,
+    browserName,
   }) => {
+    // Architect ruling (PF-05 attempt 5): intermittent on Playwright WebKit, no retries.
+    test.skip(browserName === "webkit", "Flaky on WebKit, tracked in PF-45");
     // Shift 1 (0.017): before Be Vietnam Pro arrived, the Hello subtitle and lede set in a
     // narrower system face took one more line each and the centred Hello block moved 32 px when
     // the font swapped in. The metric-matched fallback must give the same lines and boxes.
