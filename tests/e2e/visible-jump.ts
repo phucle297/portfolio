@@ -13,13 +13,16 @@ import type { Page } from "@playwright/test";
 export const WATCHED = {
   header: ".site-header",
   h1: "#hello-title",
+  /** The Hello section body (at 1440 it is the viewport-sized wrapper the pin makes fixed). */
   copy: "#hello [data-copy-body]",
+  /** The visible Hello copy itself: catches a move of the text that leaves the wrapper in place. */
+  lede: "#hello .hello__lede",
 } as const;
 
 export type WatchedName = keyof typeof WATCHED;
 
 /** Watched element names, in report order. */
-export const WATCHED_NAMES: readonly WatchedName[] = ["header", "h1", "copy"];
+export const WATCHED_NAMES: readonly WatchedName[] = ["header", "h1", "copy", "lede"];
 
 /** One element's on-screen box in one frame, in CSS px (0.1 px precision). */
 export interface Box {
@@ -82,6 +85,7 @@ export async function recordVisibleBoxes(page: Page, untilMs: number): Promise<v
           header: boxOf(watched.header),
           h1: boxOf(watched.h1),
           copy: boxOf(watched.copy),
+          lede: boxOf(watched.lede),
         };
         const root = document.documentElement;
         state.samples.push({

@@ -8,8 +8,10 @@ import { movements, recordVisibleBoxes } from "./visible-jump";
  * PF-50: a reload must not visibly move the header, the Hello H1 or the Hello copy.
  *
  * What it checks: on a reload, every animation frame for the first 3 s, the on-screen box
- * (`getBoundingClientRect()` top/left) of each element. The baseline is its first frame after
- * first paint; the test fails if any of them later sits more than 8 px away. This is the visitor's
+ * (`getBoundingClientRect()` top/left) of the header, the H1, the Hello body wrapper and the Hello
+ * lede (at 1440 the wrapper is viewport-sized, so the lede is what shows a copy move). The
+ * baseline is each one's first frame after first paint; the test fails if any of them later sits
+ * more than 8 px away, or (at 1440) if the baseline frame is already pinned. This is the visitor's
  * view; Chrome CLS and Lighthouse CLS are not, because a jump caused by `position: fixed` under
  * opacity/translate3d (the PR #33 pin jump: H1 98 px, copy 178 px, CLS 0) is not a layout shift.
  *
@@ -100,6 +102,15 @@ for (const vp of VIEWPORTS) {
     // …and at desktop the scene must have pinned the copy, the state that jumped in PR #33.
     expect(run.pin, "data-pin at the end of the window").toBe(vp.pin);
     expect(run.firstPaint, "first-paint timing").not.toBeNull();
+    if (vp.pin !== null) {
+      // The baseline must come before the pin, or a pin jump folds into it and passes unseen.
+      const baselineT = Math.max(...moved.map((m) => m.baselineT ?? Infinity));
+      const atBaseline = run.samples.find((s) => s.t === baselineT);
+      expect(
+        atBaseline?.pin ?? null,
+        `data-pin at the baseline frame (t=${baselineT} ms)`,
+      ).toBeNull();
+    }
     for (const m of moved) {
       expect(m.baseline, `${m.name} is on screen after first paint`).not.toBeNull();
       expect.soft(m.maxDTop, `${m.name} |Δtop| after first paint`).toBeLessThanOrEqual(MAX_MOVE_PX);
