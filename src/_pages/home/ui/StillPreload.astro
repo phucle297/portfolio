@@ -1,0 +1,32 @@
+---
+/**
+ * Head preload for the first section's still, the LCP candidate (PF-02, PF-47). The `<img>` sits
+ * ~57 KB into the HTML, after the inline head CSS and scripts, so without this its request waits
+ * for the parser to reach it; WebKit can by then have started the next, lazy still (it is within
+ * the lazy-load margin of a phone viewport). Declared in `<head>` it is requested before any
+ * layout, at high priority, in every engine. Same srcset/sizes as the `<picture>`, so the browser
+ * picks the same candidate and the `<img>` reuses this response (no second fetch).
+ */
+import { DESKTOP_STILL_MEDIA, MOBILE_STILL_MEDIA, sectionStillImages } from "../lib/still-images";
+
+const { desktop, mobile } = await sectionStillImages(0);
+---
+
+<link
+  rel="preload"
+  as="image"
+  type="image/avif"
+  media={MOBILE_STILL_MEDIA}
+  imagesrcset={mobile.srcSet.attribute}
+  imagesizes="100vw"
+  fetchpriority="high"
+/>
+<link
+  rel="preload"
+  as="image"
+  type="image/avif"
+  media={DESKTOP_STILL_MEDIA}
+  imagesrcset={desktop.srcSet.attribute}
+  imagesizes="100vw"
+  fetchpriority="high"
+/>
