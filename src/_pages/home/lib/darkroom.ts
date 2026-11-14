@@ -42,7 +42,7 @@ export interface RenderInfo {
 export interface Darkroom {
   readonly tier: Tier;
   set: (p: number) => void;
-  /** Header Safelight toggle; takes effect on the next `set`. */
+  /** Safelight on/off; takes effect on the next `set`. */
   setSafelight: (on: boolean) => void;
   render: () => RenderInfo;
   resize: (width: number, height: number) => void;
