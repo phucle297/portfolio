@@ -1,0 +1,36 @@
+[WebServer] $ astro preview --host "127.0.0.1" --port "4551"
+
+Running 1 test using 1 worker
+
+(node:355039) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [chromium] › tests/e2e/visible-jump.spec.ts:42:3 › PF-50 reload at 1440×900: header, H1 and Hello copy stay within 8px after first paint @chromium-only (3.6s)
+
+
+  1) [chromium] › tests/e2e/visible-jump.spec.ts:42:3 › PF-50 reload at 1440×900: header, H1 and Hello copy stay within 8px after first paint @chromium-only 
+
+    Error: lede |Δtop| after first paint
+
+    expect(received).toBeLessThanOrEqual(expected)
+
+    Expected: <= 8
+    Received:    20
+
+      114 |     for (const m of moved) {
+      115 |       expect(m.baseline, `${m.name} is on screen after first paint`).not.toBeNull();
+    > 116 |       expect.soft(m.maxDTop, `${m.name} |Δtop| after first paint`).toBeLessThanOrEqual(MAX_MOVE_PX);
+          |                                                                    ^
+      117 |       expect
+      118 |         .soft(m.maxDLeft, `${m.name} |Δleft| after first paint`)
+      119 |         .toBeLessThanOrEqual(MAX_MOVE_PX);
+        at /workspace/repos/wt/PF-50/tests/e2e/visible-jump.spec.ts:116:68
+
+    attachment #2: trace-1440x900.zip (application/zip) ────────────────────────────────────────────
+    test-results/visible-jump-PF-50-reload--72420-r-first-paint-chromium-only-chromium/attachments/trace-1440x900-zip-c6908049be245f9a50410b1c678aada65902a07c.zip
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/visible-jump-PF-50-reload--72420-r-first-paint-chromium-only-chromium/error-context.md
+
+  1 failed
+    [chromium] › tests/e2e/visible-jump.spec.ts:42:3 › PF-50 reload at 1440×900: header, H1 and Hello copy stay within 8px after first paint @chromium-only 
+error: "playwright" exited with code 1
