@@ -81,6 +81,18 @@ const jsonLdJson = JSON.stringify(jsonLd).replaceAll("<", "\\u003c");
         if (!off && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
           root.classList.add("motion-ok");
         }
+        // PF-48: the pinned copy layout (fixed, left, scrim) used to apply only when the 3D
+        // scene mounted, so the Hello H1 and first-screen copy jumped after first paint.
+        // Match copy-layer.ts PIN_QUERY plus the cheap gates (motion, fine pointer, no
+        // Save-Data). If the WebGL probe later fails, the pin stays so the copy does not
+        // jump back into document flow over the stills.
+        if (
+          root.classList.contains("motion-ok") &&
+          window.matchMedia("(min-width: 1200px) and (min-height: 760px)").matches &&
+          window.matchMedia("(pointer: fine)").matches
+        ) {
+          if (navigator.connection?.saveData !== true) root.dataset.pin = "on";
+        }
         // The header softens into a see-through gradient only at the very top (SiteHeader).
         // html[data-scrolled] keeps it opaque over the copy before the header's module script
         // runs (QA B-8): from any scroll away from the top, and on reloads, history navigations

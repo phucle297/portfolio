@@ -102,6 +102,12 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
     pointer-events: none;
   }
 
+  /* Before the copy layer sets --copy-o (and when pin is applied before first paint, PF-48),
+     Hello must stay visible; other sections stay at the default 0. */
+  :global(html[data-pin="on"]) .home-section--hello .home-section__body {
+    opacity: var(--copy-o, 1);
+  }
+
   /* Only the copy itself takes the pointer; empty space falls through to the page, so a click
      there leaves keyboard scrolling (arrows) on the document instead of a fixed layer (M2-AC9).
      The copy is slotted from the section components (their own scope), so the descendant part

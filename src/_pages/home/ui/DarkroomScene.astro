@@ -40,6 +40,12 @@ import { sceneDescription } from "@entities/profile";
     root.dataset.tier = tier;
   };
 
+  /** Undo the pre-paint pin only when a cheap gate fails (reduced motion, width, pointer,
+      Save-Data). A failed WebGL probe keeps the pin so the copy does not jump (PF-48). */
+  const revertOptimisticPin = (): void => {
+    if (!handle && root.dataset.pin === "on" && !cheapGates().pass) delete root.dataset.pin;
+  };
+
   const whenIdle = (cb: () => void): void => {
     let done = false;
     const run = (): void => {
@@ -65,6 +71,7 @@ import { sceneDescription } from "@entities/profile";
     handle?.dispose();
     handle = null;
     setTier("static");
+    revertOptimisticPin();
   }
 
   async function start(el: HTMLElement): Promise<void> {
@@ -99,12 +106,15 @@ import { sceneDescription } from "@entities/profile";
       starting = false;
       // Motion was switched off and back on while this start was in flight: start again, now
       // that this one has backed out (never after a failure, so errors cannot loop).
-      if (!failed && !handle && generation !== startedAt && cheapGates().pass) void start(el);
+      const retry = !failed && !handle && generation !== startedAt && cheapGates().pass;
+      if (!handle && !retry) revertOptimisticPin();
+      if (retry) void start(el);
     }
   }
 
   if (host) {
     setTier("static");
+    if (!cheapGates().pass) revertOptimisticPin();
     whenLoaded(() => {
       whenIdle(() => {
         void start(host);
