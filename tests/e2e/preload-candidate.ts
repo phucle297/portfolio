@@ -46,11 +46,11 @@ export function srcsetUrls(srcset: string, base: string): string[] {
 }
 
 /**
- * The URL the preload actually fetched. Prefer a resource-timing entry with
+ * The URL the preload actually fetched: a resource-timing entry with
  * `initiatorType === "link"` whose name is a candidate (or the explicit href).
- * If no link entry is present, use the earliest candidate resource — the head
- * preload starts before the `<img>`. Last, an explicit href or a single
- * candidate. Never “any URL that equals currentSrc”.
+ * Throws if that fetch is missing — no fallback to the `<img>` fetch, an
+ * explicit href, or a computed srcset pick — so a present-but-never-fetched
+ * preload fails.
  */
 export function preloadPickedCandidate(opts: {
   href: string;
@@ -61,26 +61,22 @@ export function preloadPickedCandidate(opts: {
   const names = new Set(candidateUrls);
   if (href !== "") names.add(href);
 
-  const earliest = (want: (entry: ResourceTimingLike) => boolean): string => {
-    const hits = resources
-      .filter(want)
-      .toSorted((a, b) => a.startTime - b.startTime || a.name.localeCompare(b.name));
-    return hits[0]?.name ?? "";
-  };
-
-  const isCandidate = (entry: ResourceTimingLike): boolean => names.has(entry.name);
-  const fromLink = earliest((entry) => entry.initiatorType === "link" && isCandidate(entry));
-  if (fromLink !== "") return fromLink;
-  const fromAny = earliest(isCandidate);
-  if (fromAny !== "") return fromAny;
-  if (href !== "") return href;
-  return candidateUrls.length === 1 ? (candidateUrls[0] ?? "") : "";
+  const hits = resources
+    .filter((entry) => entry.initiatorType === "link" && names.has(entry.name))
+    .toSorted((a, b) => a.startTime - b.startTime || a.name.localeCompare(b.name));
+  const fromLink = hits[0]?.name ?? "";
+  if (fromLink === "") {
+    throw new Error(
+      'preload was never fetched (no resource-timing entry with initiatorType "link")',
+    );
+  }
+  return fromLink;
 }
 
 /**
  * Deterministic srcset pick for `sizes="100vw"` (same rule as the HTML
  * source-set selection: lowest density ≥ DPR, else the highest density).
- * Used only when resource timing did not record a fetch.
+ * Not used as a preload-check fallback (an unfetched preload must fail).
  */
 export function computeSrcsetPick(opts: {
   candidates: readonly SrcsetCandidate[];

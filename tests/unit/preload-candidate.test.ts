@@ -47,8 +47,8 @@ describe("preloadPickedCandidate", () => {
     ).toBe(A);
   });
 
-  it("falls back to the earliest candidate resource when no link entry is recorded", () => {
-    expect(
+  it("does not adopt a non-link candidate resource when no link entry is recorded", () => {
+    expect(() => {
       preloadPickedCandidate({
         href: "",
         candidateUrls: [A, B],
@@ -56,8 +56,18 @@ describe("preloadPickedCandidate", () => {
           { name: B, initiatorType: "img", startTime: 8 },
           { name: A, initiatorType: "other", startTime: 2 },
         ],
-      }),
-    ).toBe(A);
+      });
+    }).toThrow(/preload was never fetched/);
+  });
+
+  it("throws when no link-initiated entry is recorded", () => {
+    expect(() => {
+      preloadPickedCandidate({
+        href: "",
+        candidateUrls: [A, B],
+        resources: [{ name: A, initiatorType: "img", startTime: 1 }],
+      });
+    }).toThrow(/preload was never fetched/);
   });
 });
 

@@ -21,7 +21,6 @@ import {
 import sharp from "sharp";
 import {
   assertExactPreloadCandidate,
-  computeSrcsetPick,
   normalizeAssetUrl,
   parseSrcset,
   preloadPickedCandidate,
@@ -437,8 +436,6 @@ test.describe("PF-02 poster budget and LCP", () => {
             href: "",
             srcset: "",
             resources,
-            viewportWidth: window.innerWidth,
-            dpr: window.devicePixelRatio,
           };
         }
         const href = active.getAttribute("href") ?? "";
@@ -452,25 +449,16 @@ test.describe("PF-02 poster budget and LCP", () => {
           href,
           srcset,
           resources,
-          viewportWidth: window.innerWidth,
-          dpr: window.devicePixelRatio,
         };
       });
       const shown = normalizeAssetUrl(preloadMatch.shownRaw, preloadMatch.base);
       const hrefFromLink = normalizeAssetUrl(preloadMatch.href, preloadMatch.base);
       const candidates = parseSrcset(preloadMatch.srcset, preloadMatch.base);
-      let picked = preloadPickedCandidate({
+      const picked = preloadPickedCandidate({
         href: hrefFromLink,
         candidateUrls: candidates.map((c) => c.url),
         resources: preloadMatch.resources,
       });
-      if (picked === "") {
-        picked = computeSrcsetPick({
-          candidates,
-          viewportWidth: preloadMatch.viewportWidth,
-          dpr: preloadMatch.dpr,
-        });
-      }
       expect(shown).not.toBe("");
       assertExactPreloadCandidate(shown, picked);
       // Painted in the first viewport (an LCP candidate, not hidden or transparent).
