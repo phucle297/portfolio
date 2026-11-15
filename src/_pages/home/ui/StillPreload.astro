@@ -30,3 +30,11 @@ const { desktop, mobile } = await sectionStillImages(0);
   imagesizes="100vw"
   fetchpriority="high"
 />
+<!--
+  PF-57: hold the first render until the whole Hello section (copy and the intro still with its
+  inline placeholder) is parsed, so the first frame is not a header alone on the flat background
+  while the rest of the HTML streams in. Chromium unblocks as soon as the target element is
+  inserted, so the target is the next section's start (#hello was not enough: the first frame still
+  showed the header alone). Other engines ignore it; never later than the full parse.
+-->
+<link rel="expect" href="#journey" blocking="render" />
