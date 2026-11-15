@@ -15,9 +15,22 @@
   color-scheme: dark;
 
   /* Type families */
-  --font-sans: "Be Vietnam Pro", "Be Vietnam Pro Fallback", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Instrument Serif", "Instrument Serif Fallback", ui-serif, Georgia, serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --font-sans:
+    "Be Vietnam Pro", "Be Vietnam Pro Critical", "Be Vietnam Pro Fallback", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-serif:
+    "Instrument Serif", "Instrument Serif Critical", "Instrument Serif Fallback", ui-serif, Georgia,
+    serif;
+  /* Same family, a fallback measured on the short UI strings (global.css, PF-57). */
+  --font-sans-nav:
+    "Be Vietnam Pro", "Be Vietnam Pro Critical", "Be Vietnam Pro Nav Fallback", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-sans-button:
+    "Be Vietnam Pro", "Be Vietnam Pro Critical", "Be Vietnam Pro Button Fallback", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-mono:
+    "IBM Plex Mono", "IBM Plex Mono Critical", ui-monospace, "SFMono-Regular", Menlo, Consolas,
+    monospace;
 
   /* Colours */
   --bg: #0e0a08;
