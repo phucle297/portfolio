@@ -7,9 +7,27 @@
  * layout, at high priority, in every engine. Same srcset/sizes as the `<picture>`, so the browser
  * picks the same candidate and the `<img>` reuses this response (no second fetch).
  */
-import { DESKTOP_STILL_MEDIA, MOBILE_STILL_MEDIA, sectionStillImages } from "../lib/still-images";
+import {
+  DESKTOP_STILL_MEDIA,
+  MOBILE_STILL_MEDIA,
+  introStillPlaceholder,
+  sectionStillImages,
+} from "../lib/still-images";
 
 const { desktop, mobile } = await sectionStillImages(0);
+const placeholder = await introStillPlaceholder();
+// PF-57: the intro still's placeholder as the body background, from the head, so it is there even
+// in a first frame painted before the Hello section has streamed in (Slow 4G). Same crop as the
+// intro <picture>: desktop sticky full-viewport cover, phone full-width from the top. Removed once
+// the intro AVIF has loaded (SectionStill's onload), so it never shows behind later sections.
+// Only with JS (html.js): without it nothing would remove it.
+const bodyPlaceholder =
+  `html.js:not(.still0-loaded) body{background-image:url("${placeholder.desktop}");` +
+  "background-position:center;background-size:cover;background-repeat:no-repeat;" +
+  "background-attachment:fixed}" +
+  `@media ${MOBILE_STILL_MEDIA}{html.js:not(.still0-loaded) body{` +
+  `background-image:url("${placeholder.mobile}");background-position:center top;` +
+  "background-size:100% auto;background-attachment:scroll}}";
 ---
 
 <link
@@ -30,11 +48,4 @@ const { desktop, mobile } = await sectionStillImages(0);
   imagesizes="100vw"
   fetchpriority="high"
 />
-<!--
-  PF-57: hold the first render until the whole Hello section (copy and the intro still with its
-  inline placeholder) is parsed, so the first frame is not a header alone on the flat background
-  while the rest of the HTML streams in. Chromium unblocks as soon as the target element is
-  inserted, so the target is the next section's start (#hello was not enough: the first frame still
-  showed the header alone). Other engines ignore it; never later than the full parse.
--->
-<link rel="expect" href="#journey" blocking="render" />
+<style is:inline set:html={bodyPlaceholder} />

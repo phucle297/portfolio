@@ -112,6 +112,14 @@ const jsonLdJson = JSON.stringify(jsonLd).replaceAll("<", "\\u003c");
     </script>
   </head>
   <body>
+    <script is:inline>
+      // PF-57: start the inlined first-screen font subsets (fonts-critical.css, font-display:
+      // block) decoding now, while the rest of the HTML parses, instead of at first style recalc.
+      // Otherwise Hello's copy painted one frame after the header, after the load event, which
+      // made Lighthouse count every image and web font into mobile LCP.
+      if (document.fonts)
+        for (const f of document.fonts) if (f.family.includes("Critical")) f.load();
+    </script>
     <SkipLink />
     <SiteHeader anchorBase={anchorBase} />
     <script is:inline>

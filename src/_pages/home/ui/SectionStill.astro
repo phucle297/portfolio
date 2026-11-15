@@ -51,7 +51,11 @@ const placeholderStyle = placeholder
       loading={eager ? "eager" : "lazy"}
       fetchpriority={eager ? "high" : "auto"}
       decoding={eager ? "sync" : "async"}
-      onload={eager ? "this.classList.add('is-loaded')" : undefined}
+      onload={
+        eager
+          ? "this.classList.add('is-loaded');document.documentElement.classList.add('still0-loaded')"
+          : undefined
+      }
     />
   </picture>
 </div>
