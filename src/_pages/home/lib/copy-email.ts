@@ -17,9 +17,9 @@ function selectText(el: Element): void {
 
 export function initCopyEmail(button: HTMLButtonElement): void {
   const email = button.dataset.copyEmail ?? "";
-  const dd = button.closest("dd");
-  const status = dd?.querySelector<HTMLElement>("[data-copy-status]") ?? null;
-  const address = dd?.querySelector("[data-email-address]") ?? null;
+  const line = button.closest("[data-email]");
+  const status = line?.querySelector<HTMLElement>("[data-copy-status]") ?? null;
+  const address = line?.querySelector("[data-email-address]") ?? null;
   // `navigator.clipboard` is missing on insecure origins and some embedded browsers.
   if (!email || typeof navigator.clipboard?.writeText !== "function") return;
 

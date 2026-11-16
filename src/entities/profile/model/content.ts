@@ -227,29 +227,18 @@ export const process = {
 } as const;
 
 export const contact = {
-  eyebrow: "Frame 06 · Contact · lights on",
+  eyebrow: "Frame 06 · Contact",
   title: "Start a",
   titleAccent: "project",
-  copy: "Tell me what you're building. Freelance projects start from $500 USD (depending on complexity), usually 7 days – 1 month. Recruiting for a full-time role? Use the same form.",
+  copy: "From $500 · 7 days – 1 month. Hiring? Same form.",
   form: {
-    modes: ["Freelance project", "Full-time role"],
-    name: { label: "Name", placeholder: "Your name" },
-    email: { label: "Email", placeholder: "you@company.com" },
-    projectType: {
-      label: "Project type",
-      options: [
-        "Web app build",
-        "Design system & component library",
-        "Dashboards & data-heavy UIs",
-        "Frontend architecture & monorepo setup",
-        "Something else",
-      ],
-    },
-    brief: { label: "Short brief", placeholder: "What are you building, and by when?" },
+    name: { label: "Name" },
+    email: { label: "Email" },
+    brief: { label: "What are you building?" },
     submit: "Send brief",
     note: `${REPLY_PROMISE}.`,
-    /** Visible only when JS is off. Points at the mailto link in .contact__links. */
-    noJsNote: "JavaScript is off — send a brief using the email address above.",
+    /** Visible only when JS is off. Points at the mailto link in .contact__alt. */
+    noJsNote: "JavaScript is off — send a brief using the email address below.",
     errors: {
       name: "Please add your name.",
       email: "Please enter a valid email, like you@company.com.",
@@ -265,7 +254,9 @@ export const contact = {
      * launch). Plain copy: no `[Owner: …]` token ships in the HTML even in this unused message.
      */
     noEmail: "Email sending isn't switched on yet. Please reach me on LinkedIn for now.",
+    /** Accessible name of the Copy button; its visible text is `copyShort`. */
     copyEmail: "Copy email",
+    copyShort: "Copy",
     copied: "Email copied.",
     copyFailed: "Couldn't copy. The address is selected, press Ctrl+C or ⌘C.",
   },

@@ -36,7 +36,8 @@ for (const viewport of [
       expect(section.height).toBeGreaterThan(0);
       expect(section.stills).toBe(1);
     }
-    await expect(pageOff.locator("form input, form textarea, form select")).toHaveCount(6);
+    // PF-58 (Contact Option B): Name, Email and the brief; no select or radio.
+    await expect(pageOff.locator("form input, form textarea, form select")).toHaveCount(3);
     // QA-1 / QA-4: elements that ship `hidden` stay hidden without JS (no display rule beats it).
     const errorsShown = (page: typeof pageOn) =>
       page.evaluate(
@@ -206,13 +207,14 @@ test("QA-5: copy-email button copies the address and announces it", async ({ bro
   await page.goto("/");
   const button = page.locator("[data-copy-email]");
   await expect(button).toBeVisible();
-  await expect(button).toHaveText("Copy email");
+  await expect(button).toHaveText("Copy");
+  await expect(button).toHaveAccessibleName("Copy email");
   const email = await button.getAttribute("data-copy-email");
   await button.click();
   await expect(page.locator("[data-copy-status]")).toHaveText("Email copied.");
   await expect(button).toHaveText("Email copied.");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(email);
-  await expect(button).toHaveText("Copy email", { timeout: 4000 });
+  await expect(button).toHaveText("Copy", { timeout: 4000 });
   await expect(page.locator("[data-copy-status]")).toHaveText("");
   await context.close();
 });
