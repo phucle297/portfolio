@@ -492,7 +492,8 @@ interface B4Verdict {
  * last stage rAF callback *starts* ≤ 1500 ms after the last scroll event (definition 1). The
  * time is taken at callback start, not when its draw work finishes or a poll notices it, so a
  * slow draw on a loaded host does not count. The bound is strict 1500 ms, slow frames included:
- * no host-stall allowance. Measured from scroll stop, not from settle.
+ * no host-stall allowance. Measured from scroll stop, not from settle. PF-61: the stage meets it
+ * on a stalling host by a hard idle deadline (stage.ts IDLE_GUARD_MS), not by a looser bound here.
  */
 function b4Verdict(w: B4Watch): B4Verdict {
   // "After" is by tick number, not time: performance.now() is coarse enough that the last scroll
@@ -575,6 +576,12 @@ test.describe("B-4 the render loop idles within 1.5 s of scrolling stopping", ()
           stop: true,
         };
       });
+      // PF-61: the stage may draw its last, snapped frame outside rAF (idle deadline timer), so
+      // also check that drawing has really stopped: no frame by any path over another 300 ms.
+      const framesNow = () => page.evaluate(() => window.darkroomTest?.frames() ?? -1);
+      const framesBefore = await framesNow();
+      await page.waitForTimeout(300);
+      expect(await framesNow(), `${label}: frames kept being drawn after idle`).toBe(framesBefore);
       const verdict = { ...w, ...b4Verdict(w) };
       test.info().annotations.push({
         type: `B-4 ${label}`,

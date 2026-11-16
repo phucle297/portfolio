@@ -5,6 +5,10 @@
 # the plant, i.e. the test passes) and the full-tier CTA test (openScene / 3D loader).
 # Manual (`gh workflow run flaky-repeat.yml --ref <branch>`), and on PRs that change this file.
 # Separate from ci.yml on purpose (PF-53 / PF-59 edit ci.yml). Rollback: delete this file.
+# PF-61: also the B-4 render-loop idle check (m2-qa-b), and a `mode` input: parallel (default, 10
+# runners at once) or serial (the same 10 fresh runners one after another, max-parallel 1), so a
+# flake that only shows on a slow/stalling host is not hidden by 10 lucky runners at once. `specs`
+# narrows a run to one group (b4 = only the B-4 check). No schedule.
 name: Flaky repeat
 
 on:
@@ -14,6 +18,16 @@ on:
         description: "Not used for the matrix size (fixed at 10); kept for the record"
         required: false
         default: "10"
+      mode:
+        description: "parallel = 10 runners at once; serial = the 10 runs one after another"
+        type: choice
+        options: [parallel, serial]
+        default: parallel
+      specs:
+        description: "all = every targeted group; b4 = only the m2-qa-b B-4 idle check"
+        type: choice
+        options: [all, b4]
+        default: all
   pull_request:
     paths: [".github/workflows/flaky-repeat.yml"]
 
@@ -44,12 +58,13 @@ jobs:
           if-no-files-found: error
 
   repeat:
-    name: repeat (${{ matrix.run }}/10)
+    name: repeat (${{ matrix.run }}/10, ${{ inputs.mode || 'parallel' }})
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false # every run counts: 10/10 green is the bar
+      max-parallel: ${{ inputs.mode == 'serial' && 1 || 10 }}
       matrix:
         run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     env:
@@ -64,13 +79,17 @@ jobs:
           name: dist-flaky-repeat
           path: dist
       - name: tiers group (M1-AC16, as in CI)
+        if: ${{ (inputs.specs || 'all') == 'all' }}
         run: bunx playwright test tests/e2e/tiers.spec.ts --grep-invert "render loop is on demand" --project=chromium --reporter=list
       - name: a11y stepped backdrop self-tests (150 ms blink must fail the judge)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (inputs.specs || 'all') == 'all' }}
         run: bunx playwright test tests/e2e/a11y.spec.ts --grep "stepped backdrop" --project=chromium --reporter=list
       - name: full-tier CTA (3D loader)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (inputs.specs || 'all') == 'all' }}
         run: bunx playwright test tests/e2e/contact-form.spec.ts --grep "on the full tier" --project=chromium --reporter=list
+      - name: B-4 render loop idles within 1.5 s (m2-qa-b, PF-61)
+        if: ${{ !cancelled() }}
+        run: bunx playwright test tests/e2e/m2-qa-b.spec.ts --grep "B-4" --project=chromium --reporter=list
       - if: ${{ failure() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
