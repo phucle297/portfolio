@@ -91,6 +91,16 @@ const HIDE_CSS = `*, *::before, *::after, *::marker, *::placeholder {
  * neighbouring shots.
  */
 const SERIES_AT_MS = [0, 170, 430, 790, 1270, 1830, 2410, 2990] as const;
+/**
+ * PF-54: a minimum extra wait before each shot pair, even when the series runs late. Under CI
+ * load one visible + hidden pair (two style flips, two double-rAFs, two screenshots) takes longer
+ * than the planned gaps, so every wait above collapsed to 0 and the pairs came at one regular
+ * period; when that period was close to a multiple of a 150 ms blink every canvas-hidden shot
+ * landed on the same step and the blink read as "still without the canvas" (deferred, CI #34 /
+ * #40). With these irregular offsets (0–121 ms, every step different) neighbouring gaps can no
+ * longer all share one period, so a fast step is seen moving with the canvas hidden too.
+ */
+const SERIES_JITTER_MS = [0, 53, 17, 97, 31, 121, 71, 43] as const;
 /** The series must really have spanned this long (screenshots can be slow, never too fast). */
 const SERIES_MIN_WINDOW_MS = 2900;
 /** A backdrop pixel "changed" when a channel moved by more than this many levels. */
@@ -386,8 +396,8 @@ async function measure(
   const hiddenShots: string[] = [];
   await frames(page);
   const t0 = Date.now();
-  for (const at of SERIES_AT_MS) {
-    const wait = t0 + at - Date.now();
+  for (const [k, at] of SERIES_AT_MS.entries()) {
+    const wait = Math.max(t0 + at - Date.now(), SERIES_JITTER_MS[k] ?? 0);
     // oxlint-disable-next-line no-await-in-loop -- shots are a time series
     if (wait > 0) await page.waitForTimeout(wait);
     // oxlint-disable-next-line no-await-in-loop -- shots are a time series

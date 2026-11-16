@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { isProbe, isSceneChunk, recordRequests, scrollThrough, spoofHardwareGpu } from "./helpers";
+import {
+  isProbe,
+  isSceneChunk,
+  recordRequests,
+  scrollThrough,
+  spoofHardwareGpu,
+  waitForScene,
+} from "./helpers";
 
 /** Load, wait past idle, scroll to the bottom and back, for ~10 s in total (M1-AC14). */
 async function exercise(page: Page, url = "/"): Promise<void> {
@@ -127,9 +134,19 @@ test.describe("full tier", () => {
   test("M1-AC4 set(p) back and forth leaves the graph unchanged; budgets hold", async ({
     page,
   }) => {
+    // PF-54: this test issues ~160 synchronous full-scene renders. On SwiftShader the GPU process
+    // works them off long after the evaluate returns, and that backlog ate the NEXT test's 60 s
+    // budget (M1-AC16 hung in page.evaluate / "setting up context" in CI). Draw counts, triangles,
+    // textures and objects do not depend on the canvas size, so render small (still ≥ 768 px wide
+    // for the full-tier gate) and drain the GPU before the test ends (below).
+    // Draining makes the test pay that SwiftShader time itself (~20 s on a 2-core box), so it gets
+    // its own budget rather than borrowing the next test's.
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 800, height: 450 });
     await spoofHardwareGpu(page);
     await page.goto("/?scene-test");
-    await page.waitForFunction(() => window.darkroomTest !== undefined, null, { timeout: 20_000 });
+    await waitForScene(page);
+    await page.waitForFunction(() => window.darkroomTest !== undefined, null, { timeout: 5000 });
     const result = await page.evaluate(() => {
       const hook = window.darkroomTest;
       if (!hook) throw new Error("no hook");
@@ -147,6 +164,12 @@ test.describe("full tier", () => {
         maxCalls = Math.max(maxCalls, info.calls);
         maxTris = Math.max(maxTris, info.triangles);
       }
+      // Drain: a 1-px readPixels blocks until the GPU process has run every queued draw, so this
+      // test pays for its own SwiftShader work instead of leaving it to the next one (PF-54).
+      const gl = document
+        .querySelector<HTMLCanvasElement>("[data-scene] canvas")
+        ?.getContext("webgl2");
+      gl?.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
       return { before, after, maxCalls, maxTris };
     });
     expect(result.after.objects).toBe(result.before.objects);
@@ -161,7 +184,8 @@ test.describe("full tier", () => {
   test("render loop is on demand: idle and hidden tab render nothing", async ({ page }) => {
     await spoofHardwareGpu(page);
     await page.goto("/?scene-test");
-    await page.waitForFunction(() => window.darkroomTest !== undefined, null, { timeout: 20_000 });
+    await waitForScene(page);
+    await page.waitForFunction(() => window.darkroomTest !== undefined, null, { timeout: 5000 });
     await page.evaluate(() => {
       window.scrollTo(0, document.documentElement.scrollHeight * 0.3);
     });
@@ -210,7 +234,9 @@ test.describe("full tier", () => {
   }) => {
     await spoofHardwareGpu(page);
     await page.goto("/");
-    await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 20_000 });
+    // PF-54: the loader's ready signal, not a fixed 20 s (the scene can take longer under CI load).
+    await waitForScene(page);
+    await expect(page.locator("html")).toHaveAttribute("data-tier", "full");
     await page.evaluate(() => {
       window.scrollTo(0, document.documentElement.scrollHeight * 0.4);
     });
@@ -230,7 +256,8 @@ test.describe("full tier", () => {
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
 
     await toggle.click();
-    await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 20_000 });
+    await waitForScene(page);
+    await expect(page.locator("html")).toHaveAttribute("data-tier", "full");
   });
 
   test("Motion toggle defaults to off under reduced motion", async ({ page }) => {

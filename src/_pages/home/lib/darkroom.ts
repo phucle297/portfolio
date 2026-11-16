@@ -141,6 +141,10 @@ export async function createDarkroom(
 
   set(0);
   await renderer.compileAsync(graph.scene, graph.camera);
+  // Upload every texture (and build its mip chain) now, while the poster still covers the
+  // canvas, instead of lazily on the first frame that shows it (PF-54).
+  for (const texture of [...atlases, small.safelight, small.timer, small.glow])
+    renderer.initTexture(texture);
 
   return {
     tier,

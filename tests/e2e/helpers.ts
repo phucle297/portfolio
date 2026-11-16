@@ -58,11 +58,31 @@ export async function inSequence<T>(
   );
 }
 
+/**
+ * Wait for the scene loader's own ready signal (`html[data-scene-load]`, PF-54) instead of a fixed
+ * time: under CI load the three.js chunk, the atlases and the SwiftShader shader compile can take
+ * longer than 20 s, so this waits as long as the loader is still "loading" (bounded by the test
+ * timeout) and fails at once with the loader's state if it gave up ("failed" or "off").
+ */
+export async function waitForScene(page: Page): Promise<void> {
+  const handle = await page.waitForFunction(
+    () => {
+      const state = document.documentElement.dataset.sceneLoad;
+      return state === "ready" || state === "failed" || state === "off" ? state : false;
+    },
+    null,
+    { timeout: 0 },
+  );
+  const state = await handle.jsonValue();
+  if (state !== "ready") throw new Error(`scene loader ended "${String(state)}", not "ready"`);
+}
+
 /** Full tier with the test hook (`?scene-test`) on a spoofed hardware GPU. */
 export async function openScene(page: Page): Promise<void> {
   await spoofHardwareGpu(page);
   await page.goto("/?scene-test");
-  await page.waitForFunction(() => window.darkroomTest !== undefined, null, { timeout: 20_000 });
+  await waitForScene(page);
+  await page.waitForFunction(() => window.darkroomTest !== undefined, null, { timeout: 5000 });
 }
 
 /** Scroll to progress p and wait until the scene (and the copy layer) has caught up. */

@@ -1,0 +1,80 @@
+# PF-54: prove the formerly flaky e2e tests stable on a given head, 10 runs in a row, each on a
+# fresh runner exactly like CI (same setup, shared dist, system Chrome + SwiftShader).
+# Tests: the tiers group (M1-AC16 Motion toggle, tiers.spec.ts:208 aria-pressed, in its CI order),
+# the a11y stepped-backdrop self-tests (incl. the 150 ms blink, which must still FAIL the judge on
+# the plant, i.e. the test passes) and the full-tier CTA test (openScene / 3D loader).
+# Manual (`gh workflow run flaky-repeat.yml --ref <branch>`), and on PRs that change this file.
+# Separate from ci.yml on purpose (PF-53 / PF-59 edit ci.yml). Rollback: delete this file.
+name: Flaky repeat
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Not used for the matrix size (fixed at 10); kept for the record"
+        required: false
+        default: "10"
+  pull_request:
+    paths: [".github/workflows/flaky-repeat.yml"]
+
+concurrency:
+  group: flaky-repeat-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  LEFTHOOK: "0"
+  ASTRO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: bun run build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-flaky-repeat
+          path: dist
+          retention-days: 3
+          if-no-files-found: error
+
+  repeat:
+    name: repeat (${{ matrix.run }}/10)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false # every run counts: 10/10 green is the bar
+      matrix:
+        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    env:
+      E2E_PREBUILT: "1"
+      CHROME_PATH: /usr/bin/google-chrome
+      PLAYWRIGHT_HTML_OPEN: never
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-flaky-repeat
+          path: dist
+      - name: tiers group (M1-AC16, as in CI)
+        run: bunx playwright test tests/e2e/tiers.spec.ts --grep-invert "render loop is on demand" --project=chromium --reporter=list
+      - name: a11y stepped backdrop self-tests (150 ms blink must fail the judge)
+        if: ${{ !cancelled() }}
+        run: bunx playwright test tests/e2e/a11y.spec.ts --grep "stepped backdrop" --project=chromium --reporter=list
+      - name: full-tier CTA (3D loader)
+        if: ${{ !cancelled() }}
+        run: bunx playwright test tests/e2e/contact-form.spec.ts --grep "on the full tier" --project=chromium --reporter=list
+      - if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: flaky-repeat-${{ matrix.run }}
+          path: test-results
+          retention-days: 7
+          if-no-files-found: ignore
