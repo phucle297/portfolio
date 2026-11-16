@@ -112,6 +112,23 @@ const jsonLdJson = JSON.stringify(jsonLd).replaceAll("<", "\\u003c");
     </script>
   </head>
   <body>
+    <script is:inline>
+      // PF-57: start the inlined first-screen font subsets (fonts-critical.css, font-display:
+      // block) loading now, while the rest of the HTML parses, instead of at first style recalc,
+      // so Hello's copy paints with the header (Lighthouse folded everything into mobile LCP when it
+      // came a frame later). By descriptor, not by iterating document.fonts: WebKit's iteration
+      // does not reach the CSS faces this early.
+      if (document.fonts)
+        for (const f of [
+          '400 1em "Be Vietnam Pro Critical"',
+          '600 1em "Be Vietnam Pro Critical"',
+          '1em "Instrument Serif Critical"',
+          'italic 1em "Instrument Serif Critical"',
+          '1em "IBM Plex Mono Critical"',
+          '500 1em "IBM Plex Mono Critical"',
+        ])
+          document.fonts.load(f);
+    </script>
     <SkipLink />
     <SiteHeader anchorBase={anchorBase} />
     <script is:inline>

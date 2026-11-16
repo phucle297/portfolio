@@ -141,9 +141,15 @@ export async function mountStage(
 
   draw();
   // Fade in over the poster after the first frame.
+  let shownTimer = 0;
   requestAnimationFrame(() => {
     // Disposed in the same frame it mounted (reduced motion switched on mid-start): no fade-in.
-    if (!disposed) host.classList.add("is-ready");
+    if (disposed) return;
+    host.classList.add("is-ready");
+    // The still stays on screen until the canvas has faded in behind it (SectionStill, PF-57).
+    shownTimer = window.setTimeout(() => {
+      if (!disposed) document.documentElement.toggleAttribute("data-scene-shown", true);
+    }, FADE_IN_MS);
   });
 
   if (exposeTestHook) {
@@ -168,6 +174,8 @@ export async function mountStage(
       if (disposed) return;
       disposed = true;
       cancelAnimationFrame(raf);
+      window.clearTimeout(shownTimer);
+      document.documentElement.removeAttribute("data-scene-shown");
       window.removeEventListener("scroll", request);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
