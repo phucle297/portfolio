@@ -130,6 +130,63 @@ async function meanRgb(png: Buffer): Promise<number[]> {
   return channels.slice(0, 3).map((c) => c.mean);
 }
 
+/**
+ * Hello text is --text #fff1e4 (muted #c9b4a2) on a dark page / print. During the
+ * font-display:block window the glyphs are not painted, so a clip of #hello-title is only
+ * that dark field. Light pixels mean the first visible letters have been drawn — in the
+ * Critical faces on a good load, or in a fallback if one was allowed to paint (a swap jump).
+ */
+const INK_LUMA_MIN = 80;
+const INK_MIN_PIXELS = 16;
+const INK_TIMEOUT_MS = 8_000;
+
+async function clipHasLightInk(png: Buffer): Promise<boolean> {
+  const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const step = info.channels;
+  let n = 0;
+  for (let i = 0; i < data.length; i += step) {
+    const y = 0.2126 * (data[i] ?? 0) + 0.7152 * (data[i + 1] ?? 0) + 0.0722 * (data[i + 2] ?? 0);
+    if (y >= INK_LUMA_MIN) {
+      n += 1;
+      if (n >= INK_MIN_PIXELS) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * First paint of Hello's H1 with visible glyphs, not the layout under still-invisible text
+ * (PF-59). Playwright's screenshot path waits for document.fonts.ready unless this env is
+ * set; woff2 are held, so that promise would never resolve and the check would hang.
+ */
+async function screenshotHelloTitle(page: Page): Promise<Buffer> {
+  const previous = process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY;
+  process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY = "1";
+  try {
+    return await page.locator("#hello-title").screenshot();
+  } finally {
+    if (previous === undefined) delete process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY;
+    else process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY = previous;
+  }
+}
+
+async function waitForVisibleHelloText(page: Page): Promise<void> {
+  await page.locator("#journey").waitFor({ state: "attached" });
+  await page.locator("#hello-title").waitFor({ state: "attached" });
+  await expect
+    .poll(
+      async () => {
+        try {
+          return await clipHasLightInk(await screenshotHelloTitle(page));
+        } catch {
+          return false;
+        }
+      },
+      { timeout: INK_TIMEOUT_MS, intervals: [50] },
+    )
+    .toBe(true);
+}
+
 for (const vp of VIEWPORTS) {
   test(`PF-57 ${vp.width}×${vp.height}: the first screen paints in its final faces: no box moves more than ${MAX_MOVE_PX}px, no width or line count changes when the web fonts arrive`, async ({
     page,
@@ -287,14 +344,16 @@ for (const vp of VIEWPORTS) {
 }
 
 /**
- * PF-57 QA (attempt 1): the earliest layout of the first screen, before any web or inlined font
- * has necessarily finished loading. WebKit lays out and paints as soon as the Hello section is
- * parsed; at 1440 it used to set the 600 weight in a system fallback (the local() fallback
- * faces did not resolve there) and then reflowed when the fonts arrived: subtitle 2 -> 1 lines,
- * H1 and eyebrow +18 px after first paint. The boxes are read synchronously the moment the next
- * section (#journey) is inserted, i.e. the first layout that can be painted with the whole
- * Hello block, and compared with the settled page. (The inlined faces are font-display: block,
- * so text set in them is invisible until they load; the layout underneath must already be final.)
+ * PF-57 / PF-59: the first-screen layout that a visitor can actually see, compared with the
+ * settled page. WebKit used to paint the 600 weight in a system fallback as soon as Hello was
+ * parsed (the local() fallback faces did not resolve there) and then reflow: subtitle 2 -> 1
+ * lines, H1 and eyebrow +18 px after first paint. That fallback can be replaced by the inlined
+ * Critical faces within a few hundred ms, so a later first-ink screenshot misses it; on WebKit
+ * the boxes are therefore read synchronously when #journey is inserted. Chromium at 1440 can
+ * also lay out the lede / H1 under still-invisible font-display:block text (lede 4 -> 3, h1
+ * dy ~14) and then settle — a visitor never sees that reflow, so on Chromium PF-59 snapshots
+ * boxes only once Hello's H1 has painted glyphs. woff2 are still held, so a planted font-swap
+ * jump (fallback ink, then the web face) still fails the move / line-count checks.
  */
 for (const vp of VIEWPORTS) {
   test(`PF-57 ${vp.width}×${vp.height}: the first-screen layout as soon as Hello is parsed is already the settled one (no box moves more than ${MAX_MOVE_PX}px, no line count changes)`, async ({
@@ -328,8 +387,15 @@ for (const vp of VIEWPORTS) {
     // The web fonts arrive late, as on a slow link: the early layout cannot use them.
     const fonts = await hold(page, /\.woff2?(?:\?|$)/);
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    const early = await page.evaluate(() => window.pf57Early ?? null);
-    expect(early, "boxes read when #journey was inserted").not.toBeNull();
+    let early: Partial<Record<Name, Box>> | null;
+    if (browserName === "webkit") {
+      early = await page.evaluate(() => window.pf57Early ?? null);
+      expect(early, "boxes read when #journey was inserted").not.toBeNull();
+    } else {
+      await waitForVisibleHelloText(page);
+      early = await readBoxes(page);
+      expect(early.h1, "H1 box once Hello text is visible").toBeTruthy();
+    }
 
     await fonts.release();
     await page.waitForLoadState("load");
