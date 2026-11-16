@@ -167,8 +167,9 @@ for (const viewport of VIEWPORTS) {
           },
         );
       });
-      // 14 controls in the copy (Hello 2, Services 1, Contact 11).
-      expect(audited).toBeGreaterThanOrEqual(14);
+      // 9 controls in the copy (Hello 2, Services 1, Contact 6: Name, Email, brief, Send brief,
+      // the mailto link and Copy; PF-58 removed the switch, Project type and the link rows).
+      expect(audited).toBeGreaterThanOrEqual(9);
       expect(misses).toEqual([]);
     });
 
