@@ -69,6 +69,7 @@ interface SceneFrame {
 declare global {
   interface Window {
     pf57Frames?: SceneFrame[];
+    pf57Early?: Record<string, { x: number; y: number; w: number; h: number; lines: number }>;
   }
 }
 interface Box {
@@ -282,6 +283,83 @@ for (const vp of VIEWPORTS) {
       ).toBeLessThanOrEqual(MAX_TONE_DELTA);
     }
     test.info().annotations.push({ type: "tone", description: JSON.stringify(notes) });
+  });
+}
+
+/**
+ * PF-57 QA (attempt 1): the earliest layout of the first screen, before any web or inlined font
+ * has necessarily finished loading. WebKit lays out and paints as soon as the Hello section is
+ * parsed; at 1440 it used to set the 600 weight in a system fallback (the local() fallback
+ * faces did not resolve there) and then reflowed when the fonts arrived: subtitle 2 -> 1 lines,
+ * H1 and eyebrow +18 px after first paint. The boxes are read synchronously the moment the next
+ * section (#journey) is inserted, i.e. the first layout that can be painted with the whole
+ * Hello block, and compared with the settled page. (The inlined faces are font-display: block,
+ * so text set in them is invisible until they load; the layout underneath must already be final.)
+ */
+for (const vp of VIEWPORTS) {
+  test(`PF-57 ${vp.width}×${vp.height}: the first-screen layout as soon as Hello is parsed is already the settled one (no box moves more than ${MAX_MOVE_PX}px, no line count changes)`, async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName === "firefox", "AC1 is Chromium and WebKit");
+    await page.setViewportSize(vp);
+    await page.addInitScript((watched) => {
+      const read = (): void => {
+        const out: Record<string, { x: number; y: number; w: number; h: number; lines: number }> =
+          {};
+        for (const [name, selector] of Object.entries(watched)) {
+          const el = document.querySelector(selector);
+          if (!el) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          const cs = getComputedStyle(el);
+          const lh = Number.parseFloat(cs.lineHeight) || Number.parseFloat(cs.fontSize) * 1.2;
+          out[name] = { x: r.x, y: r.y, w: r.width, h: r.height, lines: Math.round(r.height / lh) };
+        }
+        window.pf57Early = out;
+      };
+      const observer = new MutationObserver(() => {
+        if (!document.getElementById("journey")) return;
+        observer.disconnect();
+        read();
+      });
+      observer.observe(document, { childList: true, subtree: true });
+    }, WATCHED);
+    // The web fonts arrive late, as on a slow link: the early layout cannot use them.
+    const fonts = await hold(page, /\.woff2?(?:\?|$)/);
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const early = await page.evaluate(() => window.pf57Early ?? null);
+    expect(early, "boxes read when #journey was inserted").not.toBeNull();
+
+    await fonts.release();
+    await page.waitForLoadState("load");
+    await page.evaluate(async () => {
+      await Promise.all([...document.fonts].map((face) => face.load().catch(() => undefined)));
+      await document.fonts.ready;
+    });
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    const after = await readBoxes(page);
+
+    const problems: string[] = [];
+    for (const name of NAMES) {
+      const a = early?.[name];
+      const b = after[name];
+      if (!a && !b) continue;
+      if (!a || !b) {
+        problems.push(`${name}: present ${Boolean(a)} -> ${Boolean(b)}`);
+        continue;
+      }
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      if (Math.abs(dx) > MAX_MOVE_PX || Math.abs(dy) > MAX_MOVE_PX) {
+        problems.push(`${name}: moved dx=${dx.toFixed(1)} dy=${dy.toFixed(1)}`);
+      }
+      if (a.lines !== b.lines) problems.push(`${name}: ${a.lines} -> ${b.lines} lines`);
+    }
+    test.info().annotations.push({ type: "boxes", description: JSON.stringify({ early, after }) });
+    expect(problems, JSON.stringify({ early, after })).toEqual([]);
   });
 }
 

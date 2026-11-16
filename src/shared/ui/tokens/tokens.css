@@ -112,3 +112,31 @@
   --header-h: 5.5rem;
   --footer-h: 6rem;
 }
+
+/* PF-57: on the first screen the inlined subsets come first in every stack. They hold every glyph
+   the header and Hello set (cut from the same files: same outlines, metrics and kerning), so the
+   final look is unchanged, and as the primary font (font-display: block, data: URL) the first text
+   frame waits the few ms they take instead of drawing a fallback. Second in the stack was not
+   enough for WebKit: it never loads a later family while the first one (the full web font) is
+   still in flight, so at 1440 it drew the 600 text in a system fallback and swapped ~0.1-0.6 s
+   after first paint. Any glyph outside the subset falls through to the full face. */
+.site-header,
+#hello {
+  --font-sans:
+    "Be Vietnam Pro Critical", "Be Vietnam Pro", "Be Vietnam Pro Fallback", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-serif:
+    "Instrument Serif Critical", "Instrument Serif", "Instrument Serif Fallback", ui-serif, Georgia,
+    serif;
+  --font-sans-nav:
+    "Be Vietnam Pro Critical", "Be Vietnam Pro", "Be Vietnam Pro Nav Fallback", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-sans-button:
+    "Be Vietnam Pro Critical", "Be Vietnam Pro", "Be Vietnam Pro Button Fallback", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-mono:
+    "IBM Plex Mono Critical", "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas,
+    monospace;
+
+  font-family: var(--font-sans);
+}

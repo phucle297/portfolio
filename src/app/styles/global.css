@@ -38,9 +38,17 @@
   font-family: "Be Vietnam Pro Fallback";
   font-weight: 600;
   src:
-    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
-    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold"),
-    local("Helvetica Neue Bold"), local("Helvetica Bold");
+    local("Arial Bold"),
+    local("Arial-BoldMT"),
+    local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"),
+    local("Arimo Bold"),
+    local("Arimo-Bold"),
+    local("Helvetica Neue Bold"),
+    local("Helvetica Bold"),
+    /* WebKit on Linux resolves local() by family name only: these give it the bold face. */
+    local("Liberation Sans"),
+    local("Arimo");
   ascent-override: 98%;
   descent-override: 25.97%;
   line-gap-override: 0%;
@@ -82,9 +90,17 @@
   font-family: "Be Vietnam Pro Button Fallback";
   font-weight: 600;
   src:
-    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
-    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold"),
-    local("Helvetica Neue Bold"), local("Helvetica Bold");
+    local("Arial Bold"),
+    local("Arial-BoldMT"),
+    local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"),
+    local("Arimo Bold"),
+    local("Arimo-Bold"),
+    local("Helvetica Neue Bold"),
+    local("Helvetica Bold"),
+    /* WebKit on Linux resolves local() by family name only: these give it the bold face. */
+    local("Liberation Sans"),
+    local("Arimo");
   ascent-override: 93.02%;
   descent-override: 24.65%;
   line-gap-override: 0%;
