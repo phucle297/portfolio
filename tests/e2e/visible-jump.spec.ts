@@ -24,15 +24,34 @@ import { movements, recordVisibleBoxes } from "./visible-jump";
  * 390×844 is below MIN_FULL_TIER_WIDTH (768), so the phone stays on the static tier even with the
  * spoof; it is still sampled, since a visitor on a phone sees that.
  *
+ * PF-53: 1024×768 (between MIN_FULL_TIER_WIDTH 768 and the 1200 px pin breakpoint) is the full
+ * tier but never pins, so it is checked with `pin: null` (no pinned-baseline assertion). A jump that
+ * comes and goes inside one long frame stall is never sampled, so the run also needs at least
+ * MIN_FRAMES sampled frames after first paint, or it fails as "not enough frames" instead of
+ * passing.
+ *
+ * Real GPU (PF-53 AC1): `bun run e2e:visible-jump:gpu` (see docs/pf-53/README.md) runs this spec
+ * headed with Chrome's GPU and without the probe spoof (PF53_REAL_GPU=1); it fails if WebGL is
+ * still a software renderer, and writes the JSON + traces to PF50_EVIDENCE_DIR.
+ *
  * Evidence: the frame series is attached as JSON and a Playwright trace (with screenshots) is
  * attached; set PF50_EVIDENCE_DIR to also copy both there.
  */
 
 const WINDOW_MS = 3000;
 const MAX_MOVE_PX = 8;
+/**
+ * Minimum sampled frames after first paint in the 3 s window (10 fps). Locally on SwiftShader a
+ * main run samples well over this; a run starved below it cannot see a jump that undoes itself
+ * between two frames, so it fails rather than passes.
+ */
+const MIN_FRAMES = 30;
+const REAL_GPU = process.env.PF53_REAL_GPU === "1";
 
 const VIEWPORTS = [
   { width: 1440, height: 900, tier: "full", pin: "on" },
+  // PF-53: full tier, below the pin breakpoint (min-width 1200px), so data-pin never turns on.
+  { width: 1024, height: 768, tier: "full", pin: null },
   { width: 390, height: 844, tier: "static", pin: null },
 ] as const;
 
@@ -44,7 +63,7 @@ for (const vp of VIEWPORTS) {
     context,
   }, testInfo) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
-    await spoofHardwareGpu(page);
+    if (!REAL_GPU) await spoofHardwareGpu(page);
     await recordVisibleBoxes(page, WINDOW_MS);
 
     await page.goto("/");
@@ -63,12 +82,27 @@ for (const vp of VIEWPORTS) {
       firstPaint: window.visibleJump?.firstPaint ?? null,
       tier: document.documentElement.dataset.tier ?? null,
       pin: document.documentElement.dataset.pin ?? null,
+      renderer: (() => {
+        const gl = document.createElement("canvas").getContext("webgl");
+        const ext = gl?.getExtension("WEBGL_debug_renderer_info");
+        return gl && ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : null;
+      })(),
     }));
     const moved = movements(run.samples, run.firstPaint);
+    const painted = run.samples.filter((s) => run.firstPaint === null || s.t >= run.firstPaint);
+    let maxGapMs = 0;
+    for (let i = 1; i < painted.length; i++) {
+      maxGapMs = Math.max(maxGapMs, (painted[i]?.t ?? 0) - (painted[i - 1]?.t ?? 0));
+    }
     const report = {
       viewport: `${vp.width}x${vp.height}`,
       windowMs: WINDOW_MS,
       maxMovePx: MAX_MOVE_PX,
+      minFrames: MIN_FRAMES,
+      framesAfterFirstPaint: painted.length,
+      maxFrameGapMs: maxGapMs,
+      realGpu: REAL_GPU,
+      renderer: run.renderer,
       firstPaint: run.firstPaint,
       finalTier: run.tier,
       finalPin: run.pin,
@@ -90,6 +124,10 @@ for (const vp of VIEWPORTS) {
       writeFileSync(join(out, `visible-boxes-${vp.width}x${vp.height}.json`), json);
       copyFileSync(tracePath, join(out, `trace-${vp.width}x${vp.height}.zip`));
     }
+    testInfo.annotations.push({
+      type: "frames",
+      description: `${vp.width}x${vp.height}: ${painted.length} frames after first paint (min ${MIN_FRAMES}), longest gap ${maxGapMs} ms, renderer ${run.renderer}`,
+    });
     for (const m of moved) {
       testInfo.annotations.push({
         type: "movement",
@@ -102,6 +140,17 @@ for (const vp of VIEWPORTS) {
     // …and at desktop the scene must have pinned the copy, the state that jumped in PR #33.
     expect(run.pin, "data-pin at the end of the window").toBe(vp.pin);
     expect(run.firstPaint, "first-paint timing").not.toBeNull();
+    if (REAL_GPU) {
+      // A GPU run on a software renderer proves nothing more than CI does.
+      expect(run.renderer ?? "", "WebGL renderer on the GPU run").not.toMatch(
+        /swiftshader|llvmpipe|software/i,
+      );
+    }
+    // PF-53: too few frames and a jump that undoes itself inside one stall is never sampled.
+    expect(
+      painted.length,
+      `not enough frames: ${painted.length} sampled after first paint in ${WINDOW_MS} ms (need >= ${MIN_FRAMES}, longest gap ${maxGapMs} ms)`,
+    ).toBeGreaterThanOrEqual(MIN_FRAMES);
     if (vp.pin !== null) {
       // The baseline must come before the pin, or a pin jump folds into it and passes unseen.
       const baselineT = Math.max(...moved.map((m) => m.baselineT ?? Infinity));

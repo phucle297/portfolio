@@ -33,3 +33,6 @@ test-results/
 playwright-report/
 .lighthouseci/
 lhci-report/
+
+# PF-53: real-GPU visible-jump run output (bun run e2e:visible-jump:gpu)
+pf-53-gpu/
