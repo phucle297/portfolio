@@ -319,6 +319,16 @@ const email = profile.email;
     padding-bottom: 0;
   }
 
+  /* PF-60: at 1280, 33vw is ~422 px — about 5 px short of "Send brief" + gap + the reply note
+     on one row (Option B). Floor the pinned column from 1280 up so the note stays beside the
+     button, without widening it at 1440 (33vw already fits; tray clearance is tight) or below
+     1280 (wrapping is allowed, and a floor would eat into the tray near the 1200 pin start). */
+  @media (min-width: 1280px) {
+    :global(html[data-pin="on"]) .contact {
+      width: min(30rem, max(27rem, 33vw));
+    }
+  }
+
   :global(html[data-pin="on"]) .contact .section-title {
     font-size: min(6rem, 6vw, 9.5vh);
   }
