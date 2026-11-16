@@ -90,6 +90,81 @@ test.describe("PF-13 contact form", () => {
     await expect(copy).toHaveText(contact.form.copyShort);
   });
 
+  // Needs the SwiftShader-backed full-tier scene so data-pin is on: the 33vw column (and this
+  // 1280 wrap) only applies while pinned.
+  test(
+    "PF-60: the reply note stays on the same row as Send brief at 1280 and 1440 @chromium-only",
+    {
+      tag: "@chromium-only",
+    },
+    async ({ browser }) => {
+      const viewports = [
+        { width: 1280, height: 800 },
+        { width: 1440, height: 900 },
+      ] as const;
+
+      await inSequence(viewports, async (viewport) => {
+        const context = await browser.newContext({ viewport });
+        const page = await context.newPage();
+        await openScene(page);
+        await scrollToP(page, KEY_PROGRESS[5] ?? 0.96);
+        await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
+
+        const geometry = await page.evaluate(() => {
+          const button = document.querySelector(".contact__submit")?.getBoundingClientRect();
+          const note = document.querySelector(".contact__note")?.getBoundingClientRect();
+          const column = document.querySelector("#contact .contact")?.getBoundingClientRect();
+          if (!button || !note || !column) return null;
+          return {
+            button: {
+              top: button.top,
+              right: button.right,
+              bottom: button.bottom,
+              left: button.left,
+            },
+            note: { top: note.top, right: note.right, bottom: note.bottom, left: note.left },
+            column: { right: column.right },
+          };
+        });
+        expect(
+          geometry,
+          `button, note and column boxes at ${viewport.width}×${viewport.height}`,
+        ).toBeTruthy();
+        if (!geometry) return;
+        const { button, note, column } = geometry;
+
+        expect(
+          note.top,
+          `note top is within the button row at ${viewport.width}`,
+        ).toBeGreaterThanOrEqual(button.top - 1);
+        expect(
+          note.top,
+          `note top is within the button row at ${viewport.width}`,
+        ).toBeLessThanOrEqual(button.bottom);
+        expect(
+          note.left,
+          `note sits to the right of the button at ${viewport.width}`,
+        ).toBeGreaterThanOrEqual(button.right - 0.5);
+
+        const overlapX = Math.min(button.right, note.right) - Math.max(button.left, note.left);
+        const overlapY = Math.min(button.bottom, note.bottom) - Math.max(button.top, note.top);
+        expect(
+          overlapX > 0 && overlapY > 0,
+          `button and note do not overlap at ${viewport.width}`,
+        ).toBe(false);
+        expect(note.right, `note stays inside the column at ${viewport.width}`).toBeLessThanOrEqual(
+          column.right + 0.5,
+        );
+        expect(
+          button.right,
+          `button stays inside the column at ${viewport.width}`,
+        ).toBeLessThanOrEqual(column.right + 0.5);
+
+        await context.close();
+      });
+    },
+  );
+
   test("invalid submit shows the exact §5 strings with icon + text, tied and announced, and clears once valid", async ({
     page,
   }) => {
