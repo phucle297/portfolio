@@ -19,6 +19,14 @@ const SETTLE_EPSILON = 1e-4;
  * < 0.01 % of the jump is left, so the snap is invisible.
  */
 const IDLE_BUDGET_MS = 1500;
+/**
+ * PF-61: the predictor above cannot see a single stalled frame coming (SwiftShader on a loaded CI
+ * host: one rAF delivered 0.5-0.7 s late). So the budget is also a hard deadline, this long before
+ * IDLE_BUDGET_MS: a timer cancels any rAF still pending and draws the final, snapped frame itself,
+ * and a tick whose draw ran past it snaps and stops in the same callback. No rAF callback starts
+ * after the deadline unless the main thread itself is blocked past it.
+ */
+const IDLE_GUARD_MS = 150;
 const FADE_IN_MS = 560;
 
 export interface StageHandle {
@@ -86,6 +94,7 @@ export async function mountStage(
   let frames = 0;
   let rafs = 0;
   let disposed = false;
+  let deadlineTimer = 0;
 
   const draw = (): RenderInfo => {
     darkroom.set(shown);
@@ -110,13 +119,34 @@ export async function mountStage(
       performance.now() - inputAt + 3 * slowestFrameMs >= IDLE_BUDGET_MS;
     if (settled) shown = target;
     draw();
+    if (!settled && performance.now() - inputAt >= IDLE_BUDGET_MS - IDLE_GUARD_MS) {
+      // This frame's draw ran past the deadline (a stall): snap now, ask for no further frame.
+      shown = target;
+      draw();
+      last = 0;
+      return;
+    }
     if (!settled) raf = requestAnimationFrame(tick);
     else last = 0;
+  };
+
+  /** The idle deadline (PF-61): stop a loop that is still waiting for a late frame. */
+  const deadline = (): void => {
+    deadlineTimer = 0;
+    if (!raf) return;
+    cancelAnimationFrame(raf);
+    raf = 0;
+    last = 0;
+    if (disposed || document.hidden) return;
+    shown = scrollProgress();
+    draw();
   };
 
   const request = (): void => {
     inputAt = performance.now();
     slowestFrameMs = 0;
+    window.clearTimeout(deadlineTimer);
+    deadlineTimer = window.setTimeout(deadline, IDLE_BUDGET_MS - IDLE_GUARD_MS);
     if (!raf && !disposed && !document.hidden) raf = requestAnimationFrame(tick);
   };
 
@@ -174,6 +204,7 @@ export async function mountStage(
       if (disposed) return;
       disposed = true;
       cancelAnimationFrame(raf);
+      window.clearTimeout(deadlineTimer);
       window.clearTimeout(shownTimer);
       document.documentElement.removeAttribute("data-scene-shown");
       window.removeEventListener("scroll", request);
