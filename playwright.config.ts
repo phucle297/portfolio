@@ -62,7 +62,14 @@ export default defineConfig({
       name: "webkit",
       testIgnore: crossBrowserIgnore,
       grepInvert: crossBrowserGrepInvert("webkit"),
-      use: { ...devices["Desktop Safari"], viewport: DESKTOP },
+      use: {
+        ...devices["Desktop Safari"],
+        viewport: DESKTOP,
+        // PF-59: the bare fontconfig must reach the WebKit process, not only the test runner.
+        launchOptions: process.env.FONTCONFIG_FILE
+          ? { env: { ...process.env, FONTCONFIG_FILE: process.env.FONTCONFIG_FILE } }
+          : {},
+      },
     },
   ],
   webServer: {

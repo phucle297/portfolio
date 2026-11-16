@@ -100,6 +100,9 @@ jobs:
           # PF-05 (#8): the engine-neutral stand-ins on Chromium. Firefox and WebKit: job e2e-xb.
           - group: cross-browser
             args: tests/e2e/cross-browser.spec.ts
+          # PF-59: first-screen font/background stability (Hello-parse, tone, full-tier still).
+          - group: load-stability
+            args: tests/e2e/load-stability.spec.ts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -170,6 +173,39 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+  # PF-59: load-stability on WebKit with a bare fontconfig (Liberation only), so the old
+  # fallback bug (664115d) is visible. Soft system/Google fonts on the runner would hide it.
+  # Chromium of the same spec is the load-stability group in `e2e` above. Not folded into
+  # e2e-xb: those jobs must keep the default fontconfig.
+  e2e-load-stability-webkit:
+    name: e2e (webkit load-stability)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - run: bunx playwright install --with-deps webkit
+      - run: sudo apt-get update && sudo apt-get install -y fonts-liberation
+      - run: bunx playwright test tests/e2e/load-stability.spec.ts --project=webkit --reporter=list,html
+        env:
+          E2E_PREBUILT: "1" # serve the shared dist; do not rebuild
+          PLAYWRIGHT_HTML_OPEN: never
+          FONTCONFIG_FILE: ${{ github.workspace }}/tools/ci/fontconfig-nosoft/fonts.conf
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-webkit-load-stability
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore
+
   lighthouse:
     name: lighthouse (${{ matrix.form }})
     needs: build
@@ -220,7 +256,7 @@ jobs:
   # One stable check for branch protection: green only if every job above passed.
   ci-ok:
     if: ${{ always() }}
-    needs: [fast-gate, build, e2e, e2e-xb, lighthouse, bundle-size]
+    needs: [fast-gate, build, e2e, e2e-xb, e2e-load-stability-webkit, lighthouse, bundle-size]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
