@@ -9,7 +9,8 @@ Check: `tests/e2e/visible-jump.spec.ts` (PF-50, see `docs/pf-50/README.md`). PF-
   sampled, so each run needs at least **30 frames after first paint in the 3 s window** (10 fps),
   or it fails with `not enough frames: N sampled after first paint in 3000 ms (need >= 30, …)`.
   The JSON now records `framesAfterFirstPaint`, `maxFrameGapMs` and the WebGL `renderer`.
-- **A one-command real-GPU run** (AC1, which this box can't do). See below.
+- **A one-command real-GPU run** (AC1, which this box can't do). The Owner copy-paste guide is
+  in [docs/pf-62/RUN-ON-GPU.md](../pf-62/RUN-ON-GPU.md) (PF-62).
 
 ## Results on this box (SwiftShader, spoofed full tier, base main 2b80200)
 
@@ -48,8 +49,12 @@ bun run e2e:visible-jump:gpu
 
 `e2e:visible-jump:gpu` builds the site, runs `visible-jump.spec.ts` in **headed** Chromium with its
 normal GPU path (`playwright.gpu.config.ts`: no SwiftShader flags) and without the WebGL-probe spoof
-(`PF53_REAL_GPU=1`), so the full tier comes from the real probe. It fails if WebGL is still a
-software renderer (SwiftShader / llvmpipe). Output for all three viewports goes to `pf-53-gpu/`
+(`PF53_REAL_GPU=1`), so the full tier comes from the real probe. It fails first with
+`no hardware GPU` if WebGL is still a software renderer (SwiftShader / llvmpipe), before the tier
+check. A single stall longer than **1000 ms** fails as `not enough frames` even when the total
+frame count is still at least 30. Output for all three viewports goes to `pf-53-gpu/`
 (git-ignored): `visible-boxes-<w>x<h>.json` (frames, renderer, movements) and
 `trace-<w>x<h>.zip` (`bunx playwright show-trace pf-53-gpu/trace-1440x900.zip`). Attach both to the
-PF-53 card.
+PF-62 card.
+
+Step-by-step (prerequisites, checkout, what to send back): [docs/pf-62/RUN-ON-GPU.md](../pf-62/RUN-ON-GPU.md).

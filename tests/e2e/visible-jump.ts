@@ -154,3 +154,76 @@ export function movements(samples: Sample[], firstPaint: number | null): Movemen
 }
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
+
+/** Visible-jump window after first paint (PF-50 / PF-53 / PF-62). */
+export const WINDOW_MS = 3000;
+/**
+ * Minimum sampled frames after first paint in the window (10 fps). A starved run cannot see a
+ * jump that undoes itself between two frames, so it fails rather than passes.
+ */
+export const MIN_FRAMES = 30;
+/**
+ * PF-62: a single stall longer than this (1 s) in the 3 s window also fails as "not enough
+ * frames". A jump can hide inside that stall even when the total frame count is still above
+ * MIN_FRAMES. 1000 ms is about 2× the longest gap seen on SwiftShader in PF-53 (449–534 ms), so
+ * the cap should not flake there, and a real GPU should be well under it.
+ */
+export const MAX_FRAME_GAP_MS = 1000;
+
+/** Software WebGL renderers that do not count as a hardware-GPU run. */
+export const SOFTWARE_RENDERER_RE = /swiftshader|llvmpipe|software/i;
+
+export function isSoftwareRenderer(renderer: string | null | undefined): boolean {
+  return SOFTWARE_RENDERER_RE.test(renderer ?? "");
+}
+
+/** Longest gap between consecutive sample timestamps, in ms. */
+export function maxFrameGapMs(times: readonly number[]): number {
+  let max = 0;
+  for (let i = 1; i < times.length; i++) {
+    max = Math.max(max, (times[i] ?? 0) - (times[i - 1] ?? 0));
+  }
+  return max;
+}
+
+export function notEnoughFramesMessage(frames: number, gapMs: number): string {
+  return `not enough frames: ${frames} sampled after first paint in ${WINDOW_MS} ms (need >= ${MIN_FRAMES}, longest gap ${gapMs} ms, cap ${MAX_FRAME_GAP_MS} ms)`;
+}
+
+/** Inputs for the visible-jump gates that run before the movement assertions. */
+export interface VisibleJumpGuardInput {
+  realGpu: boolean;
+  renderer: string | null;
+  expectedTier: string;
+  actualTier: string | null;
+  expectedPin: string | null;
+  actualPin: string | null;
+  firstPaint: number | null;
+  framesAfterFirstPaint: number;
+  maxFrameGapMs: number;
+}
+
+/**
+ * First failing visible-jump gate, in assertion order, or null if those gates pass.
+ * On a real-GPU run (`realGpu: true`) the software-renderer check comes first, so a machine
+ * without a hardware GPU fails with "no hardware GPU" before the tier check (desktop widths
+ * otherwise fail first on `data-tier=static` because the probe spoof is skipped).
+ */
+export function firstVisibleJumpFailure(input: VisibleJumpGuardInput): string | null {
+  if (input.realGpu && isSoftwareRenderer(input.renderer)) {
+    return `no hardware GPU: WebGL renderer is ${input.renderer ?? "(none)"}`;
+  }
+  if (input.actualTier !== input.expectedTier) {
+    return "data-tier at the end of the window";
+  }
+  if (input.actualPin !== input.expectedPin) {
+    return "data-pin at the end of the window";
+  }
+  if (input.firstPaint === null) {
+    return "first-paint timing";
+  }
+  if (input.framesAfterFirstPaint < MIN_FRAMES || input.maxFrameGapMs > MAX_FRAME_GAP_MS) {
+    return notEnoughFramesMessage(input.framesAfterFirstPaint, input.maxFrameGapMs);
+  }
+  return null;
+}
