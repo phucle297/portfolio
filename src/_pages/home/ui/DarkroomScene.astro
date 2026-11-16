@@ -39,6 +39,15 @@ import { sceneDescription } from "@entities/profile";
   const setTier = (tier: "full" | "static"): void => {
     root.dataset.tier = tier;
   };
+  /**
+   * Where the scene loader is (PF-54): "loading" from the probe until the scene has mounted,
+   * then "ready" (the full tier is on and its first frame is drawn), "failed" (WebGL or network
+   * error: the stills stay) or "off" (gated out, or stopped). A ready signal for tests that need
+   * the scene, so they wait for the loader itself instead of a fixed time.
+   */
+  const setLoad = (state: "loading" | "ready" | "failed" | "off"): void => {
+    root.dataset.sceneLoad = state;
+  };
 
   const whenIdle = (cb: () => void): void => {
     let done = false;
@@ -65,16 +74,26 @@ import { sceneDescription } from "@entities/profile";
     handle?.dispose();
     handle = null;
     setTier("static");
+    setLoad("off");
   }
 
   async function start(el: HTMLElement): Promise<void> {
-    if (handle || starting || !cheapGates().pass) return;
+    if (handle || starting) return;
+    if (!cheapGates().pass) {
+      setLoad("off");
+      return;
+    }
     starting = true;
+    setLoad("loading");
     const startedAt = generation;
     let failed = false;
     const wanted = (): boolean => generation === startedAt && cheapGates().pass;
     try {
-      if (!(await probeHardwareWebGL()) || !wanted()) return;
+      if (!(await probeHardwareWebGL())) {
+        setLoad("off");
+        return;
+      }
+      if (!wanted()) return;
       // Lite morph is not enabled (build plan Q5); the "lite" tier is reachable only via the
       // test hook for budget measurement.
       const wantsLite = params.get("tier") === "lite";
@@ -88,6 +107,7 @@ import { sceneDescription } from "@entities/profile";
       }
       handle = mounted;
       setTier("full");
+      setLoad("ready");
       addEventListener("pagehide", (event) => {
         if (!event.persisted) stop();
       });
@@ -95,6 +115,7 @@ import { sceneDescription } from "@entities/profile";
       // WebGL or network failure: the poster stills stay.
       failed = true;
       stop();
+      setLoad("failed");
     } finally {
       starting = false;
       // Motion was switched off and back on while this start was in flight: start again, now
