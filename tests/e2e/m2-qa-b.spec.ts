@@ -215,7 +215,7 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator("#contact-name")).toBeFocused();
     });
 
-    test("Contact: fields, mode, Send brief and Copy email take real mouse clicks and typing", async ({
+    test("Contact: fields, Send brief and Copy email take real mouse clicks and typing", async ({
       page,
     }) => {
       await scrollToP(page, KEY_PROGRESS[5] ?? 0.96);
@@ -234,16 +234,6 @@ for (const viewport of VIEWPORTS) {
       await clickAt(page.locator("#contact-brief"));
       await page.keyboard.type("A small site.");
       await expect(page.locator("#contact-brief")).toHaveValue("A small site.");
-      // The project-type select (freelance mode, the default) takes the click and focus;
-      // Escape closes its picker if one opened.
-      await clickAt(page.locator("#contact-type"));
-      await expect(page.locator("#contact-type")).toBeFocused();
-      await page.keyboard.press("Escape");
-      const fullTime = page.locator('#contact input[data-mode="1"]');
-      await clickAt(fullTime);
-      await expect(fullTime).toBeChecked();
-      // Full-time mode has no project type.
-      await expect(page.locator("#contact-type")).toBeHidden();
       // Send brief: the click submits, validation flags the email and focuses it.
       await clickAt(page.locator(".contact__submit"));
       await expect(page.locator("#contact-email-error")).toBeVisible();

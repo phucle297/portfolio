@@ -182,7 +182,8 @@ test.describe("engine-neutral stand-ins for Chromium-only checks", () => {
     await page.goto("/");
     const button = page.locator("[data-copy-email]");
     await expect(button).toBeVisible();
-    await expect(button).toHaveText("Copy email");
+    await expect(button).toHaveText("Copy");
+    await expect(button).toHaveAccessibleName("Copy email");
     const email = await button.getAttribute("data-copy-email");
     await button.click();
     await expect(page.locator("[data-copy-status]")).toHaveText("Email copied.");
@@ -191,7 +192,7 @@ test.describe("engine-neutral stand-ins for Chromium-only checks", () => {
       () => (window as Window & { pwClipboardWrites?: string[] }).pwClipboardWrites ?? [],
     );
     expect(writes).toEqual([email]);
-    await expect(button).toHaveText("Copy email", { timeout: 4000 });
+    await expect(button).toHaveText("Copy", { timeout: 4000 });
   });
 
   test("contact form: a valid brief opens the mail app and announces success", async ({ page }) => {

@@ -1,8 +1,9 @@
 /**
- * PF-13 (M3-AC8, Q8): the contact form is usable with mouse, touch and keyboard, shows the
- * exact §5 error strings (icon + text, tied to the field, announced politely, cleared once
- * valid), opens a prefilled mailto on a valid submit, and the Start a project / Get a quote
- * buttons land on Contact with Freelance selected and focus on Name, on both tiers.
+ * PF-13 (M3-AC8) as amended by PF-58 (Contact Option B): the contact form has three labelled
+ * fields (Name, Email, "What are you building?") and no select or radio, shows the exact §5
+ * error strings (icon + text, tied to the field, announced politely, cleared once valid), opens
+ * a prefilled mailto ("Project: {name}", Name/Email/brief) on a valid submit, and the Start a
+ * project / Get a quote buttons land on Contact with focus on Name, on both tiers.
  *
  * The axe scan of the error and success states (AC 5 / M3-AC4) is not in this spec:
  * `@axe-core/playwright` is not on main (it lands with PF-03 / PR #12). PF-03 already covers
@@ -17,20 +18,15 @@ import { inSequence, openScene, scrollToP, settle } from "./helpers";
 import { knownEngineFailure } from "./known-failures";
 
 const errors = contact.form.errors;
-const modes = contact.form.modes;
 const success = contact.form.success;
 
 const nameInput = (page: Page) => page.locator("#contact-name");
 const emailInput = (page: Page) => page.locator("#contact-email");
 const briefInput = (page: Page) => page.locator("#contact-brief");
-const projectType = (page: Page) => page.locator("[data-project-type]");
-const projectSelect = (page: Page) => page.locator("#contact-type");
 const submit = (page: Page) => page.getByRole("button", { name: contact.form.submit });
 const status = (page: Page) => page.locator("[data-form-status]");
 const errorOf = (page: Page, field: "name" | "email" | "brief") =>
   page.locator(`[data-error-for="${field}"]`);
-const freelance = (page: Page) => page.locator('#contact input[data-mode="0"]');
-const fullTime = (page: Page) => page.locator('#contact input[data-mode="1"]');
 
 const rgbToHex = (rgb: string): string => {
   const match = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/u.exec(rgb);
@@ -67,59 +63,31 @@ const fillValid = async (page: Page): Promise<void> => {
 };
 
 test.describe("PF-13 contact form", () => {
-  test("fields have visible labels and autofill hints; Project type hides for Full-time role", async ({
+  test("Option B: three labelled fields with autofill hints, no select or radio, and the B copy", async ({
     page,
   }) => {
     await page.goto("/");
     await page.locator("#contact").scrollIntoViewIfNeeded();
+    const section = page.locator("#contact");
 
     await expect(page.locator('label[for="contact-name"]')).toHaveText(contact.form.name.label);
     await expect(page.locator('label[for="contact-email"]')).toHaveText(contact.form.email.label);
-    await expect(page.locator('label[for="contact-type"]')).toHaveText(
-      contact.form.projectType.label,
-    );
     await expect(page.locator('label[for="contact-brief"]')).toHaveText(contact.form.brief.label);
     await expect(nameInput(page)).toHaveAttribute("autocomplete", "name");
     await expect(emailInput(page)).toHaveAttribute("autocomplete", "email");
+    await expect(emailInput(page)).toHaveAttribute("type", "email");
 
-    await expect(freelance(page)).toBeChecked();
-    await expect(page.locator(".contact__modes span").nth(0)).toHaveText(modes[0] ?? "");
-    await expect(page.locator(".contact__modes span").nth(1)).toHaveText(modes[1] ?? "");
-    await expect(projectType(page)).toBeVisible();
-    await expect(projectSelect(page)).toBeEnabled();
+    await expect(section.locator("input, textarea")).toHaveCount(3);
+    await expect(section.locator("select")).toHaveCount(0);
+    await expect(section.locator('input[type="radio"]')).toHaveCount(0);
+    await expect(section.locator("dl")).toHaveCount(0);
 
-    await page.locator(".contact__modes label").nth(1).click();
-    await expect(fullTime(page)).toBeChecked();
-    await expect(projectType(page)).toBeHidden();
-    await expect(projectSelect(page)).toBeDisabled();
-
-    await page.locator(".contact__modes label").nth(0).click();
-    await expect(freelance(page)).toBeChecked();
-    await expect(projectType(page)).toBeVisible();
-    await expect(projectSelect(page)).toBeEnabled();
-  });
-
-  test("the mode group works from the keyboard and Project type is skipped when hidden", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    await page.locator("#contact").scrollIntoViewIfNeeded();
-    await freelance(page).focus();
-    await expect(freelance(page)).toBeFocused();
-    await page.keyboard.press("ArrowRight");
-    await expect(fullTime(page)).toBeChecked();
-    await expect(projectType(page)).toBeHidden();
-
-    await nameInput(page).focus();
-    await page.keyboard.press("Shift+Tab");
-    const skippedSelect = await page.evaluate(() => document.activeElement?.id !== "contact-type");
-    expect(skippedSelect).toBe(true);
-    await expect(projectSelect(page)).toBeDisabled();
-
-    await fullTime(page).focus();
-    await page.keyboard.press("ArrowLeft");
-    await expect(freelance(page)).toBeChecked();
-    await expect(projectType(page)).toBeVisible();
+    await expect(section.locator(".eyebrow")).toHaveText(contact.eyebrow);
+    await expect(section.locator(".contact__sub")).toHaveText(contact.copy);
+    await expect(section.locator(".contact__note")).toHaveText(contact.form.note);
+    await expect(submit(page)).toHaveText(contact.form.submit);
+    const copy = section.getByRole("button", { name: contact.form.copyEmail });
+    await expect(copy).toHaveText(contact.form.copyShort);
   });
 
   test("invalid submit shows the exact §5 strings with icon + text, tied and announced, and clears once valid", async ({
@@ -178,11 +146,11 @@ test.describe("PF-13 contact form", () => {
     const url = await pending;
     expect(url.startsWith(`mailto:${PUBLIC_EMAIL}?`)).toBe(true);
     const decoded = decodeURIComponent(url);
-    expect(decoded).toContain("subject=Freelance project: Ada Lovelace");
-    expect(decoded).toContain("Name: Ada Lovelace");
-    expect(decoded).toContain("Email: ada@example.com");
-    expect(decoded).toContain("Project type: Web app build");
-    expect(decoded).toContain("A small marketing site by next month.");
+    expect(decoded).toContain("subject=Project: Ada Lovelace");
+    expect(decoded).toContain(
+      "body=Name: Ada Lovelace\nEmail: ada@example.com\n\nA small marketing site by next month.",
+    );
+    expect(decoded).not.toContain("Project type:");
     await expect(status(page)).toHaveText(success);
     await expect(status(page)).toHaveAttribute("role", "status");
     await expect(status(page)).toHaveAttribute("aria-live", "polite");
@@ -194,32 +162,23 @@ test.describe("PF-13 contact form", () => {
     await page.goto("/");
     await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
 
-    await fullTime(page).check();
     await page.locator("#hello [data-start-project]").click();
-    await expect(freelance(page)).toBeChecked();
     await expect(nameInput(page)).toBeFocused();
-    await expect(projectType(page)).toBeVisible();
     // The jump still leaves #contact in the address bar, and Name stays focused after the
     // scroll settles (Firefox used to clear focus after its fragment jump).
     await expect(page).toHaveURL(/#contact$/u);
     await page.waitForTimeout(300);
     await expect(nameInput(page)).toBeFocused();
 
-    await fullTime(page).check();
     await page.locator("#hello [data-start-project]").focus();
     await page.keyboard.press("Enter");
-    await expect(freelance(page)).toBeChecked();
     await expect(nameInput(page)).toBeFocused();
 
-    await fullTime(page).check();
     await page.locator("#services [data-start-project]").click();
-    await expect(freelance(page)).toBeChecked();
     await expect(nameInput(page)).toBeFocused();
 
-    await fullTime(page).check();
     await page.locator("#services [data-start-project]").focus();
     await page.keyboard.press("Enter");
-    await expect(freelance(page)).toBeChecked();
     await expect(nameInput(page)).toBeFocused();
   });
 
@@ -229,48 +188,50 @@ test.describe("PF-13 contact form", () => {
     await openScene(page);
     await expect(page.locator("html")).toHaveAttribute("data-tier", "full");
 
-    const setFullTime = async (): Promise<void> => {
+    // Leave Contact with focus elsewhere before each landing, so the check proves the CTA moved it.
+    const leaveContact = async (): Promise<void> => {
       await scrollToP(page, KEY_PROGRESS[5] ?? 0.96);
-      await fullTime(page).check();
-      await expect(fullTime(page)).toBeChecked();
+      await page.evaluate(() => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement) active.blur();
+      });
+      await expect(nameInput(page)).not.toBeFocused();
     };
 
-    await setFullTime();
+    await leaveContact();
     await scrollToP(page, KEY_PROGRESS[0] ?? 0.03);
     await page.locator("#hello [data-start-project]").click();
     await settle(page);
-    await expect(freelance(page)).toBeChecked();
     await expect(nameInput(page)).toBeFocused();
 
-    await setFullTime();
+    await leaveContact();
     await scrollToP(page, KEY_PROGRESS[0] ?? 0.03);
     await page.locator("#hello [data-start-project]").focus();
     await page.keyboard.press("Enter");
     await settle(page);
-    await expect(freelance(page)).toBeChecked();
     await expect(nameInput(page)).toBeFocused();
 
     // Get a quote lives on Services beat 4. KEY_PROGRESS[3] (0.6) is beat 2 (the
     // four service cards), so the list would intercept a click on the CTA.
     const servicesQuoteP = beatProgress(3, 4, 5);
 
-    await setFullTime();
+    await leaveContact();
     await scrollToP(page, servicesQuoteP);
     await page.locator("#services [data-start-project]").click();
     await settle(page);
-    await expect(freelance(page)).toBeChecked();
     await expect(nameInput(page)).toBeFocused();
 
-    await setFullTime();
+    await leaveContact();
     await scrollToP(page, servicesQuoteP);
     await page.locator("#services [data-start-project]").focus();
     await page.keyboard.press("Enter");
     await settle(page);
-    await expect(freelance(page)).toBeChecked();
     await expect(nameInput(page)).toBeFocused();
   });
 
-  test("the mode group can be chosen by touch on a phone", async ({ browser }) => {
+  test("the fields take touch on a phone and every control is at least 44px tall", async ({
+    browser,
+  }) => {
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
       hasTouch: true,
@@ -279,11 +240,21 @@ test.describe("PF-13 contact form", () => {
     const page = await context.newPage();
     await page.goto("/");
     await page.locator("#contact").scrollIntoViewIfNeeded();
-    await page.locator(".contact__modes label").nth(1).tap();
-    await expect(fullTime(page)).toBeChecked();
-    await expect(projectType(page)).toBeHidden();
-    await page.locator(".contact__modes label").nth(0).tap();
-    await expect(freelance(page)).toBeChecked();
+    await nameInput(page).tap();
+    await expect(nameInput(page)).toBeFocused();
+    await briefInput(page).tap();
+    await expect(briefInput(page)).toBeFocused();
+    const small = await page.locator("#contact").evaluate((root) =>
+      [...root.querySelectorAll<HTMLElement>("a, button, input, textarea")]
+        .filter((el) => el.getClientRects().length > 0 && !el.hidden)
+        .map((el) => ({ el: el.outerHTML.slice(0, 60), h: el.getBoundingClientRect().height }))
+        .filter((item) => item.h < 44),
+    );
+    expect(small).toEqual([]);
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(0);
     await context.close();
   });
 

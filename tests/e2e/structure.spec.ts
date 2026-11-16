@@ -98,15 +98,9 @@ test.describe("structure and copy", () => {
       "A written scope, price and timeline before any work starts.",
       "Work in small steps with a staging link and a demo every week.",
       "Deploy, docs and a code walkthrough, so your team owns it.",
-      "Frame 06 · Contact · lights on",
-      "Tell me what you're building. Freelance projects start from $500 USD (depending on complexity), usually 7 days – 1 month. Recruiting for a full-time role? Use the same form.",
-      "linkedin.com/in/dp2907",
-      "github.com/phucle297",
-      "Freelance project",
-      "Full-time role",
-      "Your name",
-      "you@company.com",
-      "What are you building, and by when?",
+      "Frame 06 · Contact",
+      "From $500 · 7 days – 1 month. Hiring? Same form.",
+      "What are you building?",
       "Send brief",
       "I reply within 4 hours, Asia/Saigon (UTC+7).",
       "Your email app is open with your brief. I reply within 4 hours, Asia/Saigon (UTC+7).",
@@ -124,6 +118,11 @@ test.describe("structure and copy", () => {
       "#0b0d12",
       ">About<",
       ">Projects<",
+      // PF-58 (Contact Option B): no switch, no Project type, no select or radio.
+      "Full-time role",
+      "Project type",
+      "<select",
+      'type="radio"',
     ]) {
       expect(html).not.toContain(stale);
     }

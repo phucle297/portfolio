@@ -9,10 +9,8 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FIELDS = ["name", "email", "brief"] as const;
 
 export interface ContactValues {
-  mode: string;
   name: string;
   email: string;
-  projectType: string;
   brief: string;
 }
 
@@ -24,15 +22,10 @@ const message = (form: HTMLFormElement, key: string): string =>
 
 const value = (form: HTMLFormElement, name: string): string => {
   const field = form.elements.namedItem(name);
-  return field instanceof HTMLInputElement ||
-    field instanceof HTMLTextAreaElement ||
-    field instanceof HTMLSelectElement
+  return field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement
     ? field.value.trim()
     : "";
 };
-
-const selectedMode = (form: HTMLFormElement): string =>
-  form.querySelector<HTMLInputElement>('input[name="mode"]:checked')?.value ?? "";
 
 export const fieldValid = {
   name: (text: string): boolean => text.trim().length > 0,
@@ -42,20 +35,16 @@ export const fieldValid = {
 
 export function valuesFromForm(form: HTMLFormElement): ContactValues {
   return {
-    mode: selectedMode(form),
     name: value(form, "name"),
     email: value(form, "email"),
-    projectType: value(form, "project-type"),
     brief: value(form, "brief"),
   };
 }
 
-/** Subject and body follow build plan Q8: "Freelance project / Full-time role: {name}". */
+/** PF-58 (Contact Option B, amends PF-13 AC3 / Q8): subject "Project: {name}", body Name/Email/brief. */
 export function buildMailtoHref(to: string, values: ContactValues): string {
-  const lines = [`Name: ${values.name}`, `Email: ${values.email}`];
-  if (values.mode !== "Full-time role") lines.push(`Project type: ${values.projectType}`);
-  lines.push("", values.brief);
-  const subject = `${values.mode}: ${values.name}`;
+  const lines = [`Name: ${values.name}`, `Email: ${values.email}`, "", values.brief];
+  const subject = `Project: ${values.name}`;
   return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join("\n"))}`;
 }
 
@@ -87,14 +76,6 @@ function clearIfValid(form: HTMLFormElement, name: FieldName): void {
   if (fieldValid[name](value(form, name))) setError(form, name, false);
 }
 
-function syncMode(form: HTMLFormElement): void {
-  const projectType = form.querySelector<HTMLElement>("[data-project-type]");
-  const select = form.querySelector<HTMLSelectElement>("[name='project-type']");
-  const fullTime = form.querySelector<HTMLInputElement>('input[data-mode="1"]')?.checked === true;
-  if (projectType) projectType.hidden = fullTime;
-  if (select) select.disabled = fullTime;
-}
-
 export function initContactForm(form: HTMLFormElement): void {
   // Progressive enhancement: the form ships inert and the submit button disabled so a
   // no-JS submit cannot post back to the page. JS turns it on.
@@ -105,27 +86,17 @@ export function initContactForm(form: HTMLFormElement): void {
   const status = form.querySelector<HTMLElement>("[data-form-status]");
   const email = form.dataset.email ?? "";
 
-  for (const radio of form.querySelectorAll<HTMLInputElement>('input[name="mode"]')) {
-    radio.addEventListener("change", () => {
-      syncMode(form);
-    });
-  }
-  syncMode(form);
-
   for (const name of FIELDS) {
     form.querySelector<HTMLElement>(`[name="${name}"]`)?.addEventListener("input", () => {
       clearIfValid(form, name);
     });
   }
 
-  // "Start a project" / "Get a quote": preselect Freelance and move focus to the form.
+  // "Start a project" / "Get a quote": land on Contact with focus on Name (nothing to preselect).
   // The jump to #contact is done here, not by the browser: Firefox runs the fragment navigation
   // after a 0 ms timeout and then clears focus (the section is not focusable), so Name lost focus.
   for (const link of document.querySelectorAll<HTMLAnchorElement>("[data-start-project]")) {
     link.addEventListener("click", (event) => {
-      const freelance = form.querySelector<HTMLInputElement>('input[data-mode="0"]');
-      if (freelance) freelance.checked = true;
-      syncMode(form);
       const modified = event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey;
       const target = document.querySelector<HTMLElement>(link.hash || "#contact");
       if (event.defaultPrevented || modified || !target) return;

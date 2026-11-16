@@ -1,0 +1,15 @@
+{
+  "source": "d-5.png still (1440x900 render of the live scene at p=.96)",
+  "box": [985, 540, 1135, 640],
+  "method": "8-bit luma minus 31px box blur, std dev; spec bar <= 4 (crop 150x100: largest text-free paper area on this framing)",
+  "before": {
+    "residual_std": 12.84,
+    "min": 161,
+    "max": 223
+  },
+  "after": {
+    "residual_std": 0.47,
+    "min": 184,
+    "max": 223
+  }
+}
