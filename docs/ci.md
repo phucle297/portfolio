@@ -55,8 +55,9 @@ ran on every engine.
 
 `tests/e2e/reduced-motion-live.spec.ts` (PF-09) was previously in no group. Chromium
 cases, including the Chromium "every engine" titles, run in `e2e (app-features)`.
-The Firefox and WebKit "every engine" titles launch those browsers themselves, so
-they run in the existing `e2e-xb` jobs (shard 1), which already install that
-browser.
+The Firefox and WebKit "every engine" titles are not run in CI: on the runner they
+never reach `data-tier=full` (`data-scene-load=failed`; those engines have no
+SwiftShader stand-in). The tests are not skipped, deleted, or weakened, and they
+still run locally on a GPU-capable browser.
 
 Rollback: revert the PR that added the guard and the reduced-motion-live job entries.

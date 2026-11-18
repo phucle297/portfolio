@@ -92,9 +92,11 @@ jobs:
             args: tests/e2e/m2-qa-b.spec.ts --grep-invert "scroll sweep at 1600|B-4 the render loop idles"
           - group: sweep-1600
             args: tests/e2e/m2-qa-b.spec.ts --grep "scroll sweep at 1600"
-          # PF-73: reduced-motion-live was in no CI group (PF-09). Chromium cases run
-          # here. Firefox/WebKit "every engine" titles launch those browsers themselves
-          # and run in e2e-xb (this job does not install them).
+          # PF-73: reduced-motion-live was in no CI group (PF-09). Chromium cases,
+          # including the Chromium "every engine" titles, run here. Firefox/WebKit
+          # "every engine" titles are inverted: on CI they never reach data-tier=full
+          # (data-scene-load=failed; no SwiftShader). Those tests are unchanged and
+          # still run locally on a GPU-capable browser.
           - group: app-features
             args: 'tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts tests/e2e/progress-top.spec.ts tests/e2e/loader.spec.ts tests/e2e/reduced-motion-live.spec.ts --grep-invert "firefox: at p = 0.6|webkit: at p = 0.6"'
           - group: probe-cost
@@ -200,21 +202,6 @@ jobs:
             --reporter=list,html
         env:
           E2E_PREBUILT: "1" # serve the shared dist; do not rebuild
-          PLAYWRIGHT_HTML_OPEN: never
-      # PF-73: reduced-motion-live "every engine" cases for this browser. Shard 1
-      # only so they are not duplicated. list reporter only: do not overwrite the
-      # HTML report from the step above. Chromium cases stay in app-features.
-      - name: Playwright reduced-motion-live (${{ matrix.browser }})
-        if: ${{ matrix.shard == 1 }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          bunx playwright test --project=${{ matrix.browser }} \
-            tests/e2e/reduced-motion-live.spec.ts \
-            --grep "${{ matrix.browser }}: at p = 0.6" \
-            --reporter=list
-        env:
-          E2E_PREBUILT: "1"
           PLAYWRIGHT_HTML_OPEN: never
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
