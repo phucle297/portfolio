@@ -249,6 +249,8 @@ export const contact = {
   form: {
     name: { label: "Name" },
     email: { label: "Email" },
+    /** PF-69 (contact-v3): optional, no validation; "(optional)" is set in muted. */
+    phone: { label: "Phone", optional: "(optional)" },
     brief: { label: "What are you building?" },
     submit: "Send brief",
     note: `${REPLY_PROMISE}.`,

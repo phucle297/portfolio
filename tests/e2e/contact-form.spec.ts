@@ -23,10 +23,40 @@ const success = contact.form.success;
 const nameInput = (page: Page) => page.locator("#contact-name");
 const emailInput = (page: Page) => page.locator("#contact-email");
 const briefInput = (page: Page) => page.locator("#contact-brief");
+const phoneInput = (page: Page) => page.locator("#contact-phone");
 const submit = (page: Page) => page.getByRole("button", { name: contact.form.submit });
 const status = (page: Page) => page.locator("[data-form-status]");
 const errorOf = (page: Page, field: "name" | "email" | "brief") =>
   page.locator(`[data-error-for="${field}"]`);
+
+const fitMargins = (page: Page) =>
+  page.evaluate(() => {
+    const column = document.querySelector("#contact .contact")?.getBoundingClientRect();
+    const footer = document.querySelector("body > footer")?.getBoundingClientRect();
+    const header = document.querySelector("body > header, header")?.getBoundingClientRect();
+    const active = document.activeElement;
+    const focused = active?.closest("#contact") ? active.getBoundingClientRect() : null;
+    return {
+      form: column && footer ? footer.top - column.bottom : null,
+      focusBelow: focused && footer ? footer.top - focused.bottom : null,
+      focusAbove: focused && header ? focused.top - header.bottom : null,
+      state: document.querySelector<HTMLElement>("#contact .contact")?.dataset.state ?? null,
+    };
+  });
+
+const enterState = async (page: Page, state: "error" | "success"): Promise<void> => {
+  if (state === "error") {
+    await emailInput(page).fill("not-an-email");
+    await submit(page).click();
+    await expect(errorOf(page, "brief")).toBeVisible();
+  } else {
+    await fillValid(page);
+    await phoneInput(page).fill("+84 90 123 4567");
+    await submit(page).click();
+    await expect(status(page)).not.toBeEmpty();
+  }
+  await expect(page.locator("#contact .contact")).toHaveAttribute("data-state", state);
+};
 
 const rgbToHex = (rgb: string): string => {
   const match = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/u.exec(rgb);
@@ -77,7 +107,18 @@ test.describe("PF-13 contact form", () => {
     await expect(emailInput(page)).toHaveAttribute("autocomplete", "email");
     await expect(emailInput(page)).toHaveAttribute("type", "email");
 
-    await expect(section.locator("input, textarea")).toHaveCount(3);
+    // PF-69: plus the optional Phone field (tel, phone autofill, visible label, never required).
+    await expect(page.locator('label[for="contact-phone"]')).toHaveText(
+      `${contact.form.phone.label} ${contact.form.phone.optional}`,
+    );
+    await expect(page.getByLabel("Phone (optional)")).toHaveId("contact-phone");
+    await expect(phoneInput(page)).toHaveAttribute("type", "tel");
+    await expect(phoneInput(page)).toHaveAttribute("autocomplete", "tel");
+    await expect(phoneInput(page)).toHaveAttribute("inputmode", "tel");
+    await expect(phoneInput(page)).toHaveAttribute("name", "phone");
+    await expect(phoneInput(page)).not.toHaveAttribute("required");
+
+    await expect(section.locator("input, textarea")).toHaveCount(4);
     await expect(section.locator("select")).toHaveCount(0);
     await expect(section.locator('input[type="radio"]')).toHaveCount(0);
     await expect(section.locator("dl")).toHaveCount(0);
@@ -165,6 +206,102 @@ test.describe("PF-13 contact form", () => {
     },
   );
 
+  // PF-69 rev 3 / a3: default, error and success states end >= 12 px above the footer on the
+  // short pinned viewports. At 1200×760 the error/success state unpins the layer (safety net,
+  // `.contact[data-state]`); it must hold right after submit, after Shift+Tab out of Contact and
+  // Tab back in (no focused control under the footer or the header), and across resizes.
+  test(
+    "PF-69: the form ends at least 12px above the footer at 1200×760, 1280×800 and 1440×900, also after Shift+Tab out and Tab back in @chromium-only",
+    {
+      tag: "@chromium-only",
+    },
+    async ({ browser }) => {
+      const runs = [
+        { width: 1200, height: 760 },
+        { width: 1280, height: 800 },
+        { width: 1440, height: 900 },
+      ].flatMap((viewport) =>
+        (["default", "error", "success"] as const).map((state) => ({ viewport, state })),
+      );
+
+      await inSequence(runs, async ({ viewport, state }) => {
+        const where = `${state} at ${viewport.width}×${viewport.height}`;
+        const context = await browser.newContext({ viewport });
+        const page = await context.newPage();
+        await openScene(page);
+        await scrollToP(page, KEY_PROGRESS[5] ?? 0.96);
+        await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
+        await expect(page.locator("[data-contact-form]")).not.toHaveAttribute("inert");
+        if (state !== "default") await enterState(page, state);
+        expect((await fitMargins(page)).form, `after submit, ${where}`).toBeGreaterThanOrEqual(12);
+        if (state === "default") {
+          await expect(page.locator("#contact .contact")).not.toHaveAttribute("data-state");
+          await context.close();
+          return;
+        }
+
+        // Shift+Tab out of Contact (from Name, its first control), then Tab back to Send brief.
+        await nameInput(page).focus();
+        await page.keyboard.press("Shift+Tab");
+        await expect
+          .poll(() => page.evaluate(() => !document.activeElement?.closest("#contact")))
+          .toBe(true);
+        await settle(page);
+        const steps = await page
+          .locator("#contact .contact__form :is(input, textarea, button)")
+          .count();
+        await inSequence(
+          Array.from({ length: steps }, (_, step) => step + 1),
+          async (step) => {
+            await page.keyboard.press("Tab");
+            await settle(page);
+            const m = await fitMargins(page);
+            const label = `Tab ${step} back into Contact, ${where}`;
+            expect(m.form, `${label}: form vs footer`).toBeGreaterThanOrEqual(12);
+            expect(m.focusBelow, `${label}: focused control vs footer`).toBeGreaterThanOrEqual(0);
+            expect(m.focusAbove, `${label}: focused control vs header`).toBeGreaterThanOrEqual(0);
+          },
+        );
+        await expect(submit(page)).toBeFocused();
+        await context.close();
+      });
+    },
+  );
+
+  test(
+    "PF-69: the error and success states stay clear of the footer across resizes 1440↔1200 @chromium-only",
+    {
+      tag: "@chromium-only",
+    },
+    async ({ browser }) => {
+      const wide = { width: 1440, height: 900 };
+      const short = { width: 1200, height: 760 };
+      const runs = (["error", "success"] as const).flatMap((state) => [
+        { state, path: [wide, short, wide] },
+        { state, path: [short, wide, short] },
+      ]);
+
+      await inSequence(runs, async ({ state, path }) => {
+        const [first = wide, ...next] = path;
+        const context = await browser.newContext({ viewport: first });
+        const page = await context.newPage();
+        await openScene(page);
+        await scrollToP(page, KEY_PROGRESS[5] ?? 0.96);
+        await expect(page.locator("[data-contact-form]")).not.toHaveAttribute("inert");
+        await enterState(page, state);
+        await inSequence(next, async (viewport, index) => {
+          await page.setViewportSize(viewport);
+          await settle(page);
+          const m = await fitMargins(page);
+          const label = `${state}, resize ${index + 1} to ${viewport.width}×${viewport.height}`;
+          expect(m.state, label).toBe(state);
+          expect(m.form, `${label}: form vs footer`).toBeGreaterThanOrEqual(12);
+        });
+        await context.close();
+      });
+    },
+  );
+
   test("invalid submit shows the exact §5 strings with icon + text, tied and announced, and clears once valid", async ({
     page,
   }) => {
@@ -229,6 +366,45 @@ test.describe("PF-13 contact form", () => {
     await expect(status(page)).toHaveText(success);
     await expect(status(page)).toHaveAttribute("role", "status");
     await expect(status(page)).toHaveAttribute("aria-live", "polite");
+  });
+
+  test("PF-69: a filled phone adds a 'Phone:' line after Email; empty or blank adds none", async ({
+    page,
+  }) => {
+    knownEngineFailure(["firefox"], "Playwright's Firefox does not report the mailto: navigation");
+    const cases = [
+      { phone: "  +84 90 123 4567 ", line: "Phone: +84 90 123 4567\n" },
+      { phone: "", line: "" },
+      { phone: "   ", line: "" },
+    ] as const;
+    await inSequence(cases, async ({ phone, line }) => {
+      await page.goto("/");
+      await page.locator("#contact").scrollIntoViewIfNeeded();
+      await fillValid(page);
+      await phoneInput(page).fill(phone);
+      const pending = waitForMailto(page);
+      await submit(page).click();
+      const decoded = decodeURIComponent(await pending);
+      expect(decoded).toContain(
+        `body=Name: Ada Lovelace\nEmail: ada@example.com\n${line}\nA small marketing site by next month.`,
+      );
+      if (!line) expect(decoded).not.toContain("Phone:");
+      await expect(status(page)).toHaveText(success);
+    });
+  });
+
+  test("PF-69: Phone never blocks submit or shows an error", async ({ page }) => {
+    await page.goto("/");
+    await page.locator("#contact").scrollIntoViewIfNeeded();
+    await phoneInput(page).fill("not a phone number");
+    await submit(page).click();
+    // Only the three required fields error; Phone has no error state.
+    await expect(page.locator("#contact .field__error:visible")).toHaveCount(3);
+    await expect(phoneInput(page)).not.toHaveAttribute("aria-invalid", "true");
+    await expect(nameInput(page)).toBeFocused();
+    await fillValid(page);
+    await expect(page.locator("#contact .field__error:visible")).toHaveCount(0);
+    await expect(phoneInput(page)).not.toHaveAttribute("aria-invalid", "true");
   });
 
   test("Start a project and Get a quote work by mouse and keyboard on the static tier", async ({

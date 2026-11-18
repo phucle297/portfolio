@@ -167,9 +167,10 @@ for (const viewport of VIEWPORTS) {
           },
         );
       });
-      // 9 controls in the copy (Hello 2, Services 1, Contact 6: Name, Email, brief, Send brief,
-      // the mailto link and Copy; PF-58 removed the switch, Project type and the link rows).
-      expect(audited).toBeGreaterThanOrEqual(9);
+      // 10 controls in the copy (Hello 2, Services 1, Contact 7: Name, Email, Phone, brief, Send
+      // brief, the mailto link and Copy; PF-58 removed the switch, Project type and the link rows;
+      // PF-69 added the optional Phone).
+      expect(audited).toBeGreaterThanOrEqual(10);
       expect(misses).toEqual([]);
     });
 

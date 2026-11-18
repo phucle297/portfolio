@@ -22,22 +22,24 @@ const email = profile.email;
       inert
       aria-labelledby="contact-title"
     >
+      <div class="field">
+        <label for="contact-name">{form.name.label}</label>
+        <input id="contact-name" name="name" type="text" autocomplete="name" required />
+        <p
+          class="field__error"
+          id="contact-name-error"
+          data-error-for="name"
+          role="status"
+          aria-live="polite"
+          hidden
+        >
+          <span aria-hidden="true">!</span>
+          {form.errors.name}
+        </p>
+      </div>
+
+      {/* PF-69 rev 2: row 2 is Email | Phone (optional), two equal columns at >= 1280. */}
       <div class="contact__row">
-        <div class="field">
-          <label for="contact-name">{form.name.label}</label>
-          <input id="contact-name" name="name" type="text" autocomplete="name" required />
-          <p
-            class="field__error"
-            id="contact-name-error"
-            data-error-for="name"
-            role="status"
-            aria-live="polite"
-            hidden
-          >
-            <span aria-hidden="true">!</span>
-            {form.errors.name}
-          </p>
-        </div>
         <div class="field">
           <label for="contact-email">{form.email.label}</label>
           <input id="contact-email" name="email" type="email" autocomplete="email" required />
@@ -52,6 +54,12 @@ const email = profile.email;
             <span aria-hidden="true">!</span>
             {form.errors.email}
           </p>
+        </div>
+        <div class="field">
+          <label for="contact-phone">
+            {form.phone.label} <span class="field__opt">{form.phone.optional}</span>
+          </label>
+          <input id="contact-phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" />
         </div>
       </div>
 
@@ -127,7 +135,8 @@ const email = profile.email;
 </script>
 
 <style>
-  /* Option B (design/contact-redesign.md): one calm column, no card, underline fields. */
+  /* Option B (design/contact-redesign.md): one calm column, no card. PF-69 (design/contact-v3):
+     soft filled fields (faint warm fill, 6px top radius, bottom line kept), labels in --text. */
   .contact {
     width: min(32rem, 100%);
     padding-bottom: 2rem;
@@ -157,27 +166,41 @@ const email = profile.email;
 
   .field {
     display: grid;
+    align-content: start; /* errors never stretch inputs */
     gap: var(--space-2);
   }
 
   .field label {
-    color: var(--muted);
+    color: var(--text);
     font: 500 0.8125rem/1.3 var(--font-sans);
+  }
+
+  .field__opt {
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  /* PF-69 rev 2: every input is exactly 44 px. */
+  .field input {
+    height: 2.75rem;
+    min-height: 2.75rem;
   }
 
   .field input,
   .field textarea {
     width: 100%;
     min-height: var(--tap-min);
-    padding: 0.5rem 0;
+    padding: 0.625rem 0.75rem;
     border: 0;
-    border-radius: 0;
-    box-shadow: 0 1px 0 var(--line-strong);
-    background: transparent;
+    border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+    box-shadow: inset 0 -1px 0 var(--line-strong);
+    background: rgb(255 241 228 / 0.04);
     color: var(--text);
     font: inherit;
     font-size: 1rem;
-    transition: box-shadow var(--t-micro) var(--ease-out);
+    transition:
+      box-shadow var(--t-micro) var(--ease-out),
+      background-color var(--t-micro) var(--ease-out);
   }
 
   .field textarea {
@@ -187,28 +210,34 @@ const email = profile.email;
 
   .field input:hover,
   .field textarea:hover {
-    box-shadow: 0 1px 0 var(--muted);
+    background: rgb(255 241 228 / 0.06);
+    box-shadow: inset 0 -1px 0 var(--muted);
   }
 
   .field input:focus-visible,
   .field textarea:focus-visible {
-    box-shadow: 0 1px 0 var(--accent-2);
+    outline: none;
+    background: rgb(255 194 75 / 0.07);
+    box-shadow: inset 0 -2px 0 var(--accent-2);
   }
 
   .field [aria-invalid="true"],
   .field [aria-invalid="true"]:hover {
-    box-shadow: 0 1px 0 var(--error);
+    box-shadow: inset 0 -2px 0 var(--error);
   }
 
   .field__error {
     display: flex;
     gap: 0.4rem;
-    align-items: center;
+    align-items: flex-start; /* icon sits on the first line of a two-line error */
+    line-height: 1.3;
     color: var(--error);
     font-size: 0.8125rem;
   }
 
   .field__error span {
+    flex: none;
+    margin-top: 0.05rem;
     display: grid;
     place-items: center;
     width: 1rem;
@@ -235,6 +264,10 @@ const email = profile.email;
   }
 
   .contact__status {
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-xs);
+    background: rgb(255 194 75 / 0.08);
+    box-shadow: inset 2px 0 0 var(--accent-2);
     color: var(--text);
   }
 
@@ -300,13 +333,22 @@ const email = profile.email;
       width: 100%;
     }
 
-    .contact__row {
-      grid-template-columns: 1fr;
-    }
-
     .contact__foot {
       flex-direction: column;
       align-items: flex-start;
+    }
+
+    .contact__submit {
+      width: 100%;
+      min-height: 48px;
+    }
+  }
+
+  /* PF-69 rev 3: the two-column grid (Name / Email | Phone / Message / Send) starts at 1200 px,
+     pinned or not; below 1200 (incl. 1024 and phones) the form is one stacked column. */
+  @media (max-width: 1199px) {
+    .contact__row {
+      grid-template-columns: 1fr;
     }
   }
 
@@ -319,13 +361,24 @@ const email = profile.email;
     padding-bottom: 0;
   }
 
+  :global(html[data-pin="on"]) .contact__form {
+    gap: var(--space-4);
+  }
+
+  :global(html[data-pin="on"]) .contact .field textarea {
+    min-height: 5rem;
+    height: 5rem;
+  }
+
+  /* PF-69: floor 27rem → 26.75rem (428 px) keeps ≥ ~11 px off the tray rim at 1280 and still fits
+     Send brief + 16 px + the reply note on one row (427.3 px). */
   /* PF-60: at 1280, 33vw is ~422 px — about 5 px short of "Send brief" + gap + the reply note
      on one row (Option B). Floor the pinned column from 1280 up so the note stays beside the
      button, without widening it at 1440 (33vw already fits; tray clearance is tight) or below
      1280 (wrapping is allowed, and a floor would eat into the tray near the 1200 pin start). */
   @media (min-width: 1280px) {
     :global(html[data-pin="on"]) .contact {
-      width: min(30rem, max(27rem, 33vw));
+      width: min(30rem, max(26.75rem, 33vw));
     }
   }
 
@@ -349,13 +402,47 @@ const email = profile.email;
       margin-top: var(--space-6);
     }
 
+    :global(html[data-pin="on"]) .contact__alt {
+      margin-top: var(--space-4);
+    }
+
     :global(html[data-pin="on"]) .contact__sub {
       margin-top: var(--space-3);
       font-size: 1rem;
     }
 
     :global(html[data-pin="on"]) .contact .field textarea {
-      min-height: 4.5rem;
+      min-height: 3.5rem;
+      height: 3.5rem;
+    }
+  }
+
+  /* PF-69 rev 3: short pinned viewports from 1200 px (1200×760, 1280×800): message box 56 px
+     and a tighter error line so the error state fits above the footer. If it still doesn't,
+     contact-form.ts unpins the layer (safety net, below). */
+  @media (min-width: 1200px) and (max-height: 820px) {
+    :global(html[data-pin="on"]) .contact .field textarea {
+      min-height: 3.5rem;
+      height: 3.5rem;
+    }
+
+    :global(html[data-pin="on"]) .contact .field__error {
+      line-height: 1.15;
+    }
+  }
+
+  /* PF-69 rev 3 safety net: while .contact[data-state] (error / success) would run under the
+     footer, contact-form.ts unpins the layer from its slot: it moves up by --unpin-lift (the
+     overflow), so the form ends 12 px above the footer whatever the scroll position. */
+  :global(html[data-pin="on"] .home-section__body[data-unpinned]) {
+    inset: calc(var(--unpin-lift, 0px) * -1) 0 var(--unpin-lift, 0px);
+  }
+
+  /* PF-64 (in PF-69): 768–1279 with the tray unpinned the column narrows to 30.5vw so it clears
+     the lit tray (tray left edge ≈ 375 px at 1024). Pinned 1200–1279 keeps the 33vw column. */
+  @media (min-width: 768px) and (max-width: 1279px) {
+    :global(html:not([data-pin="on"])) .contact {
+      width: min(30rem, 30.5vw);
     }
   }
 </style>
