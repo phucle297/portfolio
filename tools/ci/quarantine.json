@@ -48,10 +48,11 @@
       "title": "PF-50 reload at 1440\u00d7900: header, H1 and Hello copy stay within 8px after first paint @chromium-only",
       "project": "chromium",
       "date": "2026-11-18",
-      "reason": "Chromium visible-jump stall cap at 1440\u00d7900: not enough frames in 3 s (need >= 30, cap 1000 ms). The whole spec is quarantined (it is one CI job). Cap is unchanged. Known runs also include 1024 when the sampler starved.",
+      "reason": "Chromium visible-jump stall cap at 1440\u00d7900: not enough frames in 3 s (need >= 30, cap 1000 ms). The whole spec is quarantined (it is one CI job). Cap is unchanged. Known runs also include 1024 when the sampler starved. Also PF-67 CI 44284652784 @4d0edc6: 26 frames of 30 at 1440\u00d7900 (gap 812 ms); passed on the one rerun. Cap unchanged.",
       "follow_up": "PF-78",
       "known_run": "44271947023",
-      "source_title": "PF-50 reload at ${vp.width}\u00d7${vp.height}: header, H1 and Hello copy stay within ${MAX_MOVE_PX}px after first paint @chromium-only"
+      "source_title": "PF-50 reload at ${vp.width}\u00d7${vp.height}: header, H1 and Hello copy stay within ${MAX_MOVE_PX}px after first paint @chromium-only",
+      "known_runs": ["44271947023", "44284652784"]
     }
   ]
 }

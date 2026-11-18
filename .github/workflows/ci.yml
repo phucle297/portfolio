@@ -93,7 +93,7 @@ jobs:
           - group: sweep-1600
             args: tests/e2e/m2-qa-b.spec.ts --grep "scroll sweep at 1600"
           - group: app-features
-            args: tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts tests/e2e/progress-top.spec.ts
+            args: tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts tests/e2e/progress-top.spec.ts tests/e2e/loader.spec.ts
           - group: probe-cost
             args: tests/e2e/probe-cost.spec.ts tests/e2e/probe-cost-webgl-disabled.spec.ts
           # PF-03: axe-core scan across tiers and states (report in test-results/a11y, uploaded below).
@@ -179,6 +179,7 @@ jobs:
           browser: ${{ matrix.browser }}
       # No CHROME_PATH: specs with their own launchOptions would start Chrome with it.
       # PF-70: WebKit phone LCP is quarantined; Firefox still runs it in this job.
+      # PF-67: loader.spec.ts runs in this blocking job (and in Chromium app-features).
       - name: Playwright Firefox / WebKit tests
         shell: bash
         run: |
@@ -191,7 +192,7 @@ jobs:
             tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts \
             tests/e2e/static-stills.spec.ts tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts \
             tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/ui-preview.spec.ts \
-            tests/e2e/cross-browser.spec.ts tests/e2e/a11y.spec.ts \
+            tests/e2e/cross-browser.spec.ts tests/e2e/a11y.spec.ts tests/e2e/loader.spec.ts \
             --grep-invert "$invert" \
             --reporter=list,html
         env:
