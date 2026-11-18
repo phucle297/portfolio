@@ -94,11 +94,16 @@ function clearIfValid(form: HTMLFormElement, name: FieldName): void {
  * success strip, `.contact[data-state=error|success]` is set. While pinned, the Contact copy is a
  * fixed layer; if that state makes it run under the footer (short viewports such as 1200×760),
  * the layer leaves its pinned slot (`data-unpinned`): it is moved up by the overflow, so the form
- * ends 12 px above the footer. The offset is viewport-relative, so no scroll (wheel, keyboard
- * focus re-entry, the copy layer's focus scroll) can bring the form back under the footer; it is
- * recomputed on resize and whenever the form changes size, and dropped once the state clears.
+ * ends 12 px above the footer.
+ *
+ * PF-72: that lift is capped so the eyebrow stays 12 px below the live header bottom. If the
+ * capped lift is not enough, `.contact[data-compact]` tightens the title and gaps (pinned widths
+ * ≥1200 only) and the lift is recomputed. If it still does not fit, the copy body drops back
+ * into normal flow (`data-flow`) and the page scrolls so the eyebrow sits 12 px below the
+ * header. Compact and lift are removed when the state clears.
  */
-const FOOTER_GAP = 12;
+export const FOOTER_GAP = 12;
+export const HEADER_GAP = 12;
 
 const formState = (form: HTMLFormElement): "error" | "success" | null =>
   form.querySelector(".field__error:not([hidden])")
@@ -107,26 +112,122 @@ const formState = (form: HTMLFormElement): "error" | "success" | null =>
       ? "success"
       : null;
 
-/** Syncs `data-state` and the unpin with the form; returns whether the layer is unpinned. */
-export function unpinIfCovered(form: HTMLFormElement): boolean {
+const headerBottom = (): number =>
+  document.querySelector("body > header, header")?.getBoundingClientRect().bottom ?? 0;
+
+const footerLimit = (): number => {
+  const footerTop = document.querySelector("body > footer")?.getBoundingClientRect().top;
+  return (footerTop ?? window.innerHeight) - FOOTER_GAP;
+};
+
+/**
+ * How far the pinned layer may move up: the overflow needed to clear the footer, but never so
+ * far that the eyebrow would sit closer than `gap` px below the header.
+ */
+export function cappedLift(
+  needed: number,
+  defaultEyebrowTop: number,
+  headerBottomY: number,
+  gap = HEADER_GAP,
+): number {
+  const cap = defaultEyebrowTop - (headerBottomY + gap);
+  return Math.max(0, Math.min(needed, cap));
+}
+
+const eyebrowOf = (column: HTMLElement): HTMLElement | null =>
+  column.querySelector<HTMLElement>(".eyebrow");
+
+const measureNeeded = (column: HTMLElement): number =>
+  Math.ceil(column.getBoundingClientRect().bottom - footerLimit());
+
+const applyLift = (body: HTMLElement, lift: number): void => {
+  if (lift <= 0) return;
+  body.style.setProperty("--unpin-lift", `${Math.ceil(lift)}px`);
+  body.setAttribute("data-unpinned", "");
+};
+
+/** Place with the current compact/default styles (no lift). Returns whether it now fits. */
+const fitsAfterLift = (body: HTMLElement, column: HTMLElement): boolean => {
+  const needed = measureNeeded(column);
+  if (needed <= 0) return true;
+  const eyebrowTop = eyebrowOf(column)?.getBoundingClientRect().top ?? 0;
+  const lift = cappedLift(needed, eyebrowTop, headerBottom());
+  if (lift >= needed) {
+    applyLift(body, lift);
+    return true;
+  }
+  return false;
+};
+
+/** In flow mode, nudge the page so a focused control sits between the header and footer. */
+const ensureFocusedClear = (el: HTMLElement): void => {
+  const body = el.closest<HTMLElement>("[data-copy-body]");
+  if (!body?.hasAttribute("data-flow")) return;
+  const footerTop =
+    document.querySelector("body > footer")?.getBoundingClientRect().top ?? window.innerHeight;
+  const head = headerBottom();
+  const box = el.getBoundingClientRect();
+  let delta = 0;
+  if (box.bottom > footerTop - FOOTER_GAP) delta = box.bottom - (footerTop - FOOTER_GAP);
+  if (box.top - delta < head + HEADER_GAP) delta = box.top - (head + HEADER_GAP);
+  if (Math.abs(delta) < 1) return;
+  window.scrollBy({ top: delta, behavior: "auto" });
+};
+
+const scrollEyebrowUnderHeader = (column: HTMLElement): void => {
+  const eyebrow = eyebrowOf(column);
+  if (!eyebrow) return;
+  const delta = eyebrow.getBoundingClientRect().top - (headerBottom() + HEADER_GAP);
+  if (Math.abs(delta) < 1) return;
+  // Instant: the Contact section is thousands of pixels tall while pinned, so a smooth
+  // scroll would take a long time; 'auto' also satisfies reduced motion.
+  window.scrollBy({ top: delta, behavior: "auto" });
+};
+
+export interface UnpinOptions {
+  /** When true (submit, or a heading that has gone under the header), scroll into place in flow mode. */
+  scroll?: boolean;
+}
+
+/** Syncs `data-state` and the PF-69/PF-72 placement; returns whether the layer is unpinned. */
+export function unpinIfCovered(form: HTMLFormElement, options: UnpinOptions = {}): boolean {
   const body = form.closest<HTMLElement>("[data-copy-body]");
   const column = form.parentElement;
   if (!body || !column) return false;
   const state = formState(form);
   if (state) column.dataset.state = state;
   else delete column.dataset.state;
+
+  const wasFlow = body.hasAttribute("data-flow");
   body.removeAttribute("data-unpinned");
+  body.removeAttribute("data-flow");
   body.style.removeProperty("--unpin-lift");
-  if (!state || document.documentElement.dataset.pin !== "on") return false;
-  // Pinned layout, ignoring the scrubbed --copy-y offset: the fixed body starts at y = 0.
-  const bodyTop = body.getBoundingClientRect().top;
-  const footerTop = document.querySelector("body > footer")?.getBoundingClientRect().top;
-  const limit = (footerTop ?? window.innerHeight) - FOOTER_GAP;
-  const overflow = column.getBoundingClientRect().bottom - bodyTop - limit;
-  if (overflow <= 0) return false;
-  body.style.setProperty("--unpin-lift", `${Math.ceil(overflow)}px`);
-  body.setAttribute("data-unpinned", "");
-  return true;
+  delete column.dataset.compact;
+
+  if (!state) return false;
+  // 1024 / 390 (and any unpinned viewport): only CSS scroll-margin-top applies.
+  if (document.documentElement.dataset.pin !== "on") return false;
+
+  // Flush the cleared pinned layout, then try a capped lift at the default (PF-69) sizes.
+  void column.offsetHeight;
+  if (fitsAfterLift(body, column)) return body.hasAttribute("data-unpinned");
+
+  // Still doesn't fit: compact at pinned widths ≥1200 (pin already implies this), recompute lift.
+  column.dataset.compact = "";
+  void column.offsetHeight;
+  if (fitsAfterLift(body, column)) return body.hasAttribute("data-unpinned");
+
+  // Still doesn't fit: drop the column back into normal flow and scroll to the heading.
+  delete column.dataset.compact;
+  body.setAttribute("data-flow", "");
+  void column.offsetHeight;
+  const eyebrowTop = eyebrowOf(column)?.getBoundingClientRect().top ?? 0;
+  const headingCovered = eyebrowTop < headerBottom() + 8;
+  // Scroll on submit, when first entering flow, or when the heading has gone under the header.
+  if (options.scroll || !wasFlow || headingCovered) {
+    scrollEyebrowUnderHeader(column);
+  }
+  return false;
 }
 
 export function initContactForm(form: HTMLFormElement): void {
@@ -158,6 +259,14 @@ export function initContactForm(form: HTMLFormElement): void {
   new ResizeObserver(schedule).observe(form);
   window.addEventListener("resize", schedule);
 
+  form.addEventListener("focusin", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    requestAnimationFrame(() => {
+      ensureFocusedClear(target);
+    });
+  });
+
   // "Start a project" / "Get a quote": land on Contact with focus on Name (nothing to preselect).
   // The jump to #contact is done here, not by the browser: Firefox runs the fragment navigation
   // after a 0 ms timeout and then clears focus (the section is not focusable), so Name lost focus.
@@ -177,17 +286,17 @@ export function initContactForm(form: HTMLFormElement): void {
     event.preventDefault();
     const invalid = validate(form);
     if (invalid) {
-      form.querySelector<HTMLElement>(`[name="${invalid}"]`)?.focus();
-      unpinIfCovered(form);
+      unpinIfCovered(form, { scroll: true });
+      form.querySelector<HTMLElement>(`[name="${invalid}"]`)?.focus({ preventScroll: true });
       return;
     }
     if (!email) {
       if (status) status.textContent = message(form, "no-email");
-      unpinIfCovered(form);
+      unpinIfCovered(form, { scroll: true });
       return;
     }
     window.location.href = buildMailto(email, form);
     if (status) status.textContent = message(form, "success");
-    unpinIfCovered(form);
+    unpinIfCovered(form, { scroll: true });
   });
 }

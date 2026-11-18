@@ -36,6 +36,11 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
     scroll-margin-top: 0;
   }
 
+  /* PF-72: 1024 and 390 (and any unpinned visit) land Contact below the header. */
+  .home-section--contact {
+    scroll-margin-top: calc(var(--header-h) + 12px);
+  }
+
   .home-section__body {
     position: relative;
     z-index: 2;
@@ -234,6 +239,34 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
 
   :global(html[data-pin="on"]) .home-section--contact {
     scroll-margin-top: calc(var(--scroll) * -0.12);
+  }
+
+  /* PF-72: when the error/success stack still does not fit under a capped lift, the Contact
+     copy leaves the fixed layer and the page scrolls to it below the header. */
+  :global(html[data-pin="on"]) .home-section--contact:has([data-flow]) {
+    scroll-margin-top: calc(var(--header-h) + 12px);
+  }
+
+  :global(html[data-pin="on"]) .home-section--contact .home-section__body[data-flow] {
+    position: relative;
+    inset: auto;
+    z-index: 2;
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* PF-72: in flow mode the stack can be taller than the viewport. scroll-padding keeps a
+     focused control (Tab, WCAG 2.4.11) clear of the sticky header and footer. */
+  :global(html[data-pin="on"]:has([data-flow])),
+  :global(html[data-pin="on"]:has([data-flow]) body) {
+    scroll-padding-top: calc(var(--header-h) + 12px);
+    scroll-padding-bottom: calc(var(--footer-h) + 12px);
+  }
+
+  :global(html[data-pin="on"] [data-flow]) :global(:is(input, textarea, button, a)) {
+    scroll-margin-top: calc(var(--header-h) + 12px);
+    scroll-margin-bottom: calc(var(--footer-h) + 12px);
   }
 
   /* Beats: cards a section steps through while pinned (one shown at a time). */
