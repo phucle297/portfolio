@@ -333,7 +333,7 @@ async function luma(jpegOrPng: Buffer): Promise<{ mean: number; p995: number }> 
 // Needs every painted frame across a 240 ms fade: Chromium's DevTools screencast (Firefox and
 // WebKit screenshots wait for pending images and are too slow to sample the fade).
 test(
-  "PF-67 AC2: no frame across the exit is brighter than the settled page",
+  "PF-67 AC2: no frame across the exit is brighter than the settled page @chromium-only",
   { tag: "@chromium-only" },
   async ({ page }) => {
     const still = await hold(page, INTRO_STILL);
