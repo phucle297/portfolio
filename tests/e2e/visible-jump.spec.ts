@@ -1,7 +1,7 @@
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { spoofHardwareGpu } from "./helpers";
+import { hideLoader, spoofHardwareGpu } from "./helpers";
 import {
   MAX_FRAME_GAP_MS,
   MIN_FRAMES,
@@ -65,7 +65,15 @@ for (const vp of VIEWPORTS) {
     context,
   }, testInfo) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
-    if (!REAL_GPU) await spoofHardwareGpu(page);
+    if (!REAL_GPU) {
+      await spoofHardwareGpu(page);
+      // PF-67: on SwiftShader the first-open loader's animations (blur, glow) share the CPU with
+      // the scene and the trace screencast for exactly this 3 s window and starve the sampler
+      // ("not enough frames"). The cover is position: fixed and takes no layout, so the boxes
+      // measured here are the same with it hidden; loader.spec.ts checks its exit. The real-GPU
+      // run keeps it.
+      await hideLoader(page);
+    }
     await recordVisibleBoxes(page, WINDOW_MS);
 
     await page.goto("/");

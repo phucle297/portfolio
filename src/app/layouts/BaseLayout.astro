@@ -2,7 +2,7 @@
 import "../styles/global.css";
 import { personJsonLd, profile } from "@entities/profile";
 import { siteConfig } from "@shared/config";
-import { SkipLink } from "@shared/ui";
+import { PageLoader, SkipLink } from "@shared/ui";
 import { SiteFooter } from "@widgets/site-footer";
 import { SiteHeader } from "@widgets/site-header";
 
@@ -107,6 +107,8 @@ const jsonLdJson = JSON.stringify(jsonLd).replaceAll("<", "\\u003c");
     </script>
   </head>
   <body>
+    <!-- PF-67: first-open loader; first child of <body> so it covers the page from first paint. -->
+    <PageLoader />
     <script is:inline>
       // PF-57: start the inlined first-screen font subsets (fonts-critical.css, font-display:
       // block) loading now, while the rest of the HTML parses, instead of at first style recalc,
