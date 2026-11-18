@@ -302,8 +302,11 @@ test("B-8: a reload while scrolled keeps the header opaque before its script run
   await expect.poll(() => page.evaluate(() => scrollY), { timeout: 10_000 }).toBeGreaterThan(100);
   await expect.poll(() => held.length).toBeGreaterThan(0);
   const header = page.locator(".site-header");
-  // Not hydrated: the module script still has not cleared the server-rendered at-top state.
-  await expect(header).toHaveAttribute("data-at-top", "");
+  // The head inline script sets html[data-scrolled] on a reload so the bar stays opaque over
+  // the copy, even if the header module has already run. After PF-66 the header script is
+  // inlined (no /_astro/*.js import), so holding those modules no longer delays it; opacity
+  // is the contract, not the leftover data-at-top attribute.
+  await expect(page.locator("html")).toHaveAttribute("data-scrolled", "");
   const before = await header.evaluate((el) => [
     getComputedStyle(el).backgroundImage,
     getComputedStyle(el).backgroundColor,
@@ -312,10 +315,9 @@ test("B-8: a reload while scrolled keeps the header opaque before its script run
   expect(before[0], `no see-through gradient over the copy (${before[2]})`).toBe("none");
   const alpha = Number(/rgba?\(([^)]+)\)/u.exec(before[1] ?? "")?.[1]?.split(",")[3] ?? "1");
   expect(alpha).toBeGreaterThanOrEqual(0.95);
-  // Once the scripts run, the bar stays opaque (at-top cleared by the header's script).
+  // Once the remaining /_astro modules run, the bar stays opaque.
   await Promise.all(held.map(async (route) => route.continue()));
   await page.unroute(/\/_astro\/[^/]+\.js(\?.*)?$/u);
-  await expect(header).not.toHaveAttribute("data-at-top", "");
   expect(await header.evaluate((el) => getComputedStyle(el).backgroundImage)).toBe("none");
 });
 
