@@ -156,7 +156,34 @@ import { sceneDescription } from "@entities/profile";
     transition: opacity var(--t-enter) var(--ease-out);
   }
 
+  /* PF-84: the intro still's edge veil (SectionStill.astro .still--intro --still-veil; keep the two
+     in sync), worn by the live canvas over the Hello hold (--hello-veil 1 -> 0 by Journey, set
+     by lib/stage.ts) so the still -> live handover matches. Only with the canvas. */
+  .darkroom-scene :global(.darkroom-scene__veil) {
+    position: absolute;
+    inset: 0;
+    display: none;
+    pointer-events: none;
+    background:
+      linear-gradient(270deg, rgb(14 10 8 / 0.5), rgb(14 10 8 / 0) 112px),
+      linear-gradient(
+        180deg,
+        rgb(14 10 8 / 0.92),
+        rgb(14 10 8 / 0) 130px,
+        rgb(14 10 8 / 0) calc(100% - 160px),
+        rgb(14 10 8 / 0.92)
+      );
+    opacity: var(--hello-veil, 0);
+  }
+
+  .darkroom-scene:global(.is-ready) :global(.darkroom-scene__veil) {
+    display: block;
+  }
+
+  /* PF-84: shown at once, underneath the still; the handover crossfade is the still's
+     (lib/stage.ts). The fade-out above still applies when the scene is stopped. */
   .darkroom-scene:global(.is-ready) :global(.darkroom-scene__canvas) {
     opacity: 1;
+    transition: none;
   }
 </style>

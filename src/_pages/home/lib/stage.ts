@@ -3,7 +3,7 @@
  * `set(p)`; rendering is on demand only (scroll, resize, catch-up easing), never while the tab is
  * hidden, and it stops as soon as the scene has caught up with the scroll position.
  */
-import { clamp } from "@shared/lib/timeline";
+import { clamp, HOLDS } from "@shared/lib/timeline";
 import { createCopyLayer } from "./copy-layer";
 import { createDarkroom, type Darkroom, type RenderInfo } from "./darkroom";
 import type { Tier } from "./tiers";
@@ -28,6 +28,34 @@ const IDLE_BUDGET_MS = 1500;
  */
 const IDLE_GUARD_MS = 150;
 const FADE_IN_MS = 560;
+/** PF-84: the still → live crossfade once the scene is ready (design/hero-handover). */
+export const HANDOVER_MS = 240;
+
+/** True while the first-open loader cover still hides the page (read only, never animated). */
+function coverIsOpaque(): boolean {
+  const cover = document.querySelector<HTMLElement>(".loader");
+  if (!cover) return false;
+  const style = getComputedStyle(cover);
+  return (
+    style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) >= 0.999
+  );
+}
+
+/** The poster stills on screen now (desktop: viewport-fixed pictures). */
+function visibleStills(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>("[data-still] picture")).filter(
+    (picture) => {
+      const style = getComputedStyle(picture);
+      const still = picture.parentElement;
+      return (
+        style.display !== "none" &&
+        Number(style.opacity) > 0 &&
+        still !== null &&
+        getComputedStyle(still).display !== "none"
+      );
+    },
+  );
+}
 
 export interface StageHandle {
   dispose: () => void;
@@ -72,6 +100,9 @@ export async function mountStage(
   canvas.className = "darkroom-scene__canvas";
   canvas.setAttribute("aria-hidden", "true");
   host.append(canvas);
+  const veilLayer = document.createElement("div");
+  veilLayer.className = "darkroom-scene__veil";
+  host.append(veilLayer);
 
   const [w, h] = size();
   let darkroom: Darkroom;
@@ -79,6 +110,7 @@ export async function mountStage(
     darkroom = await createDarkroom(canvas, { tier, width: w, height: h });
   } catch (error) {
     canvas.remove();
+    veilLayer.remove();
     throw error;
   }
 
@@ -96,7 +128,17 @@ export async function mountStage(
   let disposed = false;
   let deadlineTimer = 0;
 
+  // PF-84: the intro still carries an edge veil (SectionStill.astro); the live scene wears the same
+  // veil over the Hello hold so the handover matches, and drops it on the way to Journey.
+  const [, helloEnd] = HOLDS[0] ?? [0, 0.06];
+  const [journeyStart] = HOLDS[1] ?? [0.17, 0.25];
+  let veil = -1;
   const draw = (): RenderInfo => {
+    const v = 1 - clamp((shown - helloEnd) / (journeyStart - helloEnd));
+    if (v !== veil) {
+      veil = v;
+      host.style.setProperty("--hello-veil", String(v));
+    }
     darkroom.set(shown);
     copy.update(shown);
     frames += 1;
@@ -170,17 +212,61 @@ export async function mountStage(
   document.addEventListener("visibilitychange", onVisibility);
 
   draw();
-  // Fade in over the poster after the first frame.
-  let shownTimer = 0;
-  requestAnimationFrame(() => {
-    // Disposed in the same frame it mounted (reduced motion switched on mid-start): no fade-in.
+  // PF-84: hand over from the still on screen without a jump (design/hero-handover). The canvas
+  // stays transparent behind the still until two frames have been drawn at the rest state (the
+  // textures were uploaded in createDarkroom). Then exactly one swap: instant while the loader
+  // cover is still opaque, else a HANDOVER_MS crossfade with the canvas fully shown underneath and
+  // the still fading out on top (the same pixels as the canvas fading in over an opaque still:
+  // never darker than the darker of the two). The still is hidden only once the fade's `finished`
+  // resolves, never on a wall-clock timer, so a slow frame cannot uncover a half-shown canvas.
+  let warmFrames = 0;
+  let handover: Animation[] = [];
+  const reveal = (): void => {
+    handover = [];
+    if (!disposed) document.documentElement.toggleAttribute("data-scene-shown", true);
+  };
+  const swap = (): void => {
     if (disposed) return;
+    const stills = visibleStills();
+    if (coverIsOpaque() || stills.length === 0) {
+      reveal();
+      return;
+    }
+    handover = stills.map((picture) =>
+      picture.animate([{ opacity: 1 }, { opacity: 0 }], {
+        duration: HANDOVER_MS,
+        easing: "linear",
+        fill: "forwards",
+      }),
+    );
+    const animations = handover;
+    void Promise.all(animations.map((a) => a.finished)).then(
+      () => {
+        if (handover === animations) {
+          reveal();
+          // The still is display: none now; drop the fill so a later static fallback shows it.
+          for (const a of animations) a.cancel();
+        }
+        return null;
+      },
+      // Cancelled by dispose(): it restores the still itself.
+      () => null,
+    );
+  };
+  const warm = (): void => {
+    // Disposed in the same frame it mounted (reduced motion switched on mid-start): no swap.
+    if (disposed) return;
+    if (warmFrames < 2) {
+      if (!raf) draw();
+      warmFrames += 1;
+      requestAnimationFrame(warm);
+      return;
+    }
+    // Shown underneath the still (which paints above the scene): nothing changes on screen yet.
     host.classList.add("is-ready");
-    // The still stays on screen until the canvas has faded in behind it (SectionStill, PF-57).
-    shownTimer = window.setTimeout(() => {
-      if (!disposed) document.documentElement.toggleAttribute("data-scene-shown", true);
-    }, FADE_IN_MS);
-  });
+    requestAnimationFrame(swap);
+  };
+  requestAnimationFrame(warm);
 
   if (exposeTestHook) {
     window.darkroomTest = {
@@ -205,7 +291,8 @@ export async function mountStage(
       disposed = true;
       cancelAnimationFrame(raf);
       window.clearTimeout(deadlineTimer);
-      window.clearTimeout(shownTimer);
+      for (const a of handover) a.cancel();
+      handover = [];
       document.documentElement.removeAttribute("data-scene-shown");
       window.removeEventListener("scroll", request);
       window.removeEventListener("resize", onResize);
@@ -215,6 +302,8 @@ export async function mountStage(
       darkroom.dispose();
       window.setTimeout(() => {
         canvas.remove();
+        veilLayer.remove();
+        host.style.removeProperty("--hello-veil");
       }, FADE_IN_MS);
       if (exposeTestHook) delete window.darkroomTest;
     },

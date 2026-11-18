@@ -115,10 +115,12 @@ export async function createDarkroom(
   graph.camera.aspect = width / height;
 
   let aspect = width / height;
-  let current = evaluate(0);
+  // PF-84: the live Hello print is the developed print the intro still shows (the still is
+  // rendered from this same state), so the handover from the still never shows blank paper.
+  let current = evaluate(0, { developed: true });
   let safelight = true;
   const set = (p: number): void => {
-    current = evaluate(p, { portrait: config.portraitFraming && aspect < 1 });
+    current = evaluate(p, { portrait: config.portraitFraming && aspect < 1, developed: true });
     graph.apply(applySafelight(current, safelight));
     renderer.toneMappingExposure = graph.exposure();
   };
