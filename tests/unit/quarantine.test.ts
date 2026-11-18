@@ -52,6 +52,7 @@ const requiredIds = [
   "visible-jump-chromium",
   "loader-webkit-early-ready",
   "loader-webkit-late-exit-frames",
+  "a11y-stepped-backdrop-150ms",
 ] as const;
 
 describe("PF-70 quarantine list", () => {
@@ -99,6 +100,13 @@ describe("PF-70 quarantine list", () => {
       "phone: the first still is the eager, high-priority, first-fetched LCP candidate",
     );
     expect(ciYml).toContain("ready at 200-300 ms|ready after the content is fully in");
+    expect(ciYml).toContain('tests/e2e/a11y.spec.ts --grep-invert "150 ms step-end CSS blink"');
+    expect(ciYml).toContain("PF-50 reload at|150 ms step-end CSS blink");
+    const a11y150 = list.items.find((i) => i.id === "a11y-stepped-backdrop-150ms");
+    expect(a11y150?.follow_up).toBe("PF-82");
+    expect(a11y150?.project).toBe("chromium");
+    expect(a11y150?.title).toContain("150 ms step-end CSS blink");
+    expect(a11y150?.title).not.toContain("2400 ms");
     // The visible-jump group must not remain in the fail-fast e2e matrix.
     expect(ciYml).not.toMatch(
       /- group: visible-jump\s*\n\s*args: tests\/e2e\/visible-jump\.spec\.ts/,

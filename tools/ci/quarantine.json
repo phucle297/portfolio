@@ -1,5 +1,5 @@
 {
-  "$comment": "PF-70 flaky-test quarantine. Tests listed here still run on every PR in the quarantine (*) jobs, which show on the PR but are not inputs to ci-ok (the blocking gate). Removing an entry and its ci.yml exclude puts the test back in the blocking jobs. Do not skip, delete, or weaken the test. Follow-up cards: PF-76 (M1-AC16), PF-77 (LH mobile TBT/perf), PF-78 (WebKit phone LCP), PF-79 (B-4 idle), PF-80 (Chromium visible-jump), PF-81 (WebKit loader exit frames).",
+  "$comment": "PF-70 flaky-test quarantine. Tests listed here still run on every PR in the quarantine (*) jobs, which show on the PR but are not inputs to ci-ok (the blocking gate). Removing an entry and its ci.yml exclude puts the test back in the blocking jobs. Do not skip, delete, or weaken the test. Follow-up cards: PF-76 (M1-AC16), PF-77 (LH mobile TBT/perf), PF-78 (WebKit phone LCP), PF-79 (B-4 idle), PF-80 (Chromium visible-jump), PF-81 (WebKit loader exit frames), PF-82 (a11y 150 ms stepped-backdrop).",
   "items": [
     {
       "id": "tiers-m1-ac16",
@@ -75,6 +75,18 @@
       "follow_up": "PF-81",
       "known_run": "44296133703",
       "known_runs": ["44291484533", "44296133703"]
+    },
+    {
+      "id": "a11y-stepped-backdrop-150ms",
+      "file": "tests/e2e/a11y.spec.ts",
+      "title": "regression: stepped backdrop (150 ms step-end CSS blink) on the full tier never settles and is never deferred",
+      "project": "chromium",
+      "date": "2026-11-18",
+      "reason": "Known recurring flake: the 150 ms step-end CSS blink plant is deferred as live canvas on SwiftShader instead of fail/undecided. Seen on PR #34, #40, PF-54 root-fix attempt, PF-69 QA a2, and PF-73 run 44300131182 (att.1+2). The 2400 ms sibling plants stay blocking. Assertions unchanged.",
+      "follow_up": "PF-82",
+      "known_run": "44300131182",
+      "source_title": "regression: stepped backdrop (${plant.name}) on the full tier never settles and is never deferred",
+      "known_runs": ["44300131182"]
     }
   ]
 }

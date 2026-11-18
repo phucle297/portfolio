@@ -100,8 +100,10 @@ jobs:
           - group: probe-cost
             args: tests/e2e/probe-cost.spec.ts tests/e2e/probe-cost-webgl-disabled.spec.ts
           # PF-03: axe-core scan across tiers and states (report in test-results/a11y, uploaded below).
+          # PF-82: the 150 ms stepped-backdrop plant is quarantined; the rest of this
+          # spec stays in this blocking job.
           - group: a11y
-            args: tests/e2e/a11y.spec.ts
+            args: tests/e2e/a11y.spec.ts --grep-invert "150 ms step-end CSS blink"
           # PF-05 (#8): the engine-neutral stand-ins on Chromium. Firefox and WebKit: job e2e-xb.
           - group: cross-browser
             args: tests/e2e/cross-browser.spec.ts
@@ -346,7 +348,8 @@ jobs:
           tests/e2e/tiers.spec.ts
           tests/e2e/m2-qa-b.spec.ts
           tests/e2e/visible-jump.spec.ts
-          --grep "M1-AC16 there is no Motion toggle|B-4 the render loop idles|PF-50 reload at"
+          tests/e2e/a11y.spec.ts
+          --grep "M1-AC16 there is no Motion toggle|B-4 the render loop idles|PF-50 reload at|150 ms step-end CSS blink"
           --project=chromium --reporter=list,html
         env:
           E2E_PREBUILT: "1"
