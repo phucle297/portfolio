@@ -81,7 +81,7 @@ describe("PF-70 quarantine list", () => {
     expect(ciYml).toContain("name: quarantine (webkit phone LCP)");
     expect(ciYml).toContain("name: quarantine (webkit loader)");
     expect(ciYml).toContain("name: quarantine (lh mobile TBT)");
-    const needs = /  ci-ok:[\s\S]*?needs: \[([^\]]+)\]/.exec(ciYml);
+    const needs = /  ci-ok:[\s\S]*?needs:\s*\[([^\]]+)\]/.exec(ciYml);
     expect(needs, "ci-ok needs").not.toBeNull();
     const jobs = needs?.[1] ?? "";
     expect(jobs).not.toMatch(/quarantine/);
