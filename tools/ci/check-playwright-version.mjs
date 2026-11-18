@@ -60,10 +60,11 @@ export const lockfilePackageVersions = (lockText) => {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(`"${escaped}":\\s*\\[\\s*"${escaped}@([^"]+)"`);
     const match = re.exec(lockText);
-    if (!match) {
+    const resolved = match?.[1];
+    if (!match || !resolved) {
       throw new Error(`bun.lock has no resolved ${name} package entry`);
     }
-    versions[name] = match[1];
+    versions[name] = resolved;
   }
   return versions;
 };
@@ -72,17 +73,19 @@ export const lockfilePackageVersions = (lockText) => {
  * Canonical lockfile Playwright version. Throws if the three packages disagree
  * or a resolved entry is missing.
  * @param {string} lockText
+ * @returns {string}
  */
 export const lockfilePlaywrightVersion = (lockText) => {
   const versions = lockfilePackageVersions(lockText);
   const unique = [...new Set(Object.values(versions))];
-  if (unique.length !== 1) {
+  const version = unique[0];
+  if (unique.length !== 1 || !version) {
     const detail = LOCKFILE_PACKAGES.map((n) => `${n}=${versions[n]}`).join(", ");
     throw new Error(
       `bun.lock Playwright packages disagree (${detail}); they must share one version`,
     );
   }
-  return unique[0];
+  return version;
 };
 
 /**
@@ -100,10 +103,12 @@ export const ciPinsInYaml = (file, yamlText) => {
   const pins = [];
   const envRe = /PLAYWRIGHT_VERSION:\s*["']?(\d+\.\d+\.\d+)["']?/g;
   for (const match of src.matchAll(envRe)) {
+    const version = match[1];
+    if (!version) continue;
     pins.push({
       file,
       kind: "PLAYWRIGHT_VERSION",
-      version: match[1],
+      version,
       raw: match[0].trim(),
     });
   }
@@ -111,10 +116,12 @@ export const ciPinsInYaml = (file, yamlText) => {
   // Do not treat "-noble" as a semver pre-release; compare only x.y.z to bun.lock.
   const imageRe = /mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)[^\s"']*/g;
   for (const match of src.matchAll(imageRe)) {
+    const version = match[1];
+    if (!version) continue;
     pins.push({
       file,
       kind: "image",
-      version: match[1],
+      version,
       raw: match[0],
     });
   }
@@ -148,6 +155,7 @@ export const driftMessages = (lockVersion, pins) => {
  */
 export const checkPlaywrightVersion = (root) => {
   const lockPath = join(root, "bun.lock");
+  /** @type {string} */
   let lockVersion;
   try {
     lockVersion = lockfilePlaywrightVersion(readFileSync(lockPath, "utf8"));
@@ -172,7 +180,8 @@ export const checkPlaywrightVersion = (root) => {
   return { ok: true, version: lockVersion, pinCount: pins.length };
 };
 
-const isMain = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
+const argvPath = process.argv[1];
+const isMain = argvPath !== undefined && import.meta.url === pathToFileURL(argvPath).href;
 
 if (isMain) {
   const root = process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), "../..");
