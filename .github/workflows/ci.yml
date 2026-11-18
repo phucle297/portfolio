@@ -24,7 +24,7 @@ env:
   ASTRO_TELEMETRY_DISABLED: "1"
   # Must match bun.lock @playwright/test and the e2e-xb / load-stability container tag
   # (mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble). The install action fails if they drift.
-  PLAYWRIGHT_VERSION: "1.65.0"
+  PLAYWRIGHT_VERSION: "1.64.0"
 
 jobs:
   # ---------------------------------------------------------------- stage 1
