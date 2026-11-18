@@ -242,6 +242,7 @@ test.describe("full tier", () => {
   test("M1-AC16 there is no Motion toggle; a saved off value is ignored after reload", async ({
     page,
   }) => {
+    expect(false, "PF-70 planted quarantine failure").toBe(true);
     await page.addInitScript(() => {
       localStorage.setItem("motion", "off");
     });
