@@ -26,3 +26,8 @@ before the tests started (CI-5; see `issues.md` in the factory ledger).
     job budget. Tests still reuse the workflow's `dist` artifact (`E2E_PREBUILT=1`).
 
 Rollback: revert the PR that added the container, the cache action, and this file.
+
+The Firefox/WebKit jobs set `HOME=/root` (Firefox will not launch when GHA's
+`HOME=/github/home` is owned by a different user than the job) and `TMPDIR` to a
+directory on the workspace volume (Astro's `rename` fails with `EXDEV` if the
+preview build output is on `/tmp`).

@@ -153,6 +153,13 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.65.0-noble
       options: --ipc=host
+    env:
+      # GHA sets HOME=/github/home (owned by pwuser) while the job runs as root.
+      # Firefox refuses to launch in that case; Playwright documents HOME=/root.
+      HOME: /root
+      # ui-preview.spec builds into os.tmpdir(); /tmp is a different device than
+      # the bind-mounted workspace, and Astro rename() then fails with EXDEV.
+      TMPDIR: ${{ github.workspace }}/.tmp
     strategy:
       fail-fast: false
       matrix:
@@ -160,6 +167,8 @@ jobs:
         shard: [1, 2]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Workspace temp dir
+        run: mkdir -p "$TMPDIR"
       - uses: ./.github/actions/setup
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -204,8 +213,13 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.65.0-noble
       options: --ipc=host
+    env:
+      HOME: /root
+      TMPDIR: ${{ github.workspace }}/.tmp
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Workspace temp dir
+        run: mkdir -p "$TMPDIR"
       - uses: ./.github/actions/setup
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -216,6 +230,7 @@ jobs:
         with:
           browser: webkit
       - name: Check Liberation fonts for FONTCONFIG_FILE
+        shell: bash
         run: |
           set -euo pipefail
           dir=/usr/share/fonts/truetype/liberation
