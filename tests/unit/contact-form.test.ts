@@ -38,3 +38,26 @@ describe("buildMailtoHref", () => {
     expect(decoded).not.toContain("Project type:");
   });
 });
+
+describe("buildMailtoHref phone (PF-69)", () => {
+  it("adds a trimmed 'Phone:' line right after Email when filled", () => {
+    const decoded = decodeURIComponent(
+      buildMailtoHref("phucle.2971.dd@gmail.com", { ...values, phone: "  +84 90 123 4567 " }),
+    );
+    expect(decoded).toContain(
+      "body=Name: Ada Lovelace\nEmail: ada@example.com\nPhone: +84 90 123 4567\n\nA small marketing site by next month.",
+    );
+  });
+
+  it("leaves the Phone line out when empty or whitespace", () => {
+    for (const phone of [undefined, "", "   "]) {
+      const decoded = decodeURIComponent(
+        buildMailtoHref("phucle.2971.dd@gmail.com", { ...values, phone }),
+      );
+      expect(decoded).not.toContain("Phone:");
+      expect(decoded).toContain(
+        "body=Name: Ada Lovelace\nEmail: ada@example.com\n\nA small marketing site by next month.",
+      );
+    }
+  });
+});

@@ -680,6 +680,32 @@ for (const viewport of [
   });
 }
 
+// PF-69 AC4: the success state (amber status strip after a valid submit) also scans clean.
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test(`contact form success state at ${viewport.width}×${viewport.height}`, async ({
+    browser,
+  }) => {
+    const mobile = viewport.width < 768;
+    const page = await open(browser, { viewport, isMobile: mobile, hasTouch: mobile });
+    const form = page.locator("[data-contact-form]");
+    await form.scrollIntoViewIfNeeded();
+    await page.locator("#contact-name").fill("Ada Lovelace");
+    await page.locator("#contact-email").fill("ada@example.com");
+    await page.locator("#contact-phone").fill("+84 90 123 4567");
+    await page.locator("#contact-brief").fill("A small marketing site by next month.");
+    await form.locator('button[type="submit"]').click();
+    await expect(form.locator("[data-form-status]")).not.toBeEmpty();
+    await form.locator("[data-form-status]").scrollIntoViewIfNeeded();
+    const state = `contact form, success, ${viewport.width}×${viewport.height}`;
+    const result = await analyze(page, state);
+    await page.context().close();
+    expect(blockingOf(state, result), "serious/critical axe violations").toEqual([]);
+  });
+}
+
 test.afterAll(() => {
   let files: string[] = [];
   try {

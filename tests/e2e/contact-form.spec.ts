@@ -23,6 +23,7 @@ const success = contact.form.success;
 const nameInput = (page: Page) => page.locator("#contact-name");
 const emailInput = (page: Page) => page.locator("#contact-email");
 const briefInput = (page: Page) => page.locator("#contact-brief");
+const phoneInput = (page: Page) => page.locator("#contact-phone");
 const submit = (page: Page) => page.getByRole("button", { name: contact.form.submit });
 const status = (page: Page) => page.locator("[data-form-status]");
 const errorOf = (page: Page, field: "name" | "email" | "brief") =>
@@ -77,7 +78,18 @@ test.describe("PF-13 contact form", () => {
     await expect(emailInput(page)).toHaveAttribute("autocomplete", "email");
     await expect(emailInput(page)).toHaveAttribute("type", "email");
 
-    await expect(section.locator("input, textarea")).toHaveCount(3);
+    // PF-69: plus the optional Phone field (tel, phone autofill, visible label, never required).
+    await expect(page.locator('label[for="contact-phone"]')).toHaveText(
+      `${contact.form.phone.label} ${contact.form.phone.optional}`,
+    );
+    await expect(page.getByLabel("Phone (optional)")).toHaveId("contact-phone");
+    await expect(phoneInput(page)).toHaveAttribute("type", "tel");
+    await expect(phoneInput(page)).toHaveAttribute("autocomplete", "tel");
+    await expect(phoneInput(page)).toHaveAttribute("inputmode", "tel");
+    await expect(phoneInput(page)).toHaveAttribute("name", "phone");
+    await expect(phoneInput(page)).not.toHaveAttribute("required");
+
+    await expect(section.locator("input, textarea")).toHaveCount(4);
     await expect(section.locator("select")).toHaveCount(0);
     await expect(section.locator('input[type="radio"]')).toHaveCount(0);
     await expect(section.locator("dl")).toHaveCount(0);
@@ -229,6 +241,45 @@ test.describe("PF-13 contact form", () => {
     await expect(status(page)).toHaveText(success);
     await expect(status(page)).toHaveAttribute("role", "status");
     await expect(status(page)).toHaveAttribute("aria-live", "polite");
+  });
+
+  test("PF-69: a filled phone adds a 'Phone:' line after Email; empty or blank adds none", async ({
+    page,
+  }) => {
+    knownEngineFailure(["firefox"], "Playwright's Firefox does not report the mailto: navigation");
+    const cases = [
+      { phone: "  +84 90 123 4567 ", line: "Phone: +84 90 123 4567\n" },
+      { phone: "", line: "" },
+      { phone: "   ", line: "" },
+    ] as const;
+    await inSequence(cases, async ({ phone, line }) => {
+      await page.goto("/");
+      await page.locator("#contact").scrollIntoViewIfNeeded();
+      await fillValid(page);
+      await phoneInput(page).fill(phone);
+      const pending = waitForMailto(page);
+      await submit(page).click();
+      const decoded = decodeURIComponent(await pending);
+      expect(decoded).toContain(
+        `body=Name: Ada Lovelace\nEmail: ada@example.com\n${line}\nA small marketing site by next month.`,
+      );
+      if (!line) expect(decoded).not.toContain("Phone:");
+      await expect(status(page)).toHaveText(success);
+    });
+  });
+
+  test("PF-69: Phone never blocks submit or shows an error", async ({ page }) => {
+    await page.goto("/");
+    await page.locator("#contact").scrollIntoViewIfNeeded();
+    await phoneInput(page).fill("not a phone number");
+    await submit(page).click();
+    // Only the three required fields error; Phone has no error state.
+    await expect(page.locator("#contact .field__error:visible")).toHaveCount(3);
+    await expect(phoneInput(page)).not.toHaveAttribute("aria-invalid", "true");
+    await expect(nameInput(page)).toBeFocused();
+    await fillValid(page);
+    await expect(page.locator("#contact .field__error:visible")).toHaveCount(0);
+    await expect(phoneInput(page)).not.toHaveAttribute("aria-invalid", "true");
   });
 
   test("Start a project and Get a quote work by mouse and keyboard on the static tier", async ({

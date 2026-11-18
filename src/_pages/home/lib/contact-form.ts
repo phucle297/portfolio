@@ -11,6 +11,8 @@ const FIELDS = ["name", "email", "brief"] as const;
 export interface ContactValues {
   name: string;
   email: string;
+  /** PF-69: optional and never validated; an empty value adds no line to the mailto body. */
+  phone?: string | undefined;
   brief: string;
 }
 
@@ -37,13 +39,24 @@ export function valuesFromForm(form: HTMLFormElement): ContactValues {
   return {
     name: value(form, "name"),
     email: value(form, "email"),
+    phone: value(form, "phone"),
     brief: value(form, "brief"),
   };
 }
 
-/** PF-58 (Contact Option B, amends PF-13 AC3 / Q8): subject "Project: {name}", body Name/Email/brief. */
+/**
+ * PF-58 (Contact Option B, amends PF-13 AC3 / Q8): subject "Project: {name}", body Name/Email/brief.
+ * PF-69: a non-empty (trimmed) phone adds a "Phone: …" line right after Email; empty adds nothing.
+ */
 export function buildMailtoHref(to: string, values: ContactValues): string {
-  const lines = [`Name: ${values.name}`, `Email: ${values.email}`, "", values.brief];
+  const phone = values.phone?.trim() ?? "";
+  const lines = [
+    `Name: ${values.name}`,
+    `Email: ${values.email}`,
+    ...(phone ? [`Phone: ${phone}`] : []),
+    "",
+    values.brief,
+  ];
   const subject = `Project: ${values.name}`;
   return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join("\n"))}`;
 }
