@@ -45,9 +45,20 @@ jobs:
       - uses: ./.github/actions/setup
       - run: bun run ${{ matrix.check }}
 
+  # PF-71: fail early if CI Playwright pins drift from bun.lock.
+  # Checkout only (no toolchain install). Part of the ci-ok gate; build waits
+  # on it so a mismatch does not start e2e.
+  playwright-version:
+    name: playwright-version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: node tools/ci/check-playwright-version.mjs
+
   # ---------------------------------------------------------------- stage 2
   build:
-    needs: fast-gate
+    needs: [fast-gate, playwright-version]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -494,7 +505,17 @@ jobs:
   # There are no GitHub required checks (Owner deferred); ci-ok is the intended gate.
   ci-ok:
     if: ${{ always() }}
-    needs: [fast-gate, build, e2e, e2e-xb, e2e-load-stability-webkit, lighthouse, bundle-size]
+    needs:
+      [
+        fast-gate,
+        playwright-version,
+        build,
+        e2e,
+        e2e-xb,
+        e2e-load-stability-webkit,
+        lighthouse,
+        bundle-size,
+      ]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
