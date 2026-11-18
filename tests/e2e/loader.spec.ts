@@ -240,9 +240,10 @@ test("PF-67 AC1: a page ready in under 300 ms shows no loader content before it 
   // 300 ms delay: the exit must start before that, and every frame up to that point shows the
   // content fully transparent (only the page-coloured cover, if anything).
   const log = await fastLoad(page);
-  // On a very fast load the early exit cancels the content's fade-in before its start time is
-  // sampled; the cover's failsafe animation starts in the same style pass, so it stands in.
-  const inStart = log.inStart ?? log.capStart ?? Number.NaN;
+  // On a very fast load the exit (html.is-ready, html.is-early) cancels the content's fade-in and
+  // the cover's failsafe before their start times are sampled; the cover's failsafe starts in the
+  // same style pass, and navigation start (0) is the earliest either can start, so it bounds it.
+  const inStart = log.inStart ?? log.capStart ?? 0;
   const contentDue = inStart + CONTENT_DELAY_MS;
   expect(
     log.readyAt ?? Number.NaN,
