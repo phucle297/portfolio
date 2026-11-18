@@ -90,38 +90,42 @@ function clearIfValid(form: HTMLFormElement, name: FieldName): void {
 }
 
 /**
- * PF-69 a2 (contact-v3 rev 3 safety net): while pinned, the Contact copy is a fixed layer. If the
- * error or success state makes it run under the footer (short viewports such as 1200×760), unpin
- * it: the layer becomes absolute at the exact spot it occupies now (no visual jump), so it scrolls
- * with the page, and the page scrolls just enough for the form to end 12 px above the footer.
- * A resize drops the override (the pinned layout is re-measured on the next state change).
+ * PF-69 a3 (contact-v3 rev 3 safety net, state-based): while the form shows an error or the
+ * success strip, `.contact[data-state=error|success]` is set. While pinned, the Contact copy is a
+ * fixed layer; if that state makes it run under the footer (short viewports such as 1200×760),
+ * the layer leaves its pinned slot (`data-unpinned`): it is moved up by the overflow, so the form
+ * ends 12 px above the footer. The offset is viewport-relative, so no scroll (wheel, keyboard
+ * focus re-entry, the copy layer's focus scroll) can bring the form back under the footer; it is
+ * recomputed on resize and whenever the form changes size, and dropped once the state clears.
  */
 const FOOTER_GAP = 12;
 
+const formState = (form: HTMLFormElement): "error" | "success" | null =>
+  form.querySelector(".field__error:not([hidden])")
+    ? "error"
+    : form.querySelector("[data-form-status]")?.textContent?.trim()
+      ? "success"
+      : null;
+
+/** Syncs `data-state` and the unpin with the form; returns whether the layer is unpinned. */
 export function unpinIfCovered(form: HTMLFormElement): boolean {
-  const root = document.documentElement;
   const body = form.closest<HTMLElement>("[data-copy-body]");
-  const section = body?.parentElement;
   const column = form.parentElement;
-  if (root.dataset.pin !== "on" || !body || !section || !column) return false;
+  if (!body || !column) return false;
+  const state = formState(form);
+  if (state) column.dataset.state = state;
+  else delete column.dataset.state;
+  body.removeAttribute("data-unpinned");
+  body.style.removeProperty("--unpin-lift");
+  if (!state || document.documentElement.dataset.pin !== "on") return false;
+  // Pinned layout, ignoring the scrubbed --copy-y offset: the fixed body starts at y = 0.
+  const bodyTop = body.getBoundingClientRect().top;
   const footerTop = document.querySelector("body > footer")?.getBoundingClientRect().top;
   const limit = (footerTop ?? window.innerHeight) - FOOTER_GAP;
-  const overflow = column.getBoundingClientRect().bottom - limit;
+  const overflow = column.getBoundingClientRect().bottom - bodyTop - limit;
   if (overflow <= 0) return false;
-  if (!body.hasAttribute("data-unpinned")) {
-    const top = body.getBoundingClientRect().top - section.getBoundingClientRect().top;
-    body.style.setProperty("--unpin-top", `${top}px`);
-    body.setAttribute("data-unpinned", "");
-    window.addEventListener(
-      "resize",
-      () => {
-        body.removeAttribute("data-unpinned");
-        body.style.removeProperty("--unpin-top");
-      },
-      { once: true },
-    );
-  }
-  window.scrollBy({ top: Math.ceil(overflow), behavior: "instant" });
+  body.style.setProperty("--unpin-lift", `${Math.ceil(overflow)}px`);
+  body.setAttribute("data-unpinned", "");
   return true;
 }
 
@@ -140,6 +144,19 @@ export function initContactForm(form: HTMLFormElement): void {
       clearIfValid(form, name);
     });
   }
+
+  // Keep the layer's pinned/unpinned placement in step with the form's size and the viewport
+  // (one rAF throttle); the state itself only changes on submit and when errors clear.
+  let frame = 0;
+  const schedule = (): void => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      unpinIfCovered(form);
+    });
+  };
+  new ResizeObserver(schedule).observe(form);
+  window.addEventListener("resize", schedule);
 
   // "Start a project" / "Get a quote": land on Contact with focus on Name (nothing to preselect).
   // The jump to #contact is done here, not by the browser: Firefox runs the fragment navigation

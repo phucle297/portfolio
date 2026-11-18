@@ -431,12 +431,11 @@ const email = profile.email;
     }
   }
 
-  /* PF-69 rev 3 safety net: the layer contact-form.ts unpinned scrolls with the page from where
-     it was (absolute in the section), so the footer never covers the form. */
+  /* PF-69 rev 3 safety net: while .contact[data-state] (error / success) would run under the
+     footer, contact-form.ts unpins the layer from its slot: it moves up by --unpin-lift (the
+     overflow), so the form ends 12 px above the footer whatever the scroll position. */
   :global(html[data-pin="on"] .home-section__body[data-unpinned]) {
-    position: absolute;
-    inset: var(--unpin-top, 0) 0 auto;
-    min-height: 100vh;
+    inset: calc(var(--unpin-lift, 0px) * -1) 0 var(--unpin-lift, 0px);
   }
 
   /* PF-64 (in PF-69): 768–1279 with the tray unpinned the column narrows to 30.5vw so it clears

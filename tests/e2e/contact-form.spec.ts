@@ -29,6 +29,35 @@ const status = (page: Page) => page.locator("[data-form-status]");
 const errorOf = (page: Page, field: "name" | "email" | "brief") =>
   page.locator(`[data-error-for="${field}"]`);
 
+const fitMargins = (page: Page) =>
+  page.evaluate(() => {
+    const column = document.querySelector("#contact .contact")?.getBoundingClientRect();
+    const footer = document.querySelector("body > footer")?.getBoundingClientRect();
+    const header = document.querySelector("body > header, header")?.getBoundingClientRect();
+    const active = document.activeElement;
+    const focused = active?.closest("#contact") ? active.getBoundingClientRect() : null;
+    return {
+      form: column && footer ? footer.top - column.bottom : null,
+      focusBelow: focused && footer ? footer.top - focused.bottom : null,
+      focusAbove: focused && header ? focused.top - header.bottom : null,
+      state: document.querySelector<HTMLElement>("#contact .contact")?.dataset.state ?? null,
+    };
+  });
+
+const enterState = async (page: Page, state: "error" | "success"): Promise<void> => {
+  if (state === "error") {
+    await emailInput(page).fill("not-an-email");
+    await submit(page).click();
+    await expect(errorOf(page, "brief")).toBeVisible();
+  } else {
+    await fillValid(page);
+    await phoneInput(page).fill("+84 90 123 4567");
+    await submit(page).click();
+    await expect(status(page)).not.toBeEmpty();
+  }
+  await expect(page.locator("#contact .contact")).toHaveAttribute("data-state", state);
+};
+
 const rgbToHex = (rgb: string): string => {
   const match = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/u.exec(rgb);
   if (!match) return rgb;
@@ -177,10 +206,12 @@ test.describe("PF-13 contact form", () => {
     },
   );
 
-  // PF-69 rev 3: default, error and success states end >= 12 px above the footer on the short
-  // pinned viewports; at 1200×760 the error/success states unpin the layer (safety net).
+  // PF-69 rev 3 / a3: default, error and success states end >= 12 px above the footer on the
+  // short pinned viewports. At 1200×760 the error/success state unpins the layer (safety net,
+  // `.contact[data-state]`); it must hold right after submit, after Shift+Tab out of Contact and
+  // Tab back in (no focused control under the footer or the header), and across resizes.
   test(
-    "PF-69: the form ends at least 12px above the footer at 1200×760, 1280×800 and 1440×900 @chromium-only",
+    "PF-69: the form ends at least 12px above the footer at 1200×760, 1280×800 and 1440×900, also after Shift+Tab out and Tab back in @chromium-only",
     {
       tag: "@chromium-only",
     },
@@ -194,32 +225,78 @@ test.describe("PF-13 contact form", () => {
       );
 
       await inSequence(runs, async ({ viewport, state }) => {
+        const where = `${state} at ${viewport.width}×${viewport.height}`;
         const context = await browser.newContext({ viewport });
         const page = await context.newPage();
         await openScene(page);
         await scrollToP(page, KEY_PROGRESS[5] ?? 0.96);
         await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
         await expect(page.locator("[data-contact-form]")).not.toHaveAttribute("inert");
-        if (state === "error") {
-          await emailInput(page).fill("not-an-email");
-          await submit(page).click();
-          await expect(errorOf(page, "brief")).toBeVisible();
+        if (state !== "default") await enterState(page, state);
+        expect((await fitMargins(page)).form, `after submit, ${where}`).toBeGreaterThanOrEqual(12);
+        if (state === "default") {
+          await expect(page.locator("#contact .contact")).not.toHaveAttribute("data-state");
+          await context.close();
+          return;
         }
-        if (state === "success") {
-          await fillValid(page);
-          await phoneInput(page).fill("+84 90 123 4567");
-          await submit(page).click();
-          await expect(status(page)).not.toBeEmpty();
-        }
-        const margin = await page.evaluate(() => {
-          const column = document.querySelector("#contact .contact")?.getBoundingClientRect();
-          const footer = document.querySelector("body > footer")?.getBoundingClientRect();
-          return column && footer ? footer.top - column.bottom : null;
+
+        // Shift+Tab out of Contact (from Name, its first control), then Tab back to Send brief.
+        await nameInput(page).focus();
+        await page.keyboard.press("Shift+Tab");
+        await expect
+          .poll(() => page.evaluate(() => !document.activeElement?.closest("#contact")))
+          .toBe(true);
+        await settle(page);
+        const steps = await page
+          .locator("#contact .contact__form :is(input, textarea, button)")
+          .count();
+        await inSequence(
+          Array.from({ length: steps }, (_, step) => step + 1),
+          async (step) => {
+            await page.keyboard.press("Tab");
+            await settle(page);
+            const m = await fitMargins(page);
+            const label = `Tab ${step} back into Contact, ${where}`;
+            expect(m.form, `${label}: form vs footer`).toBeGreaterThanOrEqual(12);
+            expect(m.focusBelow, `${label}: focused control vs footer`).toBeGreaterThanOrEqual(0);
+            expect(m.focusAbove, `${label}: focused control vs header`).toBeGreaterThanOrEqual(0);
+          },
+        );
+        await expect(submit(page)).toBeFocused();
+        await context.close();
+      });
+    },
+  );
+
+  test(
+    "PF-69: the error and success states stay clear of the footer across resizes 1440↔1200 @chromium-only",
+    {
+      tag: "@chromium-only",
+    },
+    async ({ browser }) => {
+      const wide = { width: 1440, height: 900 };
+      const short = { width: 1200, height: 760 };
+      const runs = (["error", "success"] as const).flatMap((state) => [
+        { state, path: [wide, short, wide] },
+        { state, path: [short, wide, short] },
+      ]);
+
+      await inSequence(runs, async ({ state, path }) => {
+        const [first = wide, ...next] = path;
+        const context = await browser.newContext({ viewport: first });
+        const page = await context.newPage();
+        await openScene(page);
+        await scrollToP(page, KEY_PROGRESS[5] ?? 0.96);
+        await expect(page.locator("[data-contact-form]")).not.toHaveAttribute("inert");
+        await enterState(page, state);
+        await inSequence(next, async (viewport, index) => {
+          await page.setViewportSize(viewport);
+          await settle(page);
+          const m = await fitMargins(page);
+          const label = `${state}, resize ${index + 1} to ${viewport.width}×${viewport.height}`;
+          expect(m.state, label).toBe(state);
+          expect(m.form, `${label}: form vs footer`).toBeGreaterThanOrEqual(12);
         });
-        expect(
-          margin,
-          `form bottom vs footer top, ${state} at ${viewport.width}×${viewport.height}`,
-        ).toBeGreaterThanOrEqual(12);
         await context.close();
       });
     },
