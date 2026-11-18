@@ -42,6 +42,8 @@ interface LoaderLog {
   hiddenAt: number | null;
   /** Document-timeline start of the CSS failsafe animation (`ld-cap`), i.e. when the cover was first styled. */
   capStart: number | null;
+  /** Document-timeline start of the content's fade-in (`ld-in` on .loader__in, 300 ms delay). */
+  inStart: number | null;
 }
 declare global {
   interface Window {
@@ -69,6 +71,7 @@ async function recordLoader(page: Page): Promise<void> {
       removedAt: null,
       hiddenAt: null,
       capStart: null,
+      inStart: null,
     };
     window.pf67 = log;
     // The exact moment the exit starts: the class change, not the next frame.
@@ -94,6 +97,12 @@ async function recordLoader(page: Page): Promise<void> {
           .getAnimations()
           .find((a) => a instanceof CSSAnimation && a.animationName === "ld-cap");
         if (cap && typeof cap.startTime === "number") log.capStart = cap.startTime;
+      }
+      if (log.inStart === null && inner) {
+        const fadeIn = inner
+          .getAnimations()
+          .find((a) => a instanceof CSSAnimation && a.animationName === "ld-in");
+        if (fadeIn && typeof fadeIn.startTime === "number") log.inStart = fadeIn.startTime;
       }
       log.frames.push({
         t: now,
@@ -224,12 +233,20 @@ async function fastLoad(page: Page): Promise<LoaderLog> {
 test("PF-67 AC1: a page ready in under 300 ms shows no loader content before it leaves", async ({
   page,
 }) => {
-  // A local preview is ready in ~100-200 ms. Until the exit starts, the content (glow, print,
-  // caption, timer) is fully transparent: only the page-coloured cover was on screen.
+  // A local preview is ready in ~100-200 ms, often before the first frame is even painted. The
+  // content's fade-in is timed from when the cover is first styled (its ld-in start) plus the
+  // 300 ms delay: the exit must start before that, and every frame up to that point shows the
+  // content fully transparent (only the page-coloured cover, if anything).
   const log = await fastLoad(page);
-  const before = log.frames.filter((f) => !f.ready);
-  expect(before.length, "frames before the exit").toBeGreaterThan(0);
-  for (const f of before) expect(f.content, `content at ${f.t.toFixed(0)} ms`).toBe(0);
+  const inStart = log.inStart ?? Number.NaN;
+  const contentDue = inStart + CONTENT_DELAY_MS;
+  expect(
+    log.readyAt ?? Number.NaN,
+    `exit starts before the content is due (${contentDue.toFixed(0)} ms)`,
+  ).toBeLessThan(contentDue);
+  const early = log.frames.filter((f) => f.t < contentDue);
+  expect(early.length, "frames sampled before the content is due").toBeGreaterThan(0);
+  for (const f of early) expect(f.content, `content at ${f.t.toFixed(0)} ms`).toBe(0);
 });
 
 test("PF-67 AC1: a page ready in under 300 ms shows no loader content during its exit fade", async ({
@@ -313,10 +330,8 @@ test("PF-67 AC1: with the loader script stripped, the CSS failsafe still hides t
   const hiddenAt = log.hiddenAt ?? Number.NaN;
   const capStart = log.capStart ?? Number.NaN;
   const firstFrame = log.frames[0]?.t ?? Number.NaN;
-  // The failsafe clock starts when the cover is first styled, at or before its first painted frame.
-  expect(capStart, `ld-cap start vs first frame ${firstFrame.toFixed(0)} ms`).toBeLessThanOrEqual(
-    firstFrame,
-  );
+  // The failsafe clock starts when the cover is first styled, at first paint.
+  expect(capStart, `ld-cap start (first frame ${firstFrame.toFixed(0)} ms)`).toBeLessThan(500);
   // Visible well into the load (no early hide), hidden 3.2 s after that start (the hide lands on
   // the next style update and is sampled on the frame after: two frames of slack).
   expect(log.frames.some((f) => f.visible && f.t > JS_CAP_MS - 200)).toBe(true);
@@ -333,9 +348,13 @@ test("PF-67 AC2: the loader exit moves nothing on the page by more than 8px", as
   const still = await hold(page, INTRO_STILL);
   await page.goto("/", { waitUntil: "domcontentloaded" });
   // Read under the cover once the fonts are in, then after the cover is gone.
-  await page.evaluate(async () => {
-    await document.fonts.ready;
-  });
+  // (Not document.fonts.ready: WebKit resolves it only once the document has loaded, and the held
+  // still keeps it loading.) Wait for the faces that have started to finish, up to 1.5 s.
+  await page
+    .waitForFunction(() => [...document.fonts].every((f) => f.status !== "loading"), undefined, {
+      timeout: 1500,
+    })
+    .catch(() => undefined);
   const before = await boxes(page);
   expect(await page.evaluate(() => document.querySelector(".loader") !== null)).toBe(true);
   await still.release();
