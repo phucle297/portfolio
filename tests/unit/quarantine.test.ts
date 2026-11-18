@@ -101,6 +101,13 @@ describe("PF-70 quarantine list", () => {
     );
   });
 
+  it("keeps PF-67 loader.spec in the blocking jobs, not in quarantine", () => {
+    const ids = list.items.map((i) => i.file);
+    expect(ids).not.toContain("tests/e2e/loader.spec.ts");
+    expect(ciYml).toContain("tests/e2e/progress-top.spec.ts tests/e2e/loader.spec.ts");
+    expect(ciYml).toContain("tests/e2e/a11y.spec.ts tests/e2e/loader.spec.ts");
+  });
+
   it("PF-70 planted blocking failure", () => {
     expect.fail("PF-70 planted blocking failure");
   });

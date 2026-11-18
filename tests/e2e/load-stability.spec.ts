@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import sharp from "sharp";
-import { spoofHardwareGpu } from "./helpers";
+import { hideLoader, spoofHardwareGpu } from "./helpers";
 
 /**
  * PF-57: on a cold load nothing on the first screen jumps when the web fonts swap in, and the
@@ -21,6 +21,13 @@ import { spoofHardwareGpu } from "./helpers";
  * Full tier: the still on screen must stay until the live canvas has faded in behind it, so no
  * frame shows the bare dark page (it used to for the 560 ms fade).
  */
+
+// PF-67: these checks measure the page under the first-open loader (its first paint, its font swap
+// and its still); the cover is hidden so the screenshots see the page. loader.spec.ts covers the
+// loader and its exit.
+test.beforeEach(async ({ page }) => {
+  await hideLoader(page);
+});
 
 const MAX_MOVE_PX = 8;
 /** Mean channel difference (0-255) allowed between the placeholder and the settled still. */
