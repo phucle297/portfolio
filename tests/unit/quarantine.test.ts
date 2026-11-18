@@ -100,4 +100,8 @@ describe("PF-70 quarantine list", () => {
       /- group: visible-jump\s*\n\s*args: tests\/e2e\/visible-jump\.spec\.ts/,
     );
   });
+
+  it("PF-70 planted blocking failure", () => {
+    expect.fail("PF-70 planted blocking failure");
+  });
 });
