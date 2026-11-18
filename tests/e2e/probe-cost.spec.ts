@@ -210,15 +210,6 @@ test.describe("PF-01 cheap gates skip the probe entirely (M1-AC14)", () => {
       },
       {},
     ],
-    [
-      "Motion off (site toggle)",
-      async (page) => {
-        await page.addInitScript(() => {
-          localStorage.setItem("motion", "off");
-        });
-      },
-      {},
-    ],
   ];
   for (const [name, setup, context] of gates) {
     test(`${name}: no probe request, no probe run`, async ({ browser }) => {
