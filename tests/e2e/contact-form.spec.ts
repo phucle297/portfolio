@@ -31,31 +31,99 @@ const errorOf = (page: Page, field: "name" | "email" | "brief") =>
 
 const fitMargins = (page: Page) =>
   page.evaluate(() => {
-    const column = document.querySelector("#contact .contact")?.getBoundingClientRect();
+    const root = document.querySelector<HTMLElement>("#contact .contact");
+    const column = root?.getBoundingClientRect();
     const footer = document.querySelector("body > footer")?.getBoundingClientRect();
     const header = document.querySelector("body > header, header")?.getBoundingClientRect();
+    const eyebrow = root?.querySelector(".eyebrow")?.getBoundingClientRect();
+    const title = root?.querySelector(".section-title")?.getBoundingClientRect();
+    const body = document.querySelector<HTMLElement>("#contact [data-copy-body]");
     const active = document.activeElement;
     const focused = active?.closest("#contact") ? active.getBoundingClientRect() : null;
     return {
       form: column && footer ? footer.top - column.bottom : null,
       focusBelow: focused && footer ? footer.top - focused.bottom : null,
       focusAbove: focused && header ? focused.top - header.bottom : null,
-      state: document.querySelector<HTMLElement>("#contact .contact")?.dataset.state ?? null,
+      state: root?.dataset.state ?? null,
+      compact: !!root?.hasAttribute("data-compact"),
+      flow: !!body?.hasAttribute("data-flow"),
+      unpinned: !!body?.hasAttribute("data-unpinned"),
+      pin: document.documentElement.dataset.pin === "on",
+      position: body ? getComputedStyle(body).position : null,
+      headerBottom: header?.bottom ?? null,
+      eyebrowTop: eyebrow?.top ?? null,
+      titleTop: title?.top ?? null,
+      titleBottom: title?.bottom ?? null,
+      lift: body?.style.getPropertyValue("--unpin-lift") ?? "",
     };
   });
 
-const enterState = async (page: Page, state: "error" | "success"): Promise<void> => {
+type FitMargins = Awaited<ReturnType<typeof fitMargins>>;
+
+const headingClear = (m: FitMargins): boolean =>
+  m.headerBottom !== null &&
+  m.eyebrowTop !== null &&
+  m.titleTop !== null &&
+  m.eyebrowTop >= m.headerBottom + 8 &&
+  m.titleTop >= m.headerBottom;
+
+const footerOrFlow = (m: FitMargins): boolean =>
+  (m.form ?? 0) >= 12 ||
+  m.flow ||
+  (!m.pin && (m.position === "relative" || m.position === "static"));
+
+const assertPlacement = (m: FitMargins, label: string): void => {
+  expect(
+    headingClear(m),
+    `${label}: heading below header (eyebrow ${m.eyebrowTop}, title ${m.titleTop}, header ${m.headerBottom})`,
+  ).toBe(true);
+  expect(
+    footerOrFlow(m),
+    `${label}: footer gap >= 12 or column in normal flow (gap ${m.form}, flow ${m.flow}, pin ${m.pin})`,
+  ).toBe(true);
+};
+
+/** Wait for scrollY to settle without requiring the pinned scene (used at 1024 and 390). */
+const settleScroll = async (page: Page): Promise<void> => {
+  await page.waitForFunction(
+    () =>
+      new Promise<boolean>((resolve) => {
+        const y = scrollY;
+        setTimeout(() => {
+          resolve(scrollY === y);
+        }, 250);
+      }),
+    null,
+    { timeout: 15_000 },
+  );
+};
+
+const enterState = async (
+  page: Page,
+  state: "error" | "success" | "success-then-error",
+): Promise<void> => {
   if (state === "error") {
     await emailInput(page).fill("not-an-email");
     await submit(page).click();
     await expect(errorOf(page, "brief")).toBeVisible();
+    await expect(page.locator("#contact .contact")).toHaveAttribute("data-state", "error");
+  } else if (state === "success") {
+    await fillValid(page);
+    await phoneInput(page).fill("+84 90 123 4567");
+    await submit(page).click();
+    await expect(status(page)).not.toBeEmpty();
+    await expect(page.locator("#contact .contact")).toHaveAttribute("data-state", "success");
   } else {
     await fillValid(page);
     await phoneInput(page).fill("+84 90 123 4567");
     await submit(page).click();
     await expect(status(page)).not.toBeEmpty();
+    await briefInput(page).fill("");
+    await submit(page).click();
+    await expect(errorOf(page, "brief")).toBeVisible();
+    await expect(status(page)).not.toBeEmpty();
+    await expect(page.locator("#contact .contact")).toHaveAttribute("data-state", "error");
   }
-  await expect(page.locator("#contact .contact")).toHaveAttribute("data-state", state);
 };
 
 const rgbToHex = (rgb: string): string => {
@@ -233,7 +301,7 @@ test.describe("PF-13 contact form", () => {
         await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
         await expect(page.locator("[data-contact-form]")).not.toHaveAttribute("inert");
         if (state !== "default") await enterState(page, state);
-        expect((await fitMargins(page)).form, `after submit, ${where}`).toBeGreaterThanOrEqual(12);
+        assertPlacement(await fitMargins(page), `after submit, ${where}`);
         if (state === "default") {
           await expect(page.locator("#contact .contact")).not.toHaveAttribute("data-state");
           await context.close();
@@ -246,7 +314,8 @@ test.describe("PF-13 contact form", () => {
         await expect
           .poll(() => page.evaluate(() => !document.activeElement?.closest("#contact")))
           .toBe(true);
-        await settle(page);
+        const afterKey = viewport.width >= 1200 ? settle : settleScroll;
+        await afterKey(page);
         const steps = await page
           .locator("#contact .contact__form :is(input, textarea, button)")
           .count();
@@ -254,10 +323,13 @@ test.describe("PF-13 contact form", () => {
           Array.from({ length: steps }, (_, step) => step + 1),
           async (step) => {
             await page.keyboard.press("Tab");
-            await settle(page);
+            await afterKey(page);
             const m = await fitMargins(page);
             const label = `Tab ${step} back into Contact, ${where}`;
-            expect(m.form, `${label}: form vs footer`).toBeGreaterThanOrEqual(12);
+            // Pinned + lifted/compact: the whole column stays in view. In flow mode or on
+            // unpinned viewports the stack can be taller than the viewport, so only the
+            // focused control must stay between header and footer.
+            if (m.pin && !m.flow) assertPlacement(m, label);
             expect(m.focusBelow, `${label}: focused control vs footer`).toBeGreaterThanOrEqual(0);
             expect(m.focusAbove, `${label}: focused control vs header`).toBeGreaterThanOrEqual(0);
           },
@@ -295,7 +367,120 @@ test.describe("PF-13 contact form", () => {
           const m = await fitMargins(page);
           const label = `${state}, resize ${index + 1} to ${viewport.width}×${viewport.height}`;
           expect(m.state, label).toBe(state);
-          expect(m.form, `${label}: form vs footer`).toBeGreaterThanOrEqual(12);
+          assertPlacement(m, label);
+        });
+        await context.close();
+      });
+    },
+  );
+
+  // PF-72: after submit the Contact heading stays fully visible below the header, including at
+  // 1024 and 390, in error / success / success-then-error, and across Tab re-entry and resizes.
+  test(
+    "PF-72: the Contact heading stays below the header after submit, Tab re-entry and 1440↔1200 resize @chromium-only",
+    {
+      tag: "@chromium-only",
+    },
+    async ({ browser }) => {
+      test.setTimeout(180_000);
+      const viewports = [
+        { width: 1200, height: 760 },
+        { width: 1280, height: 800 },
+        { width: 1440, height: 900 },
+        { width: 1024, height: 768 },
+        { width: 390, height: 844 },
+      ] as const;
+      const states = ["error", "success", "success-then-error"] as const;
+      const runs = viewports.flatMap((viewport) => states.map((state) => ({ viewport, state })));
+
+      await inSequence(runs, async ({ viewport, state }) => {
+        const where = `${state} at ${viewport.width}×${viewport.height}`;
+        const context = await browser.newContext({ viewport });
+        const page = await context.newPage();
+        if (viewport.width >= 1200) {
+          await openScene(page);
+          await scrollToP(page, KEY_PROGRESS[5] ?? 0.96);
+          await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
+        } else {
+          // 1024 / 390 are the static (unpinned) tier; the scene loader ends "off".
+          await page.goto("/");
+          await page.locator("#contact .contact").evaluate((el) => {
+            el.scrollIntoView({ block: "start", behavior: "instant" });
+          });
+          await settleScroll(page);
+        }
+        await expect(page.locator("[data-contact-form]")).not.toHaveAttribute("inert");
+        await enterState(page, state);
+        if (viewport.width >= 1200) {
+          await settle(page);
+        } else {
+          // Re-land on the column so the new scroll-margin-top is what we assert
+          // (Playwright's click may have scrolled the submit button into view).
+          await page.locator("#contact .contact").evaluate((el) => {
+            el.scrollIntoView({ block: "start", behavior: "instant" });
+          });
+          await settleScroll(page);
+        }
+        await expect
+          .poll(async () => headingClear(await fitMargins(page)), { timeout: 3_000 })
+          .toBe(true);
+        const afterSubmit = await fitMargins(page);
+        assertPlacement(afterSubmit, `after submit, ${where}`);
+        // Shift+Tab out, then Tab back through the form. In flow mode the stack can be taller
+        // than the viewport, so only the focused control must stay between header and footer.
+        await nameInput(page).focus();
+        await page.keyboard.press("Shift+Tab");
+        await expect
+          .poll(() => page.evaluate(() => !document.activeElement?.closest("#contact")))
+          .toBe(true);
+        const afterKey = viewport.width >= 1200 ? settle : settleScroll;
+        await afterKey(page);
+        const steps = await page
+          .locator("#contact .contact__form :is(input, textarea, button)")
+          .count();
+        await inSequence(
+          Array.from({ length: steps }, (_, step) => step + 1),
+          async (step) => {
+            await page.keyboard.press("Tab");
+            await afterKey(page);
+            const m = await fitMargins(page);
+            const label = `Tab ${step} back into Contact, ${where}`;
+            // Pinned + lifted/compact: the whole column stays in view. In flow mode or on
+            // unpinned viewports the stack can be taller than the viewport, so only the
+            // focused control must stay between header and footer.
+            if (m.pin && !m.flow) assertPlacement(m, label);
+            expect(m.focusBelow, `${label}: focused control vs footer`).toBeGreaterThanOrEqual(0);
+            expect(m.focusAbove, `${label}: focused control vs header`).toBeGreaterThanOrEqual(0);
+          },
+        );
+        await context.close();
+      });
+
+      // 1440↔1200 resize, including success-then-error.
+      const wide = { width: 1440, height: 900 };
+      const short = { width: 1200, height: 760 };
+      const resizes = states.flatMap((state) => [
+        { state, path: [wide, short, wide] },
+        { state, path: [short, wide, short] },
+      ]);
+      await inSequence(resizes, async ({ state, path }) => {
+        const [first = wide, ...next] = path;
+        const context = await browser.newContext({ viewport: first });
+        const page = await context.newPage();
+        await openScene(page);
+        await scrollToP(page, KEY_PROGRESS[5] ?? 0.96);
+        await expect(page.locator("[data-contact-form]")).not.toHaveAttribute("inert");
+        await enterState(page, state);
+        await inSequence(next, async (viewport, index) => {
+          await page.setViewportSize(viewport);
+          await settle(page);
+          await expect
+            .poll(async () => headingClear(await fitMargins(page)), { timeout: 3_000 })
+            .toBe(true);
+          const m = await fitMargins(page);
+          const label = `${state}, resize ${index + 1} to ${viewport.width}×${viewport.height}`;
+          expect(m.state, label).toBe(state === "success-then-error" ? "error" : state);
+          assertPlacement(m, label);
         });
         await context.close();
       });

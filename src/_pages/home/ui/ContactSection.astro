@@ -140,6 +140,8 @@ const email = profile.email;
   .contact {
     width: min(32rem, 100%);
     padding-bottom: 2rem;
+    /* PF-72: fragment / scrollIntoView land the column below the header (1024 and 390 too). */
+    scroll-margin-top: calc(var(--header-h) + 12px);
   }
 
   .contact .section-title {
@@ -436,6 +438,31 @@ const email = profile.email;
      overflow), so the form ends 12 px above the footer whatever the scroll position. */
   :global(html[data-pin="on"] .home-section__body[data-unpinned]) {
     inset: calc(var(--unpin-lift, 0px) * -1) 0 var(--unpin-lift, 0px);
+  }
+
+  /* PF-72: compact only in the error/success state, at pinned widths ≥1200. Title scales to
+     0.75× (never under 3rem) with line-height unchanged; eyebrow→title and title→sub gaps
+     drop to 8 px; the message box is 44 px (one line) and stays resizable; form row gap is
+     12 px. No copy is hidden. */
+  @media (min-width: 1200px) {
+    :global(html[data-pin="on"]) .contact[data-state][data-compact] .section-title {
+      margin-top: 8px;
+      font-size: max(3rem, calc(0.75 * min(6rem, 6vw, 9.5vh)));
+    }
+
+    :global(html[data-pin="on"]) .contact[data-state][data-compact] .contact__sub {
+      margin-top: 8px;
+    }
+
+    :global(html[data-pin="on"]) .contact[data-state][data-compact] .contact__form {
+      gap: 12px;
+    }
+
+    :global(html[data-pin="on"]) .contact[data-state][data-compact] .field textarea {
+      min-height: 44px;
+      height: 44px;
+      resize: vertical;
+    }
   }
 
   /* PF-64 (in PF-69): 768–1279 with the tray unpinned the column narrows to 30.5vw so it clears

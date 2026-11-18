@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMailtoHref,
+  cappedLift,
   fieldValid,
   type ContactValues,
 } from "../../src/_pages/home/lib/contact-form";
@@ -59,5 +60,24 @@ describe("buildMailtoHref phone (PF-69)", () => {
         "body=Name: Ada Lovelace\nEmail: ada@example.com\n\nA small marketing site by next month.",
       );
     }
+  });
+});
+
+describe("cappedLift (PF-72)", () => {
+  it("is the overflow when that still leaves 12px under the header", () => {
+    // defaultEyebrowTop 112, headerBottom 89 → cap = 112 - 101 = 11
+    expect(cappedLift(8, 112, 89)).toBe(8);
+    expect(cappedLift(11, 112, 89)).toBe(11);
+  });
+
+  it("caps at defaultEyebrowTop − (headerBottom + 12) so the heading stays clear", () => {
+    expect(cappedLift(81, 112, 89)).toBe(11);
+    expect(cappedLift(51, 112, 89)).toBe(11);
+  });
+
+  it("never returns a negative lift when the column already fits or the cap is empty", () => {
+    expect(cappedLift(0, 112, 89)).toBe(0);
+    expect(cappedLift(-10, 112, 89)).toBe(0);
+    expect(cappedLift(20, 100, 89)).toBe(0);
   });
 });
