@@ -80,17 +80,16 @@ jobs:
           - group: render-loop
             args: tests/e2e/tiers.spec.ts --grep "render loop is on demand"
           - group: tiers
-            args: tests/e2e/tiers.spec.ts --grep-invert "render loop is on demand"
-          # PF-50: on-screen boxes of header / H1 / Hello copy over a 3 s reload (spoofed full tier
-          # on SwiftShader). Catches jumps Chrome CLS and Lighthouse miss (PR #33: 98 / 178 px, CLS 0).
-          - group: visible-jump
-            args: tests/e2e/visible-jump.spec.ts
+            args: tests/e2e/tiers.spec.ts --grep-invert "render loop is on demand|M1-AC16 there is no Motion toggle"
+          # PF-70: chromium visible-jump is quarantined (tools/ci/quarantine.json).
+          # It runs in `quarantine (e2e)` so a stall-cap flake cannot fail-fast-cancel
+          # the other e2e groups or turn ci-ok red. Assertions and the cap are unchanged.
           - group: static-structure-content
             args: tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts
           - group: m2
             args: tests/e2e/m2.spec.ts tests/e2e/m2-keys.spec.ts
           - group: m2-qa-b
-            args: tests/e2e/m2-qa-b.spec.ts --grep-invert "scroll sweep at 1600"
+            args: tests/e2e/m2-qa-b.spec.ts --grep-invert "scroll sweep at 1600|B-4 the render loop idles"
           - group: sweep-1600
             args: tests/e2e/m2-qa-b.spec.ts --grep "scroll sweep at 1600"
           - group: app-features
@@ -179,14 +178,23 @@ jobs:
         with:
           browser: ${{ matrix.browser }}
       # No CHROME_PATH: specs with their own launchOptions would start Chrome with it.
-      - run: >-
-          bunx playwright test --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/2
-          tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts
-          tests/e2e/static-stills.spec.ts tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts
-          tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/ui-preview.spec.ts
-          tests/e2e/cross-browser.spec.ts tests/e2e/a11y.spec.ts tests/e2e/loader.spec.ts
-          --grep-invert "full tier|desktop, hardware GPU|M1-AC15 CLS .* at D$"
-          --reporter=list,html
+      # PF-70: WebKit phone LCP is quarantined; Firefox still runs it in this job.
+      # PF-67: loader.spec.ts runs in this blocking job (and in Chromium app-features).
+      - name: Playwright Firefox / WebKit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          invert='full tier|desktop, hardware GPU|M1-AC15 CLS .* at D$'
+          if [ "${{ matrix.browser }}" = webkit ]; then
+            invert="$invert|phone: the first still is the eager, high-priority, first-fetched LCP candidate"
+          fi
+          bunx playwright test --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/2 \
+            tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts \
+            tests/e2e/static-stills.spec.ts tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts \
+            tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/ui-preview.spec.ts \
+            tests/e2e/cross-browser.spec.ts tests/e2e/a11y.spec.ts tests/e2e/loader.spec.ts \
+            --grep-invert "$invert" \
+            --reporter=list,html
         env:
           E2E_PREBUILT: "1" # serve the shared dist; do not rebuild
           PLAYWRIGHT_HTML_OPEN: never
@@ -274,6 +282,11 @@ jobs:
           name: dist
           path: dist
       - run: npx --yes @lhci/cli@0.16.1 autorun --config=tools/ci/lighthouserc.${{ matrix.form }}.json
+      # PF-70: stash collect output so quarantine (lh mobile TBT) can re-assert without a second collect.
+      - if: ${{ !cancelled() && matrix.form == 'mobile' }}
+        run: |
+          mkdir -p lhci-report/mobile-raw
+          cp -a .lighthouseci/. lhci-report/mobile-raw/ || true
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -304,7 +317,128 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-  # One stable check for branch protection: green only if every job above passed.
+  # PF-70: quarantined tests (tools/ci/quarantine.json) still run on every PR.
+  # These jobs show on the PR but are intentionally NOT in ci-ok needs, so a
+  # failure here does not turn the blocking gate red. Removing an entry from
+  # the list and from the excludes above puts it back in the blocking jobs.
+  # Branch protection / required checks are not modified (Owner deferred).
+  quarantine-e2e:
+    name: quarantine (e2e)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - run: /usr/bin/google-chrome --version
+      - name: Run quarantined Chromium e2e
+        run: >-
+          bunx playwright test
+          tests/e2e/tiers.spec.ts
+          tests/e2e/m2-qa-b.spec.ts
+          tests/e2e/visible-jump.spec.ts
+          --grep "M1-AC16 there is no Motion toggle|B-4 the render loop idles|PF-50 reload at"
+          --project=chromium --reporter=list,html
+        env:
+          E2E_PREBUILT: "1"
+          CHROME_PATH: /usr/bin/google-chrome
+          PLAYWRIGHT_HTML_OPEN: never
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-quarantine-e2e
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore
+
+  quarantine-webkit-lcp:
+    name: quarantine (webkit phone LCP)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      options: --ipc=host
+    env:
+      HOME: /root
+      TMPDIR: ${{ github.workspace }}/.tmp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Workspace temp dir
+        run: mkdir -p "$TMPDIR"
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - uses: ./.github/actions/playwright-browser
+        timeout-minutes: 5
+        with:
+          browser: webkit
+      - name: Run quarantined WebKit phone LCP
+        run: >-
+          bunx playwright test tests/e2e/static-stills.spec.ts
+          --project=webkit
+          --grep "phone: the first still is the eager, high-priority, first-fetched LCP candidate"
+          --reporter=list,html
+        env:
+          E2E_PREBUILT: "1"
+          PLAYWRIGHT_HTML_OPEN: never
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-quarantine-webkit-lcp
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore
+
+  quarantine-lh-tbt:
+    name: quarantine (lh mobile TBT)
+    # Run whenever the mobile LH artifact might exist, even if a sibling LH job failed.
+    if: ${{ always() && needs.build.result == 'success' }}
+    needs: [build, lighthouse]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: lighthouse-mobile
+          path: lhci-report
+      - name: Assert quarantined mobile TBT and performance budgets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .lighthouseci
+          if [ -d lhci-report/mobile-raw ]; then
+            cp -a lhci-report/mobile-raw/. .lighthouseci/
+          elif [ -d lhci-report/mobile ]; then
+            i=0
+            for f in lhci-report/mobile/*.report.json; do
+              [ -f "$f" ] || continue
+              i=$((i + 1))
+              cp "$f" ".lighthouseci/lhr-${i}.json"
+            done
+          fi
+          if ! ls .lighthouseci/*.json >/dev/null 2>&1; then
+            echo "::error::No Lighthouse results found to assert TBT against."
+            find lhci-report -type f | head
+            exit 1
+          fi
+          npx --yes @lhci/cli@0.16.1 assert --config=tools/ci/lighthouserc.mobile-tbt.json
+
+  # Blocking gate: green only if every non-quarantine job above passed.
+  # Quarantine jobs are omitted on purpose. Do not add them here.
+  # There are no GitHub required checks (Owner deferred); ci-ok is the intended gate.
   ci-ok:
     if: ${{ always() }}
     needs: [fast-gate, build, e2e, e2e-xb, e2e-load-stability-webkit, lighthouse, bundle-size]

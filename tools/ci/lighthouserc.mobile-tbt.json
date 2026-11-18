@@ -1,0 +1,22 @@
+{
+  "ci": {
+    "assert": {
+      "assertions": {
+        "categories:performance": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "minScore": 0.95
+          }
+        ],
+        "total-blocking-time": [
+          "error",
+          {
+            "aggregationMethod": "median",
+            "maxNumericValue": 150
+          }
+        ]
+      }
+    }
+  }
+}
