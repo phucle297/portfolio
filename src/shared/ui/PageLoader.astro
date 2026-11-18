@@ -103,7 +103,11 @@
     animation: ld-cap 0s 3.2s forwards;
   }
 
-  html:not(.js) .loader,
+  /* Without JS it never shows (and runs no animations a settled page would still report). */
+  html:not(.js) .loader {
+    display: none;
+  }
+
   html.is-ready .loader {
     opacity: 0;
     visibility: hidden;

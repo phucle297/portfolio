@@ -124,10 +124,12 @@ export async function settle(page: Page): Promise<void> {
  * under the cover; loader.spec.ts covers the loader itself.
  */
 export async function hideLoader(page: Page): Promise<void> {
+  // An adopted sheet: the init script runs before <html> exists, so there is no element to append
+  // a <style> to yet, and the sheet stays through the whole parse.
   await page.addInitScript(() => {
-    const style = document.createElement("style");
-    style.textContent = ".loader { display: none !important; }";
-    document.documentElement.append(style);
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(".loader { display: none !important; }");
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
   });
 }
 
