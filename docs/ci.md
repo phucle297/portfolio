@@ -43,3 +43,20 @@ To take a test off the list: delete its entry from `tools/ci/quarantine.json`, r
 Do not skip, delete, or weaken a quarantined test. The unit test `tests/unit/quarantine.test.ts` checks that listed titles still exist and that `ci-ok` does not depend on the quarantine jobs.
 
 Rollback: revert the PR that added the list and the quarantine jobs.
+
+## e2e spec coverage (PF-73)
+
+Every `tests/e2e/*.spec.ts` file must appear in some job in `.github/workflows/ci.yml`
+(a blocking e2e / e2e-xb / load-stability job, or a PF-70 quarantine job). The unit
+test `tests/unit/e2e-ci-coverage.test.ts` fails and names any spec that is missing
+(or that is only mentioned in a comment). A green CI therefore means every e2e spec
+was included in a job; it does not, by itself, mean every test _title_ in that file
+ran on every engine.
+
+`tests/e2e/reduced-motion-live.spec.ts` (PF-09) was previously in no group. Chromium
+cases, including the Chromium "every engine" titles, run in `e2e (app-features)`.
+The Firefox and WebKit "every engine" titles launch those browsers themselves, so
+they run in the existing `e2e-xb` jobs (shard 1), which already install that
+browser.
+
+Rollback: revert the PR that added the guard and the reduced-motion-live job entries.
