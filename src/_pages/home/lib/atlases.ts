@@ -120,8 +120,88 @@ const sheet = quad((x, w, h, i) => {
   x.fillText(`${String(i + 1).padStart(2, "0")}A`, w - 150, 120);
 });
 
+/** Print 03 "Domains": three contact-sheet frames on the dark plate (PF-68). */
+const drawDomains = (x: Context2D, w: number, h: number): void => {
+  const [title, meta] = at(sceneText.cases, 2);
+  x.fillStyle = INK;
+  x.fillRect(40, 40, w - 80, h * 0.56);
+  const pad = 22;
+  const gap = 14;
+  const top = 40 + pad;
+  const pw = (w - 80 - 2 * pad - 2 * gap) / 3;
+  const ph = h * 0.56 - 2 * pad;
+  const labels = ["E-COMMERCE", "DASHBOARDS", "WEB BUILDER CMS"] as const;
+  for (let k = 0; k < 3; k += 1) {
+    const px = 40 + pad + k * (pw + gap);
+    const cx = px + pw / 2;
+    const cy = top + ph * 0.44;
+    x.strokeStyle = PAPER;
+    x.lineWidth = 4;
+    x.setLineDash([]);
+    x.strokeRect(px, top, pw, ph);
+    x.fillStyle = PAPER;
+    x.font = '500 26px "IBM Plex Mono"';
+    x.fillText(`0${k + 1}`, px + 18, top + 40);
+    x.lineCap = "round";
+    x.lineJoin = "round";
+    if (k === 0) {
+      x.fillRect(cx - 70, cy - 36, 140, 116);
+      x.lineWidth = 16;
+      x.beginPath();
+      x.arc(cx, cy - 36, 40, PI, 2 * PI);
+      x.stroke();
+    } else if (k === 1) {
+      [56, 96, 74, 128].forEach((bh, b) => {
+        x.fillRect(cx - 86 + b * 46, cy + 80 - bh, 34, bh);
+      });
+      x.lineWidth = 9;
+      x.beginPath();
+      for (const [j, [dx, dy]] of (
+        [
+          [-90, 2],
+          [-40, -40],
+          [6, -14],
+          [52, -78],
+          [96, -96],
+        ] as const
+      ).entries()) {
+        if (j) x.lineTo(cx + dx, cy + dy - 18);
+        else x.moveTo(cx + dx, cy + dy - 18);
+      }
+      x.stroke();
+      x.fillRect(cx - 96, cy + 86, 196, 8);
+    } else {
+      x.lineWidth = 10;
+      x.strokeRect(cx - 86, cy - 70, 150, 150);
+      x.fillRect(cx - 86, cy - 70, 150, 26);
+      x.fillRect(cx - 70, cy - 30, 54, 40);
+      x.fillRect(cx - 6, cy - 30, 54, 40);
+      x.lineWidth = 7;
+      x.setLineDash([14, 10]);
+      x.strokeRect(cx - 70, cy + 22, 54, 40);
+      x.setLineDash([]);
+      x.fillRect(cx + 10, cy + 44, 66, 48);
+    }
+    x.font = '500 26px "IBM Plex Mono"';
+    x.textAlign = "center";
+    x.fillText(at(labels, k), cx, top + ph - 26);
+    x.textAlign = "left";
+  }
+  x.fillStyle = INK;
+  x.font = '400 130px "Anton"';
+  x.fillText(title, 44, h * 0.8);
+  x.font = '500 38px "IBM Plex Mono"';
+  x.fillText(meta, 50, h * 0.92);
+  x.fillText("PRINT 03", w - 250, h * 0.92);
+};
+
 /** No screenshots at launch (build plan Q4): the dark plate is plain print art. */
 const cases = quad((x, w, h, i) => {
+  if (i === 2) {
+    drawDomains(x, w, h);
+    border(x, w, h);
+    return;
+  }
   const [title, meta] = at(sceneText.cases, i);
   x.fillStyle = INK;
   x.fillRect(40, 40, w - 80, h * 0.56);

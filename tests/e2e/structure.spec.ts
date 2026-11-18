@@ -30,7 +30,7 @@ test.describe("structure and copy", () => {
       .evaluateAll((els) => els.map((e) => e.getAttribute("href")));
     expect(navHrefs).toEqual(SECTION_IDS.map((id) => `#${id}`));
     const headed = await page.evaluate(() =>
-      ["#work li", "#services li", "#process li"].map((sel) =>
+      ["#work .work__case", "#services li", "#process li"].map((sel) =>
         Array.from(document.querySelectorAll(sel)).map((li) => li.querySelectorAll("h3").length),
       ),
     );
@@ -82,7 +82,14 @@ test.describe("structure and copy", () => {
       "Frame 03 · Work · on the drying line",
       "A cross-project component library built on Atomic Design with Storybook and ArkUI, so every app shares the same component APIs and accessibility patterns.",
       "Brought 11 packages and 6 apps into one pnpm workspace with Turborepo, so teams could build in parallel without stepping on each other.",
-      "A drag-and-drop page builder on Pragmatic DnD that streams large datasets in as JSON Lines.",
+      "Domains",
+      "Print 03 · Gigsberg · Nexon Dev Vina",
+      "E-commerce",
+      "Work for Gigsberg.",
+      "Dashboards",
+      "Charts and graphs for analysing users' responses, in Nexon internal tools.",
+      "Web builder CMS",
+      "Built at Nexon Dev Vina.",
       "A monorepo of 8 developer CLI tools: git activity reports, AI code review, commit messages, port conflicts and mock data, powered by the Groq API.",
       "Frame 04 · Services · the chemistry",
       "From $500 USD · 7 days – 1 month · both depending on complexity",
@@ -123,6 +130,10 @@ test.describe("structure and copy", () => {
       "Project type",
       "<select",
       'type="radio"',
+      // PF-68: drag-and-drop builder case is gone from the Work DOM.
+      "Drag-and-drop builder",
+      "A drag-and-drop page builder on Pragmatic DnD that streams large datasets in as JSON Lines.",
+      "Pragmatic DnD · Streaming · JSON Lines",
     ]) {
       expect(html).not.toContain(stale);
     }
