@@ -315,8 +315,8 @@ test("PF-67 AC1: ready at 200-300 ms (early) never shows the loader content, on 
   }
   // The cover still fades (not a snap): some exit frame is part-way.
   expect(
-    exit.some((f) => f.cover > 0 && f.cover < 1) || exit.length < 2,
-    "cover fades over its 240 ms exit",
+    exit.some((f) => f.cover > 0 && f.cover < 1),
+    `cover fades over its 240 ms exit: ${exit.map((f) => f.cover.toFixed(2)).join(",")}`,
   ).toBe(true);
 });
 
@@ -332,6 +332,11 @@ test("PF-67 AC1: ready after the content is fully in keeps the normal exit (cont
     "no early class on a late ready",
   ).toBe(false);
   for (const f of exit) expect(f.content, `content at ${f.t.toFixed(0)} ms`).toBe(1);
+  // The cover fades over 240 ms instead of snapping away on removal (Gecko did before PF-67 a3).
+  expect(
+    exit.some((f) => f.cover > 0 && f.cover < 1),
+    `cover opacities ${exit.map((f) => f.cover.toFixed(2)).join(",")}`,
+  ).toBe(true);
 });
 
 test("PF-67 AC1: a page that never gets ready starts its exit at the 3 s cap and is gone by 3.2 s + the fade", async ({

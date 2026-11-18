@@ -122,6 +122,9 @@
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
+    /* Drop the failsafe once JS has taken over: Gecko lets a pending opacity animation (ld-cap,
+       still in its delay) block the exit transition, so the cover snapped away on removal. */
+    animation: none;
   }
 
   /* Early ready (before the content's reveal ended): the content goes at once, only the cover fades. */
