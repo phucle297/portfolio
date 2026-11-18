@@ -46,6 +46,11 @@ test.describe("F1 / M1-AC14 gating before any download", () => {
     expect(urls.filter(isSceneChunk)).toEqual([]);
     expect(urls.filter(isProbe)).toEqual([]);
     await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
+    await expect(page.locator("[data-motion-toggle]")).toHaveCount(0);
+    await page.locator("[data-menu-open]").click();
+    await expect(page.locator("[data-menu-sheet]")).toBeVisible();
+    await expect(page.locator("[data-menu-sheet] [data-motion-toggle]")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /motion/i })).toHaveCount(0);
     await context.close();
   });
 
@@ -70,15 +75,20 @@ test.describe("F1 / M1-AC14 gating before any download", () => {
     await expect(page.locator("#hello .still img")).toBeVisible();
   });
 
-  test("Motion toggle off (persisted): no three.js", async ({ page }) => {
+  test("persisted Motion off is ignored: the scene still loads on a capable desktop", async ({
+    page,
+  }) => {
     await page.addInitScript(() => {
       localStorage.setItem("motion", "off");
     });
     await spoofHardwareGpu(page);
     const urls = recordRequests(page);
-    await exercise(page);
-    expect(urls.filter(isSceneChunk)).toEqual([]);
-    expect(urls.filter(isProbe)).toEqual([]);
+    await page.goto("/");
+    await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 20_000 });
+    expect(urls.filter(isSceneChunk)).toHaveLength(1);
+    await expect(page.locator("canvas")).toHaveCount(1);
+    await expect(page.locator("[data-motion-toggle]")).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("motion"))).toBeNull();
   });
 
   test("hardware GPU, motion allowed: the scene chunk loads and mounts one canvas", async ({
@@ -229,42 +239,34 @@ test.describe("full tier", () => {
     expect(hidden).toBe(0);
   });
 
-  test("M1-AC16 Motion toggle switches full → static without reload and persists", async ({
+  test("M1-AC16 there is no Motion toggle; a saved off value is ignored after reload", async ({
     page,
   }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("motion", "off");
+    });
     await spoofHardwareGpu(page);
     await page.goto("/");
     // PF-54: the loader's ready signal, not a fixed 20 s (the scene can take longer under CI load).
     await waitForScene(page);
     await expect(page.locator("html")).toHaveAttribute("data-tier", "full");
-    await page.evaluate(() => {
-      window.scrollTo(0, document.documentElement.scrollHeight * 0.4);
-    });
-    const toggle = page.locator("[data-motion-toggle]");
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
-    await expect(page.locator("[data-scene] canvas")).toHaveCount(0, { timeout: 2000 });
-    await expect(page.locator("#work .still img")).toBeVisible();
-    expect(await page.evaluate(() => localStorage.getItem("motion"))).toBe("off");
+    await expect(page.locator("[data-motion-toggle]")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /motion/i })).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("motion"))).toBeNull();
 
     const urls = recordRequests(page);
     await page.reload();
-    await page.waitForTimeout(4000);
-    expect(urls.filter(isSceneChunk)).toEqual([]);
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
-
-    await toggle.click();
     await waitForScene(page);
     await expect(page.locator("html")).toHaveAttribute("data-tier", "full");
+    expect(urls.filter(isSceneChunk)).toHaveLength(1);
+    await expect(page.locator("[data-motion-toggle]")).toHaveCount(0);
   });
 
-  test("Motion toggle defaults to off under reduced motion", async ({ page }) => {
+  test("reduced motion: no Motion toggle, static stills", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/");
-    const toggle = page.locator("[data-motion-toggle]");
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    await expect(toggle).toBeDisabled();
+    await expect(page.locator("[data-motion-toggle]")).toHaveCount(0);
+    await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
+    await expect(page.locator("#hello .still img")).toBeVisible();
   });
 });

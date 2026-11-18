@@ -146,7 +146,7 @@ src/
     ├── config/                 #   site metadata + navigation, PUBLIC_EMAIL switch (index.ts)
     ├── ui/                     #   SkipLink (index.ts)
     └── lib/                    #   one public API per library (see shared/lib/README.md)
-        ├── motion/             #     reduced-motion + Motion toggle preference
+        ├── motion/             #     reduced-motion preference (no site toggle)
         ├── timeline/           #     the one scroll timeline (sections, holds, TIMING, easing)
         └── webgl/              #     hardware-WebGL2 detection, Worker probe
 ```
@@ -215,7 +215,7 @@ frontmatter + `<script>` covers every import in the project.
   with `fetchpriority="high"`; the others are lazy and are never fetched on the full tier.
 - **Gates before any download (F1).** `DarkroomScene.astro` requests nothing until the page has
   loaded and the browser is idle (or on first input), and then only if **all** cheap gates pass:
-  `(pointer: fine)`, viewport ≥ 768 px, no `prefers-reduced-motion`, the Motion toggle is on and
+  `(pointer: fine)`, viewport ≥ 768 px, no `prefers-reduced-motion`, and
   Save-Data is off. Only then does the hardware-WebGL2 probe run in a Worker; only if it passes is
   the three.js + scene chunk (~141 kB gzip) imported. Under reduced motion neither the probe nor
   three.js is ever requested.
@@ -235,7 +235,7 @@ frontmatter + `<script>` covers every import in the project.
   `src/app/styles/fonts-plex-mono.css`).
 - **`hidden` always wins.** `global.css` sets `[hidden] { display: none !important; }`, so a
   component's `display` rule can never reveal an element that ships hidden (form errors, the
-  Motion toggle without JS, the copy-email button).
+  copy-email button).
 - **Copy email.** Next to the address, a "Copy email" button uses the Clipboard API and announces
   "Email copied." in a polite live region; if the write fails it selects the address and says so.
   It ships `hidden` and appears only with JS and the Clipboard API, so without JS the mailto link
@@ -270,9 +270,8 @@ frontmatter + `<script>` covers every import in the project.
   `nav[aria-label="Sections"]` rail with `aria-current`, labelled sections, visible focus rings,
   WCAG AA contrast with scrims behind text over the scene.
 - The canvas is `aria-hidden`, preceded by a visually hidden description of the animation.
-- **Motion toggle** (WCAG 2.2.2) in the header: switches the full tier to the poster stills
-  without a reload and persists in `localStorage` (`motion` = `off`). It follows
-  `prefers-reduced-motion` by default; under reduced motion it stays off.
+- There is no Motion on/off control. Motion is always on unless the OS asks for reduced
+  motion. A previously stored `localStorage.motion` value is ignored and cleared.
 - `prefers-reduced-motion: reduce`: no three.js, no probe, no scroll reveals, transitions
   neutralised. Content never depends on JS.
 

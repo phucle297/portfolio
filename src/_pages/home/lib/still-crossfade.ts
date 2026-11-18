@@ -10,14 +10,14 @@
  *   (the Web Animation's `finished`, not a wall-clock timer, so a busy main thread or a stalled
  *   frame can delay the fade but never uncover the page background). Every pixel is a mix of the
  *   two stills and never darker than the darker of them.
- * Under reduced motion (OS setting or the site's Motion toggle) the change is instant.
+ * Under reduced motion (OS `prefers-reduced-motion`) the change is instant.
  *
  * Only the shown still and its neighbours are displayed (so lazy images load ahead of the scroll
  * and the rest are never fetched early).
  *
  * Tier switches (PF-09): on the full tier the stills are `display: none` behind the live scene, so
- * nothing is picked or decoded there. When the tier becomes static mid-visit (reduced motion or
- * the Motion toggle switched on), the still of the current section is picked, decoded and shown
+ * nothing is picked or decoded there. When the tier becomes static mid-visit (OS reduced motion),
+ * the still of the current section is picked, decoded and shown
  * right away, without waiting for a scroll. A still whose image could not be decoded is retried
  * on the next update instead of being remembered as the target. Phones keep their in-flow stills (portrait intro +
  * 390×240 bands), so nothing runs there.
@@ -167,7 +167,7 @@ export function initStillCrossfade(): void {
 
   window.addEventListener("scroll", queue, { passive: true });
   window.addEventListener("resize", queue, { passive: true });
-  // Full → static mid-visit (reduced motion, the Motion toggle, a lost context): show the current
+  // Full → static mid-visit (OS reduced motion, a lost context): show the current
   // section's still now, not on the next scroll.
   new MutationObserver(queue).observe(root, { attributes: true, attributeFilter: ["data-tier"] });
   update();
