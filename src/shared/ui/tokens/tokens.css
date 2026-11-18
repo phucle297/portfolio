@@ -140,3 +140,11 @@
 
   font-family: var(--font-sans);
 }
+
+/* PF-83: the ghost CTA needs its own fallback (see global.css). Inherit still uses
+   --font-sans-button on the primary CTA. */
+#hello .button--ghost {
+  --font-sans-button:
+    "Be Vietnam Pro Critical", "Be Vietnam Pro", "Be Vietnam Pro Ghost Button Fallback",
+    ui-sans-serif, system-ui, sans-serif;
+}
