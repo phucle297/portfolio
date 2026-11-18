@@ -1,5 +1,5 @@
 {
-  "$comment": "PF-70 flaky-test quarantine. Tests listed here still run on every PR in the quarantine (*) jobs, which show on the PR but are not inputs to ci-ok (the blocking gate). Removing an entry and its ci.yml exclude puts the test back in the blocking jobs. Do not skip, delete, or weaken the test. Follow-up cards: PF-76 (M1-AC16), PF-77 (LH mobile TBT/perf), PF-78 (WebKit phone LCP), PF-79 (B-4 idle), PF-80 (Chromium visible-jump).",
+  "$comment": "PF-70 flaky-test quarantine. Tests listed here still run on every PR in the quarantine (*) jobs, which show on the PR but are not inputs to ci-ok (the blocking gate). Removing an entry and its ci.yml exclude puts the test back in the blocking jobs. Do not skip, delete, or weaken the test. Follow-up cards: PF-76 (M1-AC16), PF-77 (LH mobile TBT/perf), PF-78 (WebKit phone LCP), PF-79 (B-4 idle), PF-80 (Chromium visible-jump), PF-81 (WebKit loader exit frames).",
   "items": [
     {
       "id": "tiers-m1-ac16",
@@ -53,6 +53,28 @@
       "known_run": "44271947023",
       "source_title": "PF-50 reload at ${vp.width}\u00d7${vp.height}: header, H1 and Hello copy stay within ${MAX_MOVE_PX}px after first paint @chromium-only",
       "known_runs": ["44271947023", "44284652784"]
+    },
+    {
+      "id": "loader-webkit-early-ready",
+      "file": "tests/e2e/loader.spec.ts",
+      "title": "PF-67 AC1: ready at 200-300 ms (early) never shows the loader content, on any frame",
+      "project": "webkit",
+      "date": "2026-11-18",
+      "reason": "WebKit CI flake on the early-ready exit: 'cover fades over its 240 ms exit' saw only 1.00,0.00 (no mid-fade frame). Same product passed on other runs. Assertions unchanged. Known runs: 44291484533 (PF-70), 44296133703 (PF-73).",
+      "follow_up": "PF-81",
+      "known_run": "44296133703",
+      "known_runs": ["44291484533", "44296133703"]
+    },
+    {
+      "id": "loader-webkit-late-exit-frames",
+      "file": "tests/e2e/loader.spec.ts",
+      "title": "PF-67 AC1: ready after the content is fully in keeps the normal exit (content stays, cover fades)",
+      "project": "webkit",
+      "date": "2026-11-18",
+      "reason": "WebKit CI flake on the late-ready exit: 'frames sampled across the exit' received 0. Same product passed on other runs. Assertions unchanged. Known runs: 44291484533 (PF-70), 44296133703 (PF-73).",
+      "follow_up": "PF-81",
+      "known_run": "44296133703",
+      "known_runs": ["44291484533", "44296133703"]
     }
   ]
 }

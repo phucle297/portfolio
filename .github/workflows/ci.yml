@@ -183,6 +183,7 @@ jobs:
       # No CHROME_PATH: specs with their own launchOptions would start Chrome with it.
       # PF-70: WebKit phone LCP is quarantined; Firefox still runs it in this job.
       # PF-67: loader.spec.ts runs in this blocking job (and in Chromium app-features).
+      # PF-81: two WebKit loader exit-frame tests are quarantined; Firefox still runs them here.
       - name: Playwright Firefox / WebKit tests
         shell: bash
         run: |
@@ -190,6 +191,7 @@ jobs:
           invert='full tier|desktop, hardware GPU|M1-AC15 CLS .* at D$'
           if [ "${{ matrix.browser }}" = webkit ]; then
             invert="$invert|phone: the first still is the eager, high-priority, first-fetched LCP candidate"
+            invert="$invert|ready at 200-300 ms|ready after the content is fully in"
           fi
           bunx playwright test --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/2 \
             tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts \
@@ -397,6 +399,51 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report-quarantine-webkit-lcp
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # PF-81: WebKit loader.spec early-ready / late-exit frame checks. Firefox and
+  # Chromium still run these titles in the blocking jobs.
+  quarantine-webkit-loader:
+    name: quarantine (webkit loader)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      options: --ipc=host
+    env:
+      HOME: /root
+      TMPDIR: ${{ github.workspace }}/.tmp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Workspace temp dir
+        run: mkdir -p "$TMPDIR"
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - uses: ./.github/actions/playwright-browser
+        timeout-minutes: 5
+        with:
+          browser: webkit
+      - name: Run quarantined WebKit loader exit-frame tests
+        run: >-
+          bunx playwright test tests/e2e/loader.spec.ts
+          --project=webkit
+          --grep "ready at 200-300 ms|ready after the content is fully in"
+          --reporter=list,html
+        env:
+          E2E_PREBUILT: "1"
+          PLAYWRIGHT_HTML_OPEN: never
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-quarantine-webkit-loader
           path: |
             playwright-report
             test-results

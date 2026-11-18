@@ -34,7 +34,7 @@ preview build output is on `/tmp`).
 
 ## Flaky-test quarantine (PF-70)
 
-Known-flaky checks are listed in `tools/ci/quarantine.json` (id, file, title, date, reason, follow-up card, known run). They still run on every PR, in jobs named `quarantine (e2e)`, `quarantine (webkit phone LCP)`, and `quarantine (lh mobile TBT)`. Those jobs show on the PR. They are **not** inputs to `ci-ok`, which is the blocking gate.
+Known-flaky checks are listed in `tools/ci/quarantine.json` (id, file, title, date, reason, follow-up card, known run). They still run on every PR, in jobs named `quarantine (e2e)`, `quarantine (webkit phone LCP)`, `quarantine (webkit loader)`, and `quarantine (lh mobile TBT)`. Those jobs show on the PR. They are **not** inputs to `ci-ok`, which is the blocking gate.
 
 The blocking jobs exclude only the listed items (Playwright `--grep-invert` or, for Lighthouse mobile, moving `total-blocking-time` and `categories:performance` into `tools/ci/lighthouserc.mobile-tbt.json`). Thresholds and test assertions are unchanged. Other Lighthouse mobile budgets (LCP, CLS, a11y, best-practices, SEO, sizes) stay in the blocking `lighthouse (mobile)` job.
 
