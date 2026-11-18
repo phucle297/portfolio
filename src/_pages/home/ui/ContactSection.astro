@@ -344,11 +344,10 @@ const email = profile.email;
     }
   }
 
-  /* PF-69: below 1280 with the tray unpinned (incl. 1024 and phones) the form is one stacked
-     column. While pinned (1200–1279 too) row 2 stays Email | Phone so the column fits the
-     short pinned viewports (1200×760). */
-  @media (max-width: 1279px) {
-    :global(html:not([data-pin="on"])) .contact__row {
+  /* PF-69 rev 3: the two-column grid (Name / Email | Phone / Message / Send) starts at 1200 px,
+     pinned or not; below 1200 (incl. 1024 and phones) the form is one stacked column. */
+  @media (max-width: 1199px) {
+    .contact__row {
       grid-template-columns: 1fr;
     }
   }
@@ -416,6 +415,28 @@ const email = profile.email;
       min-height: 3.5rem;
       height: 3.5rem;
     }
+  }
+
+  /* PF-69 rev 3: short pinned viewports from 1200 px (1200×760, 1280×800): message box 56 px
+     and a tighter error line so the error state fits above the footer. If it still doesn't,
+     contact-form.ts unpins the layer (safety net, below). */
+  @media (min-width: 1200px) and (max-height: 820px) {
+    :global(html[data-pin="on"]) .contact .field textarea {
+      min-height: 3.5rem;
+      height: 3.5rem;
+    }
+
+    :global(html[data-pin="on"]) .contact .field__error {
+      line-height: 1.15;
+    }
+  }
+
+  /* PF-69 rev 3 safety net: the layer contact-form.ts unpinned scrolls with the page from where
+     it was (absolute in the section), so the footer never covers the form. */
+  :global(html[data-pin="on"] .home-section__body[data-unpinned]) {
+    position: absolute;
+    inset: var(--unpin-top, 0) 0 auto;
+    min-height: 100vh;
   }
 
   /* PF-64 (in PF-69): 768–1279 with the tray unpinned the column narrows to 30.5vw so it clears

@@ -177,6 +177,54 @@ test.describe("PF-13 contact form", () => {
     },
   );
 
+  // PF-69 rev 3: default, error and success states end >= 12 px above the footer on the short
+  // pinned viewports; at 1200×760 the error/success states unpin the layer (safety net).
+  test(
+    "PF-69: the form ends at least 12px above the footer at 1200×760, 1280×800 and 1440×900 @chromium-only",
+    {
+      tag: "@chromium-only",
+    },
+    async ({ browser }) => {
+      const runs = [
+        { width: 1200, height: 760 },
+        { width: 1280, height: 800 },
+        { width: 1440, height: 900 },
+      ].flatMap((viewport) =>
+        (["default", "error", "success"] as const).map((state) => ({ viewport, state })),
+      );
+
+      await inSequence(runs, async ({ viewport, state }) => {
+        const context = await browser.newContext({ viewport });
+        const page = await context.newPage();
+        await openScene(page);
+        await scrollToP(page, KEY_PROGRESS[5] ?? 0.96);
+        await expect(page.locator("html")).toHaveAttribute("data-pin", "on");
+        await expect(page.locator("[data-contact-form]")).not.toHaveAttribute("inert");
+        if (state === "error") {
+          await emailInput(page).fill("not-an-email");
+          await submit(page).click();
+          await expect(errorOf(page, "brief")).toBeVisible();
+        }
+        if (state === "success") {
+          await fillValid(page);
+          await phoneInput(page).fill("+84 90 123 4567");
+          await submit(page).click();
+          await expect(status(page)).not.toBeEmpty();
+        }
+        const margin = await page.evaluate(() => {
+          const column = document.querySelector("#contact .contact")?.getBoundingClientRect();
+          const footer = document.querySelector("body > footer")?.getBoundingClientRect();
+          return column && footer ? footer.top - column.bottom : null;
+        });
+        expect(
+          margin,
+          `form bottom vs footer top, ${state} at ${viewport.width}×${viewport.height}`,
+        ).toBeGreaterThanOrEqual(12);
+        await context.close();
+      });
+    },
+  );
+
   test("invalid submit shows the exact §5 strings with icon + text, tied and announced, and clears once valid", async ({
     page,
   }) => {

@@ -89,6 +89,42 @@ function clearIfValid(form: HTMLFormElement, name: FieldName): void {
   if (fieldValid[name](value(form, name))) setError(form, name, false);
 }
 
+/**
+ * PF-69 a2 (contact-v3 rev 3 safety net): while pinned, the Contact copy is a fixed layer. If the
+ * error or success state makes it run under the footer (short viewports such as 1200×760), unpin
+ * it: the layer becomes absolute at the exact spot it occupies now (no visual jump), so it scrolls
+ * with the page, and the page scrolls just enough for the form to end 12 px above the footer.
+ * A resize drops the override (the pinned layout is re-measured on the next state change).
+ */
+const FOOTER_GAP = 12;
+
+export function unpinIfCovered(form: HTMLFormElement): boolean {
+  const root = document.documentElement;
+  const body = form.closest<HTMLElement>("[data-copy-body]");
+  const section = body?.parentElement;
+  const column = form.parentElement;
+  if (root.dataset.pin !== "on" || !body || !section || !column) return false;
+  const footerTop = document.querySelector("body > footer")?.getBoundingClientRect().top;
+  const limit = (footerTop ?? window.innerHeight) - FOOTER_GAP;
+  const overflow = column.getBoundingClientRect().bottom - limit;
+  if (overflow <= 0) return false;
+  if (!body.hasAttribute("data-unpinned")) {
+    const top = body.getBoundingClientRect().top - section.getBoundingClientRect().top;
+    body.style.setProperty("--unpin-top", `${top}px`);
+    body.setAttribute("data-unpinned", "");
+    window.addEventListener(
+      "resize",
+      () => {
+        body.removeAttribute("data-unpinned");
+        body.style.removeProperty("--unpin-top");
+      },
+      { once: true },
+    );
+  }
+  window.scrollBy({ top: Math.ceil(overflow), behavior: "instant" });
+  return true;
+}
+
 export function initContactForm(form: HTMLFormElement): void {
   // Progressive enhancement: the form ships inert and the submit button disabled so a
   // no-JS submit cannot post back to the page. JS turns it on.
@@ -125,13 +161,16 @@ export function initContactForm(form: HTMLFormElement): void {
     const invalid = validate(form);
     if (invalid) {
       form.querySelector<HTMLElement>(`[name="${invalid}"]`)?.focus();
+      unpinIfCovered(form);
       return;
     }
     if (!email) {
       if (status) status.textContent = message(form, "no-email");
+      unpinIfCovered(form);
       return;
     }
     window.location.href = buildMailto(email, form);
     if (status) status.textContent = message(form, "success");
+    unpinIfCovered(form);
   });
 }
