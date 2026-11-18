@@ -117,3 +117,26 @@ export async function settle(page: Page): Promise<void> {
     { timeout: 15_000 },
   );
 }
+
+/**
+ * PF-67: hide the first-open loader cover for tests that measure the page beneath it in the
+ * first seconds (screenshots, luminance, visible jumps). The page lays out and paints normally
+ * under the cover; loader.spec.ts covers the loader itself.
+ */
+export async function hideLoader(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const style = document.createElement("style");
+    style.textContent = ".loader { display: none !important; }";
+    document.documentElement.append(style);
+  });
+}
+
+/** PF-67: wait until the first-open loader has left (html.is-ready, node removed). */
+export async function waitForLoader(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      document.documentElement.classList.contains("is-ready") && !document.querySelector(".loader"),
+    undefined,
+    { timeout: 5000 },
+  );
+}
