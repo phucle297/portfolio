@@ -40,6 +40,16 @@
     const ready = function () {
       if (done) return;
       done = true;
+      // Ready before the content (glow, print, caption, timer) has fully faded in: drop it at
+      // once and fade only the cover, so a fast load never shows the content mid-reveal.
+      const inner = d.querySelector(".loader__in");
+      const reveal = inner && inner.getAnimations ? inner.getAnimations() : [];
+      if (
+        reveal.some(function (a) {
+          return a.playState !== "finished";
+        })
+      )
+        h.classList.add("is-early");
       h.classList.add("is-ready");
       if (main) main.removeAttribute("aria-busy");
       if (status) status.textContent = "Page loaded";
@@ -112,6 +122,13 @@
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
+  }
+
+  /* Early ready (before the content's reveal ended): the content goes at once, only the cover fades. */
+  html.is-early .loader__glow,
+  html.is-early .loader__in {
+    animation: none;
+    opacity: 0;
   }
 
   @keyframes ld-cap {

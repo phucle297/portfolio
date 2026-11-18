@@ -31,6 +31,7 @@ const FRAME_MS = 34;
 interface LoaderFrame {
   t: number;
   ready: boolean;
+  early: boolean;
   cover: number;
   visible: boolean;
   content: number;
@@ -107,6 +108,7 @@ async function recordLoader(page: Page): Promise<void> {
       log.frames.push({
         t: now,
         ready: document.documentElement.classList.contains("is-ready"),
+        early: document.documentElement.classList.contains("is-early"),
         cover: Number(cs.opacity),
         visible,
         content: inner ? Number(getComputedStyle(inner).opacity) : 0,
@@ -249,22 +251,85 @@ test("PF-67 AC1: a page ready in under 300 ms shows no loader content before it 
   for (const f of early) expect(f.content, `content at ${f.t.toFixed(0)} ms`).toBe(0);
 });
 
-test("PF-67 AC1: a page ready in under 300 ms shows no loader content during its exit fade", async ({
+/**
+ * Holds the intro still, then releases it once the page's own clock is `afterMs` past the start of
+ * the content's fade-in timeline (ld-in start); the page gets ready right after it decodes.
+ */
+async function readyAfter(page: Page, afterMs: number): Promise<LoaderLog> {
+  await recordLoader(page);
+  const still = await hold(page, INTRO_STILL);
+  await page.goto("/", { waitUntil: "commit" });
+  await page.waitForFunction(
+    (ms) => {
+      const start = window.pf67?.inStart;
+      return typeof start === "number" && performance.now() >= start + ms;
+    },
+    afterMs,
+    { polling: "raf", timeout: 5000 },
+  );
+  await still.release();
+  await waitForLoader(page);
+  return loaderLog(page);
+}
+
+test("PF-67 AC1: ready at 200-300 ms (early) never shows the loader content, on any frame", async ({
   page,
   browserName,
 }) => {
-  // Known product gap (PF-67 QA follow-up): the content's 300 ms fade-in keeps running while the
-  // cover fades out, so a load ready at ~200-300 ms shows the content at up to ~17 % (content ×
-  // cover) for a frame or two in Gecko (Chromium stays under 5 %). Needs a product fix (e.g. stop
-  // the content animations on html.is-ready); this attempt is tests-only.
-  test.fixme(
-    browserName === "firefox",
-    "PF-67 follow-up: content fades in during the exit (Gecko)",
-  );
-  const log = await fastLoad(page);
-  for (const f of log.frames.filter((frame) => frame.ready)) {
-    expect(f.content * f.cover, `content seen at ${f.t.toFixed(0)} ms`).toBeLessThan(0.05);
+  // Release the still ~120 ms into the content's timeline so readiness lands before the content is
+  // due (ld-in start + 300 ms). On ready the loader drops the content at once (html.is-early) and
+  // fades only the cover. Retries if a slow decode pushed readiness past the due time.
+  let log: LoaderLog | null = null;
+  for (let i = 0; i < 4; i += 1) {
+    // A fresh page per try, so recorders and held routes do not stack up.
+    // oxlint-disable-next-line no-await-in-loop -- sequential loads by design
+    const tab = i === 0 ? page : await page.context().newPage();
+    // oxlint-disable-next-line no-await-in-loop -- sequential loads by design
+    const attempt = await readyAfter(tab, 120);
+    log = attempt;
+    if ((attempt.readyAt ?? Infinity) < (attempt.inStart ?? 0) + CONTENT_DELAY_MS) break;
   }
+  if (!log) throw new Error("no load recorded");
+  const inStart = log.inStart ?? Number.NaN;
+  const ready = log.readyAt ?? Number.NaN;
+  expect(
+    ready,
+    `ready before the content is due (${(inStart + CONTENT_DELAY_MS).toFixed(0)} ms)`,
+  ).toBeLessThan(inStart + CONTENT_DELAY_MS);
+  const exit = log.frames.filter((f) => f.ready);
+  expect(exit.length, "frames sampled across the exit").toBeGreaterThan(0);
+  expect(
+    exit.every((f) => f.early),
+    "early exit class set",
+  ).toBe(true);
+  const maxContent = Math.max(...log.frames.map((f) => f.content));
+  const maxSeen = Math.max(...log.frames.map((f) => f.content * f.cover));
+  // oxlint-disable-next-line no-console -- evidence line for the PR (max content per engine)
+  console.log(
+    `PF67-EARLY ${browserName} ready=${ready.toFixed(0)} inStart=${inStart.toFixed(0)} frames=${log.frames.length} maxContent=${maxContent.toFixed(4)} maxSeen=${maxSeen.toFixed(4)}`,
+  );
+  for (const f of log.frames) {
+    expect(f.content, `content opacity at ${f.t.toFixed(0)} ms`).toBeLessThanOrEqual(0.05);
+  }
+  // The cover still fades (not a snap): some exit frame is part-way.
+  expect(
+    exit.some((f) => f.cover > 0 && f.cover < 1) || exit.length < 2,
+    "cover fades over its 240 ms exit",
+  ).toBe(true);
+});
+
+test("PF-67 AC1: ready after the content is fully in keeps the normal exit (content stays, cover fades)", async ({
+  page,
+}) => {
+  // Content reveal ends at ld-in start + 300 ms delay + 320 ms; release well after that.
+  const log = await readyAfter(page, 800);
+  const exit = log.frames.filter((f) => f.ready);
+  expect(exit.length, "frames sampled across the exit").toBeGreaterThan(0);
+  expect(
+    exit.some((f) => f.early),
+    "no early class on a late ready",
+  ).toBe(false);
+  for (const f of exit) expect(f.content, `content at ${f.t.toFixed(0)} ms`).toBe(1);
 });
 
 test("PF-67 AC1: a page that never gets ready starts its exit at the 3 s cap and is gone by 3.2 s + the fade", async ({
