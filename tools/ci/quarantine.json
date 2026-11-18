@@ -1,0 +1,57 @@
+{
+  "$comment": "PF-70 flaky-test quarantine. Tests listed here still run on every PR in the quarantine (*) jobs, which show on the PR but are not inputs to ci-ok (the blocking gate). Removing an entry and its ci.yml exclude puts the test back in the blocking jobs. Do not skip, delete, or weaken the test. Follow-up cards PF-74+ are created by PM.",
+  "items": [
+    {
+      "id": "tiers-m1-ac16",
+      "file": "tests/e2e/tiers.spec.ts",
+      "title": "M1-AC16 there is no Motion toggle; a saved off value is ignored after reload",
+      "project": "chromium",
+      "date": "2026-11-18",
+      "reason": "Flaky again after PF-54: page.evaluate / setting up context timeouts on SwiftShader when a prior full-tier test left a GPU backlog. PF-66 rewrote the assertion (no Motion toggle; saved off is ignored) but the card still seeds this entry.",
+      "follow_up": "PF-74",
+      "known_run": "43786154576"
+    },
+    {
+      "id": "lh-mobile-tbt",
+      "file": "tools/ci/lighthouserc.mobile.json",
+      "title": "Lighthouse mobile total-blocking-time (median <= 150 ms) and categories:performance (min 0.95), which TBT dominates",
+      "project": "lighthouse-mobile",
+      "date": "2026-11-18",
+      "reason": "Runner CPU noise on the simulated-throttled mobile run. Same product as a green SHA failed with TBT 495 ms (budget 150) and performance 0.86 (budget 0.95). Blocking mobile LH keeps LCP, CLS, a11y, best-practices, SEO, and size budgets.",
+      "follow_up": "PF-75",
+      "known_run": "44276038061"
+    },
+    {
+      "id": "static-stills-webkit-phone-lcp",
+      "file": "tests/e2e/static-stills.spec.ts",
+      "title": "phone: the first still is the eager, high-priority, first-fetched LCP candidate; the rest are lazy",
+      "project": "webkit",
+      "date": "2026-11-18",
+      "reason": "WebKit phone LCP: under CPU pressure a later still's request started at or before the first still (othersBefore not []). Chromium and Firefox, and the desktop-static viewport, stay in the blocking jobs.",
+      "follow_up": "PF-76",
+      "known_run": "43736412541",
+      "source_title": "${viewport.name}: the first still is the eager, high-priority, first-fetched LCP candidate; the rest are lazy"
+    },
+    {
+      "id": "m2-qa-b-b4-idle",
+      "file": "tests/e2e/m2-qa-b.spec.ts",
+      "title": "last rAF callback \u2264 1.5 s after the last scroll event (wheel and a long jump)",
+      "project": "chromium",
+      "date": "2026-11-18",
+      "reason": "Flaky again after PF-61: the render-loop idle gap exceeded the 1.5 s budget on a slow runner. Bound and assertions are unchanged.",
+      "follow_up": "PF-77",
+      "known_run": "43802654139"
+    },
+    {
+      "id": "visible-jump-chromium",
+      "file": "tests/e2e/visible-jump.spec.ts",
+      "title": "PF-50 reload at 1440\u00d7900: header, H1 and Hello copy stay within 8px after first paint @chromium-only",
+      "project": "chromium",
+      "date": "2026-11-18",
+      "reason": "Chromium visible-jump stall cap at 1440\u00d7900: not enough frames in 3 s (need >= 30, cap 1000 ms). The whole spec is quarantined (it is one CI job). Cap is unchanged. Known runs also include 1024 when the sampler starved.",
+      "follow_up": "PF-78",
+      "known_run": "44271947023",
+      "source_title": "PF-50 reload at ${vp.width}\u00d7${vp.height}: header, H1 and Hello copy stay within ${MAX_MOVE_PX}px after first paint @chromium-only"
+    }
+  ]
+}
