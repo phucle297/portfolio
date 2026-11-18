@@ -12,7 +12,7 @@ before the tests started (CI-5; see `issues.md` in the factory ledger).
   `mcr.microsoft.com/playwright:v1.65.0-noble` (Ubuntu 24.04), which already includes the
   Playwright OS dependencies. The tag's `v1.65.0` must match `PLAYWRIGHT_VERSION` in
   `.github/workflows/ci.yml` and the `@playwright/test` version in `bun.lock`. The install
-  action fails the job if they drift. We do not build or publish our own image. The image does not ship `unzip`, which `setup-bun` needs; those jobs install it with a 2-minute step timeout (skipped if `unzip` is already on PATH).
+  action fails the job if they drift. We do not build or publish our own image. The image does not ship `unzip`, which `setup-bun` needs; `.github/actions/setup` then installs Bun via npm instead of apt (host jobs still use `setup-bun`).
 - **Browser binaries:** cached with `actions/cache` at `~/.cache/ms-playwright`.
   - Key: `<runner.os>-playwright-<exact @playwright/test version>-<browser>`
     (for example `Linux-playwright-1.65.0-webkit`).
