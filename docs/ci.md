@@ -53,11 +53,9 @@ test `tests/unit/e2e-ci-coverage.test.ts` fails and names any spec that is missi
 was included in a job; it does not, by itself, mean every test _title_ in that file
 ran on every engine.
 
-`tests/e2e/reduced-motion-live.spec.ts` (PF-09) was previously in no group. Chromium
-cases, including the Chromium "every engine" titles, run in `e2e (app-features)`.
-The Firefox and WebKit "every engine" titles are not run in CI: on the runner they
-never reach `data-tier=full` (`data-scene-load=failed`; those engines have no
-SwiftShader stand-in). The tests are not skipped, deleted, or weakened, and they
-still run locally on a GPU-capable browser.
+A spec may be omitted from every CI job only via an explicit entry in
+`EXCLUDED_FROM_CI` in `tests/unit/e2e-ci-coverage.test.ts`, with a reason.
+`tests/e2e/reduced-motion-live.spec.ts` is excluded (Owner decision 2026-11-18:
+reduced motion not needed). The file is not deleted.
 
-Rollback: revert the PR that added the guard and the reduced-motion-live job entries.
+Rollback: revert the PR that added the guard and the exclusion list.

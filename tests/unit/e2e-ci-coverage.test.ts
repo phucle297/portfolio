@@ -2,8 +2,9 @@
  * PF-73: every tests/e2e/*.spec.ts file must appear in some CI job
  * (a blocking e2e / e2e-xb / load-stability job, or a PF-70 quarantine job).
  * A new spec that is only on disk, or only named in a ci.yml comment, fails this
- * guard and is named in the assertion. Playwright project membership is a
- * different check (tests/unit/e2e-projects.test.ts).
+ * guard and is named in the assertion, unless it is in EXCLUDED_FROM_CI with a
+ * reason. Playwright project membership is a different check
+ * (tests/unit/e2e-projects.test.ts).
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -53,6 +54,17 @@ const specsOnDisk = (): string[] =>
     .map((f) => relative(root, join(e2eDir, f)))
     .toSorted((a, b) => a.localeCompare(b));
 
+/**
+ * Specs that exist on disk but are not in any CI job. Each entry needs a reason.
+ * Do not use this to skip or delete a test; the file stays in the repo.
+ */
+const EXCLUDED_FROM_CI: readonly { spec: string; reason: string }[] = [
+  {
+    spec: "tests/e2e/reduced-motion-live.spec.ts",
+    reason: "Owner decision 2026-11-18: reduced motion not needed",
+  },
+];
+
 describe("PF-73 e2e specs are in a CI job", () => {
   const ciYml = readFileSync(join(root, ciYmlPath), "utf8");
   const listed = listedSpecs(ciYml);
@@ -77,11 +89,25 @@ describe("PF-73 e2e specs are in a CI job", () => {
   it("fails, naming the spec, when any tests/e2e/*.spec.ts is missing from every CI job", () => {
     const onDisk = specsOnDisk();
     expect(onDisk.length).toBeGreaterThan(0);
-    const missing = onDisk.filter((f) => !listed.includes(f));
+    const excluded = new Set(EXCLUDED_FROM_CI.map((e) => e.spec));
+    const missing = onDisk.filter((f) => !listed.includes(f) && !excluded.has(f));
     expect(
       missing,
-      "e2e specs not in any CI job (blocking or quarantined); add the file to a job in .github/workflows/ci.yml",
+      "e2e specs not in any CI job (blocking or quarantined); add the file to a job in .github/workflows/ci.yml, or to EXCLUDED_FROM_CI with a reason",
     ).toEqual([]);
+  });
+
+  it("documents each CI exclusion with a reason and keeps the file on disk, off ci.yml", () => {
+    const onDisk = new Set(specsOnDisk());
+    const reduced = EXCLUDED_FROM_CI.find(
+      (e) => e.spec === "tests/e2e/reduced-motion-live.spec.ts",
+    );
+    expect(reduced?.reason).toBe("Owner decision 2026-11-18: reduced motion not needed");
+    for (const entry of EXCLUDED_FROM_CI) {
+      expect(entry.reason.trim().length, entry.spec).toBeGreaterThan(10);
+      expect(onDisk.has(entry.spec), `${entry.spec} was deleted`).toBe(true);
+      expect(listed, `${entry.spec} is listed in ci.yml`).not.toContain(entry.spec);
+    }
   });
 
   it("points every ci.yml e2e path at a file that still exists", () => {
