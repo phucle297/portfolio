@@ -22,6 +22,9 @@ permissions:
 env:
   LEFTHOOK: "0" # never install git hooks on the runner
   ASTRO_TELEMETRY_DISABLED: "1"
+  # Must match bun.lock @playwright/test and the e2e-xb / load-stability container tag
+  # (mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble). The install action fails if they drift.
+  PLAYWRIGHT_VERSION: "1.65.0"
 
 jobs:
   # ---------------------------------------------------------------- stage 1
@@ -133,11 +136,30 @@ jobs:
   # attempt 5). Full-tier tests (WebGL scene: B-7 sweeps, contact-form full tier, the hardware-GPU
   # tier check, a11y full tier, M1-AC15 at D, TASK-14 full tier) stay Chromium-gated here and run
   # locally on FF/WK; they are listed under PF-45 in the PR. Sharded, no fail-fast, no merge-reports.
+  #
+  # CI-5: these jobs (and e2e-load-stability-webkit) used to run
+  # `bunx playwright install --with-deps <browser>` on ubuntu-24.04, and apt often took 17–20 min
+  # so the 20 min job timeout cancelled the tests (run 44258815586). System libraries now come
+  # from the official Playwright image (already has the deps). Browser binaries are cached at
+  # ~/.cache/ms-playwright, key ${{ runner.os }}-playwright-<lockfile version>-<browser>
+  # (see .github/actions/playwright-browser and docs/ci.md). Install has a 5 min step timeout so
+  # it cannot eat the test budget. Job timeout stays 20 min. The shared `dist` artifact is reused;
+  # no per-shard rebuild. Do not add --with-deps back.
   e2e-xb:
     name: e2e (${{ matrix.browser }} ${{ matrix.shard }}/2)
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      options: --ipc=host
+    env:
+      # GHA sets HOME=/github/home (owned by pwuser) while the job runs as root.
+      # Firefox refuses to launch in that case; Playwright documents HOME=/root.
+      HOME: /root
+      # ui-preview.spec builds into os.tmpdir(); /tmp is a different device than
+      # the bind-mounted workspace, and Astro rename() then fails with EXDEV.
+      TMPDIR: ${{ github.workspace }}/.tmp
     strategy:
       fail-fast: false
       matrix:
@@ -145,12 +167,17 @@ jobs:
         shard: [1, 2]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Workspace temp dir
+        run: mkdir -p "$TMPDIR"
       - uses: ./.github/actions/setup
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
           path: dist
-      - run: bunx playwright install --with-deps ${{ matrix.browser }}
+      - uses: ./.github/actions/playwright-browser
+        timeout-minutes: 5
+        with:
+          browser: ${{ matrix.browser }}
       # No CHROME_PATH: specs with their own launchOptions would start Chrome with it.
       - run: >-
           bunx playwright test --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/2
@@ -176,21 +203,45 @@ jobs:
   # PF-59: load-stability on WebKit with a bare fontconfig (Liberation only), so the old
   # fallback bug (664115d) is visible. Soft system/Google fonts on the runner would hide it.
   # Chromium of the same spec is the load-stability group in `e2e` above. Not folded into
-  # e2e-xb: those jobs must keep the default fontconfig.
+  # e2e-xb: those jobs must keep the default fontconfig. CI-5: same browser cache + official
+  # image as e2e-xb (no --with-deps). FONTCONFIG_FILE still restricts visible fonts to Liberation.
   e2e-load-stability-webkit:
     name: e2e (webkit load-stability)
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      options: --ipc=host
+    env:
+      HOME: /root
+      TMPDIR: ${{ github.workspace }}/.tmp
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Workspace temp dir
+        run: mkdir -p "$TMPDIR"
       - uses: ./.github/actions/setup
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
           path: dist
-      - run: bunx playwright install --with-deps webkit
-      - run: sudo apt-get update && sudo apt-get install -y fonts-liberation
+      - uses: ./.github/actions/playwright-browser
+        timeout-minutes: 5
+        with:
+          browser: webkit
+      - name: Check Liberation fonts for FONTCONFIG_FILE
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir=/usr/share/fonts/truetype/liberation
+          if [ -d "$dir" ] && ls "$dir"/*.ttf >/dev/null 2>&1; then
+            echo "Liberation fonts present in $dir"
+            ls "$dir"
+            exit 0
+          fi
+          echo "::error::$dir is missing; this job's fontconfig only reads that path."
+          ls -la /usr/share/fonts/truetype || true
+          exit 1
       - run: bunx playwright test tests/e2e/load-stability.spec.ts --project=webkit --reporter=list,html
         env:
           E2E_PREBUILT: "1" # serve the shared dist; do not rebuild
