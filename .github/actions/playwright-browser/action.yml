@@ -1,0 +1,71 @@
+name: Install Playwright browser
+description: >
+  Restore or install one Playwright browser into ~/.cache/ms-playwright.
+  System libraries come from the job's mcr.microsoft.com/playwright image;
+  this action never runs install-deps or apt.
+inputs:
+  browser:
+    description: Playwright browser name (firefox or webkit)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Pin browser cache path and check Playwright version
+      shell: bash
+      run: |
+        set -euo pipefail
+        cache_dir="${HOME}/.cache/ms-playwright"
+        mkdir -p "$cache_dir"
+        # Override the image default (/ms-playwright) so install and the tests
+        # use the same cached directory as actions/cache below.
+        echo "PLAYWRIGHT_BROWSERS_PATH=${cache_dir}" >> "$GITHUB_ENV"
+        echo "PLAYWRIGHT_BROWSERS_PATH=${cache_dir}" >> "$GITHUB_OUTPUT"
+        ver="$(node -p "require('./node_modules/@playwright/test/package.json').version")"
+        echo "version=${ver}" >> "$GITHUB_OUTPUT"
+        echo "Installed @playwright/test ${ver}; cache dir ${cache_dir}"
+        expected="${PLAYWRIGHT_VERSION:-}"
+        if [ -n "$expected" ] && [ "${ver}" != "${expected}" ]; then
+          echo "::error::Installed @playwright/test ${ver} does not match PLAYWRIGHT_VERSION=${expected} (the e2e-xb / load-stability container tag). Bump both together when upgrading Playwright."
+          exit 1
+        fi
+      id: pw
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        # Default Playwright location. Keyed on OS + exact lockfile version + browser.
+        # Invalidate by bumping @playwright/test in bun.lock (version changes the key)
+        # or by changing the browser input. See docs/ci.md.
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}-${{ inputs.browser }}
+        restore-keys: |
+          ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}-
+    - name: Install ${{ inputs.browser }} (no system deps)
+      shell: bash
+      env:
+        PLAYWRIGHT_BROWSERS_PATH: ${{ steps.pw.outputs.PLAYWRIGHT_BROWSERS_PATH }}
+        BROWSER: ${{ inputs.browser }}
+      run: |
+        set -euo pipefail
+        # GITHUB_ENV from the previous step is already in this step's env.
+        : "${PLAYWRIGHT_BROWSERS_PATH:?PLAYWRIGHT_BROWSERS_PATH must be set}"
+        mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
+        # Official image keeps browsers in /ms-playwright. On a cache miss, seed
+        # this engine from the image so we do not re-download when versions match.
+        if [ -d /ms-playwright ]; then
+          found=0
+          for dir in /ms-playwright/"${BROWSER}"-*; do
+            if [ -d "$dir" ]; then
+              found=1
+              dest="$PLAYWRIGHT_BROWSERS_PATH/$(basename "$dir")"
+              if [ ! -e "$dest" ]; then
+                echo "Seeding ${dest} from ${dir}"
+                cp -a "$dir" "$dest"
+              fi
+            fi
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "No ${BROWSER}-* directory in /ms-playwright; playwright install will fetch it."
+          fi
+        fi
+        bunx playwright install "${BROWSER}"
+        echo "Playwright ${BROWSER} ready under ${PLAYWRIGHT_BROWSERS_PATH}:"
+        ls -ld "$PLAYWRIGHT_BROWSERS_PATH"/"${BROWSER}"-* 2>/dev/null || ls -la "$PLAYWRIGHT_BROWSERS_PATH"

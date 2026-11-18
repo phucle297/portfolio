@@ -65,3 +65,6 @@ Rules:
 `ci.yml` (PR #4) skips docs-only changes (`paths-ignore`: `**/*.md`, `docs/**`, `LICENSE`).
 `deploy.yml` has no path filter, so a change to it (or any PR, docs included) runs the Deploy
 workflow, including the preview job.
+
+Firefox and WebKit e2e jobs cache Playwright browsers and run in the official Playwright
+image so `install --with-deps` cannot eat the job timeout. See `docs/ci.md`.
