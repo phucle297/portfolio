@@ -507,8 +507,8 @@ test.describe("PF-09 reduced motion from the start (M3-AC2, F1, M1-AC14 regressi
   });
 });
 
-test.describe("PF-09 switching back (M1-AC16)", () => {
-  test("Motion off (persisted): switching back to no-preference does not start 3D", async ({
+test.describe("PF-09 switching back (OS reduced motion; M1-AC16 no site toggle)", () => {
+  test("saved Motion off is ignored: switching back to no-preference starts 3D", async ({
     page,
   }) => {
     await instrument(page);
@@ -520,22 +520,17 @@ test.describe("PF-09 switching back (M1-AC16)", () => {
     await page.goto("/");
     await page.waitForLoadState("load");
     await page.waitForTimeout(3000);
+    await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
+    await expect(page.locator("[data-motion-toggle]")).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("motion"))).toBeNull();
     const urls = recordRequests(page);
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    await page.mouse.click(200, 200);
-    await scrollThrough(page);
-    await page.waitForTimeout(3000);
-    expect(urls.filter(isSceneChunk)).toEqual([]);
-    expect(urls.filter(isProbe)).toEqual([]);
-    expect((await probe(page)).contexts).toBe(0);
-    await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
-    await expect(page.locator("[data-motion-toggle]")).toHaveAttribute("aria-pressed", "false");
-    expect(await page.evaluate(() => localStorage.getItem("motion"))).toBe("off");
+    await fullTier(page);
+    expect(urls.filter(isSceneChunk).length).toBeGreaterThanOrEqual(1);
+    await expect(page.locator("[data-scene] canvas")).toHaveCount(1, { timeout: 3000 });
   });
 
-  test("Motion on: switching back resumes 3D; the persisted choice is untouched", async ({
-    page,
-  }) => {
+  test("switching back from reduced motion resumes 3D", async ({ page }) => {
     await instrument(page);
     await spoofHardwareGpu(page);
     await page.addInitScript(() => {
@@ -545,11 +540,11 @@ test.describe("PF-09 switching back (M1-AC16)", () => {
     await fullTier(page);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(page.locator("html")).toHaveAttribute("data-tier", "static");
-    await expect(page.locator("[data-motion-toggle]")).toBeDisabled();
+    await expect(page.locator("[data-motion-toggle]")).toHaveCount(0);
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await fullTier(page);
     await expect(page.locator("[data-scene] canvas")).toHaveCount(1, { timeout: 3000 });
-    expect(await page.evaluate(() => localStorage.getItem("motion"))).toBe("on");
+    expect(await page.evaluate(() => localStorage.getItem("motion"))).toBeNull();
   });
 });
 

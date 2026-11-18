@@ -27,13 +27,6 @@ const { anchorBase = "" } = Astro.props;
       </ul>
     </nav>
     <div class="site-header__actions">
-      <button type="button" class="site-header__toggle" data-motion-toggle aria-pressed="true">
-        <span class="site-header__switch" aria-hidden="true"></span>
-        Motion{" "}
-        <span class="site-header__state" data-motion-state>
-          on
-        </span>
-      </button>
       <a class="site-header__pill" href={`${anchorBase}#contact`}>
         <span class="site-header__dot" aria-hidden="true"></span>
         <span class="site-header__pill-full">Open for freelance</span>
@@ -82,27 +75,7 @@ const { anchorBase = "" } = Astro.props;
 </header>
 
 <script>
-  import {
-    motionAllowed,
-    onMotionChange,
-    prefersReducedMotion,
-    setUserMotion,
-  } from "@shared/lib/motion";
   import { initMenuSheet } from "../lib/menu-sheet";
-
-  const toggle = document.querySelector<HTMLButtonElement>("[data-motion-toggle]");
-  const state = toggle?.querySelector<HTMLElement>("[data-motion-state]");
-
-  const render = (): void => {
-    if (!toggle || !state) return;
-    const on = motionAllowed();
-    const locked = prefersReducedMotion();
-    toggle.setAttribute("aria-pressed", String(on));
-    toggle.disabled = locked;
-    toggle.title = locked ? "Reduced motion is on in your system settings" : "";
-    state.textContent = on ? "on" : "off";
-    document.documentElement.classList.toggle("motion-ok", on);
-  };
 
   const header = document.querySelector<HTMLElement>(".site-header");
   if (header) {
@@ -122,14 +95,6 @@ const { anchorBase = "" } = Astro.props;
     );
     syncTop();
     initMenuSheet(header);
-  }
-
-  if (toggle) {
-    toggle.addEventListener("click", () => {
-      setUserMotion(!motionAllowed());
-    });
-    onMotionChange(render);
-    render();
   }
 </script>
 
@@ -215,7 +180,6 @@ const { anchorBase = "" } = Astro.props;
     align-items: center;
   }
 
-  .site-header__toggle,
   .site-header__pill,
   .site-header__menu-btn {
     display: inline-flex;
@@ -227,52 +191,6 @@ const { anchorBase = "" } = Astro.props;
     font: 500 0.75rem/1 var(--font-mono);
     letter-spacing: 0.08em;
     white-space: nowrap;
-  }
-
-  /* The Motion toggle needs JS: without it (no "js" class from the inline head script) it is
-     not shown at all (QA-4). */
-  :global(html:not(.js)) .site-header__toggle {
-    display: none;
-  }
-
-  .site-header__toggle {
-    border: 1px solid var(--line-strong);
-    background: rgb(14 10 8 / 0.6);
-    color: var(--text);
-    cursor: pointer;
-  }
-
-  .site-header__toggle:disabled {
-    cursor: not-allowed;
-  }
-
-  .site-header__switch {
-    position: relative;
-    width: 26px;
-    height: 14px;
-    border-radius: 7px;
-    background: var(--line-strong);
-  }
-
-  .site-header__switch::after {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--text);
-    transition: transform var(--t-micro) var(--ease-out);
-  }
-
-  .site-header__toggle[aria-pressed="true"] .site-header__switch {
-    background: var(--accent-2);
-  }
-
-  .site-header__toggle[aria-pressed="true"] .site-header__switch::after {
-    transform: translateX(12px);
-    background: var(--ink);
   }
 
   .site-header__pill {
@@ -332,10 +250,6 @@ const { anchorBase = "" } = Astro.props;
 
     .site-header__actions {
       margin-left: auto;
-    }
-
-    .site-header__toggle {
-      display: none;
     }
   }
 

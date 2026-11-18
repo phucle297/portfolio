@@ -228,7 +228,7 @@ test.describe("PF-49 no Safelight toggle", () => {
     await expect(page.getByRole("button", { name: /safelight|lights on|lights off/i })).toHaveCount(
       0,
     );
-    await expect(page.locator("[data-motion-toggle]")).toBeVisible();
+    await expect(page.locator("[data-motion-toggle]")).toHaveCount(0);
     await expect(page.locator(".site-header__pill")).toBeVisible();
     await expect(page.locator(".site-header__nav")).toBeVisible();
     expect(await page.evaluate(() => window.darkroomTest?.safelight())).toBe(true);
@@ -241,7 +241,7 @@ test.describe("PF-49 no Safelight toggle", () => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/");
     await expect(page.locator("[data-safelight-toggle]")).toHaveCount(0);
-    await expect(page.locator("[data-motion-toggle]")).toBeVisible();
+    await expect(page.locator("[data-motion-toggle]")).toHaveCount(0);
     await expect(page.locator(".site-header__pill")).toBeVisible();
   });
 });

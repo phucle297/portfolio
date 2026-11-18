@@ -49,7 +49,7 @@ for (const viewport of [
     expect(await errorsShown(pageOn)).toBe(0);
     expect(await errorsShown(pageOff)).toBe(0);
     await expect(pageOff.locator(".field__error")).toHaveCount(3);
-    await expect(pageOff.locator("[data-motion-toggle]")).toBeHidden();
+    await expect(pageOff.locator("[data-motion-toggle]")).toHaveCount(0);
     await expect(pageOff.locator("[data-copy-email]")).toBeHidden();
     await expect(pageOff.locator("#contact a[href^='mailto:']")).toBeVisible();
     await on.close();
@@ -302,8 +302,11 @@ test("B-8: a reload while scrolled keeps the header opaque before its script run
   await expect.poll(() => page.evaluate(() => scrollY), { timeout: 10_000 }).toBeGreaterThan(100);
   await expect.poll(() => held.length).toBeGreaterThan(0);
   const header = page.locator(".site-header");
-  // Not hydrated: the module script still has not cleared the server-rendered at-top state.
-  await expect(header).toHaveAttribute("data-at-top", "");
+  // The head inline script sets html[data-scrolled] on a reload so the bar stays opaque over
+  // the copy, even if the header module has already run. After PF-66 the header script is
+  // inlined (no /_astro/*.js import), so holding those modules no longer delays it; opacity
+  // is the contract, not the leftover data-at-top attribute.
+  await expect(page.locator("html")).toHaveAttribute("data-scrolled", "");
   const before = await header.evaluate((el) => [
     getComputedStyle(el).backgroundImage,
     getComputedStyle(el).backgroundColor,
@@ -312,10 +315,9 @@ test("B-8: a reload while scrolled keeps the header opaque before its script run
   expect(before[0], `no see-through gradient over the copy (${before[2]})`).toBe("none");
   const alpha = Number(/rgba?\(([^)]+)\)/u.exec(before[1] ?? "")?.[1]?.split(",")[3] ?? "1");
   expect(alpha).toBeGreaterThanOrEqual(0.95);
-  // Once the scripts run, the bar stays opaque (at-top cleared by the header's script).
+  // Once the remaining /_astro modules run, the bar stays opaque.
   await Promise.all(held.map(async (route) => route.continue()));
   await page.unroute(/\/_astro\/[^/]+\.js(\?.*)?$/u);
-  await expect(header).not.toHaveAttribute("data-at-top", "");
   expect(await header.evaluate((el) => getComputedStyle(el).backgroundImage)).toBe("none");
 });
 
@@ -398,22 +400,44 @@ test.describe("TASK-14 layout stability at 1440x900", () => {
 
   test("the full tier mounts without moving the header or the Hello copy", async ({ browser }) => {
     // Shift 2 (0.0035): the old Safelight button took a reserved slot only when the full tier
-    // mounted, so the Motion toggle and the centred nav jumped 66-133 px sideways after load.
-    // The control is gone (PF-49); this still pins that mount must not move the header.
+    // mounted, so header items jumped 66-133 px sideways after load. Safelight is gone (PF-49)
+    // and the Motion toggle is gone (PF-66); this still pins that mount must not move the header.
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
     await spoofHardwareGpu(page);
     await recordLayoutShifts(page);
     await page.goto("/");
-    const toggle = page.locator("[data-motion-toggle]");
-    await expect(toggle).toBeVisible();
-    const toggleBefore = await toggle.boundingBox();
+    await expect(page.locator("[data-motion-toggle]")).toHaveCount(0);
+    const brand = page.locator(".site-header__brand");
+    const nav = page.locator(".site-header__nav");
+    const pill = page.locator(".site-header__pill");
+    await expect(brand).toBeVisible();
+    await expect(nav).toBeVisible();
+    await expect(pill).toBeVisible();
+    const before = {
+      brand: await brand.boundingBox(),
+      nav: await nav.boundingBox(),
+      pill: await pill.boundingBox(),
+    };
     await expect(page.locator("html")).toHaveAttribute("data-tier", "full", { timeout: 20_000 });
     await expect(page.locator("[data-safelight-toggle]")).toHaveCount(0);
-    // Was 132 px to the left once mounted; a late font swap may still nudge it a few px.
-    const toggleAfter = await toggle.boundingBox();
-    expect(Math.abs((toggleAfter?.x ?? 0) - (toggleBefore?.x ?? 0))).toBeLessThanOrEqual(6);
-    expect(toggleAfter?.y).toBe(toggleBefore?.y);
+    // Was 132 px to the left once mounted; a late font swap may still nudge a few px.
+    // PF-66 AC3: header items must not move more than 8 px on reload or while the tier mounts.
+    const after = {
+      brand: await brand.boundingBox(),
+      nav: await nav.boundingBox(),
+      pill: await pill.boundingBox(),
+    };
+    expect(Math.abs((after.brand?.x ?? 0) - (before.brand?.x ?? 0)), "brand x").toBeLessThanOrEqual(
+      8,
+    );
+    expect(Math.abs((after.brand?.y ?? 0) - (before.brand?.y ?? 0)), "brand y").toBeLessThanOrEqual(
+      8,
+    );
+    expect(Math.abs((after.nav?.x ?? 0) - (before.nav?.x ?? 0)), "nav x").toBeLessThanOrEqual(8);
+    expect(Math.abs((after.nav?.y ?? 0) - (before.nav?.y ?? 0)), "nav y").toBeLessThanOrEqual(8);
+    expect(Math.abs((after.pill?.x ?? 0) - (before.pill?.x ?? 0)), "pill x").toBeLessThanOrEqual(8);
+    expect(Math.abs((after.pill?.y ?? 0) - (before.pill?.y ?? 0)), "pill y").toBeLessThanOrEqual(8);
     await page.waitForTimeout(1000);
     const shifts = (await layoutShifts(page)).filter((shift) => !shift.hadRecentInput);
     const log = JSON.stringify(shifts);

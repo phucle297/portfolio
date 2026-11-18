@@ -18,13 +18,21 @@ export interface Education {
   years: string;
 }
 
+export interface WorkDomain {
+  title: string;
+  line: string;
+}
+
 export interface WorkCase {
   title: string;
   context: string;
-  copy: string;
-  tags: string;
+  /** Standard cases have a paragraph and tags. The Domains card uses `domains` instead. */
+  copy?: string;
+  tags?: string | null;
   /** TODO(owner): case URL. The "Read the case" link is hidden while null (build plan Q4). */
   href: string | null;
+  /** Present on the Domains card (Print 03); no tags line and no case link. */
+  domains?: readonly WorkDomain[];
 }
 
 export interface Service {
@@ -150,10 +158,17 @@ export const work = {
       href: null,
     },
     {
-      title: "Drag-and-drop builder",
-      context: "Nexon Dev Vina · 2023 – 2025",
-      copy: "A drag-and-drop page builder on Pragmatic DnD that streams large datasets in as JSON Lines.",
-      tags: "Pragmatic DnD · Streaming · JSON Lines",
+      title: "Domains",
+      context: "Gigsberg · Nexon Dev Vina",
+      domains: [
+        { title: "E-commerce", line: "Work for Gigsberg." },
+        {
+          title: "Dashboards",
+          line: "Charts and graphs for analysing users' responses, in Nexon internal tools.",
+        },
+        { title: "Web builder CMS", line: "Built at Nexon Dev Vina." },
+      ],
+      tags: null,
       href: null,
     },
     {
@@ -164,7 +179,7 @@ export const work = {
       href: null,
     },
   ] satisfies WorkCase[],
-} as const;
+};
 
 export const services = {
   eyebrow: "Frame 04 · Services · the chemistry",
@@ -286,7 +301,7 @@ export const sceneText = {
   cases: [
     ["DESIGN SYSTEM", "STORYBOOK · ARKUI"],
     ["MONOREPO", "11 PACKAGES · 6 APPS"],
-    ["DND BUILDER", "PRAGMATIC DND · JSONL"],
+    ["DOMAINS", "GIGSBERG · NEXON"],
     ["TOOLKIT", "8 CLI TOOLS · GROQ"],
   ],
   labels: ["WEB APP", "DESIGN SYS", "DASHBOARDS", "ARCHITECTURE"],

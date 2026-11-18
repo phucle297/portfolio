@@ -65,20 +65,15 @@ const jsonLdJson = JSON.stringify(jsonLd).replaceAll("<", "\\u003c");
 
     <script type="application/ld+json" set:html={jsonLdJson} />
     <script is:inline>
-      // Enable motion-dependent styles only when JS runs and motion is allowed by both the OS
-      // setting and the site's Motion toggle (localStorage "motion" = "off" switches it off).
+      // Enable motion-dependent styles only when JS runs and the OS has not asked for reduced
+      // motion. A leftover localStorage "motion" value is ignored (PF-66).
       (function () {
-        // Marks "JS runs" before first paint, so JS-only controls (the Motion toggle) take their
-        // space from the start instead of shifting the header when a module script reveals them.
+        // Marks "JS runs" before first paint, so JS-only controls (the mobile menu, Copy email)
+        // take their space from the start instead of shifting the header when a module script
+        // reveals them.
         const root = document.documentElement;
         root.classList.add("js");
-        let off = false;
-        try {
-          off = localStorage.getItem("motion") === "off";
-        } catch {
-          off = false;
-        }
-        if (!off && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
           root.classList.add("motion-ok");
         }
         // The header softens into a see-through gradient only at the very top (SiteHeader).
