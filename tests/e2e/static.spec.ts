@@ -36,8 +36,8 @@ for (const viewport of [
       expect(section.height).toBeGreaterThan(0);
       expect(section.stills).toBe(1);
     }
-    // PF-58 (Contact Option B): Name, Email and the brief; no select or radio.
-    await expect(pageOff.locator("form input, form textarea, form select")).toHaveCount(3);
+    // PF-58 (Contact Option B): Name, Email and the brief; PF-69 adds the optional Phone. No select or radio.
+    await expect(pageOff.locator("form input, form textarea, form select")).toHaveCount(4);
     // QA-1 / QA-4: elements that ship `hidden` stay hidden without JS (no display rule beats it).
     const errorsShown = (page: typeof pageOn) =>
       page.evaluate(

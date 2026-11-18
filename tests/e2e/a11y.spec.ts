@@ -640,6 +640,24 @@ for (const viewport of [
   });
 }
 
+/**
+ * PF-69: the v3 form is taller, so at 1440×900 (static tier) the page's end leaves the Contact
+ * eyebrow and title under the sticky header. Scroll up just enough that they clear the header
+ * (the whole form and its errors still fit below it), so the judge reads the title, not the header.
+ */
+async function clearTitleOfHeader(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    // The italic <em> line box rises above the h2's own box, so take the highest of the three.
+    const tops = ["#contact .eyebrow", "#contact-title", "#contact-title > em"].map(
+      (sel) => document.querySelector(sel)?.getBoundingClientRect().top ?? Infinity,
+    );
+    const header = document.querySelector(".site-header")?.getBoundingClientRect();
+    if (!header) return;
+    const overlap = header.bottom + 8 - Math.min(...tops);
+    if (overlap > 0) window.scrollBy({ top: -overlap, behavior: "instant" });
+  });
+}
+
 for (const viewport of [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
@@ -658,6 +676,7 @@ for (const viewport of [
       // oxlint-disable-next-line no-await-in-loop -- bring each error text fully into view
       await page.locator(`#${id}`).scrollIntoViewIfNeeded();
     }
+    if (!mobile) await clearTitleOfHeader(page);
     const state = `contact form, 3 errors, ${viewport.width}×${viewport.height}`;
     const result = await analyze(page, state);
     const verdicts = errorVerdicts(result);
@@ -699,6 +718,7 @@ for (const viewport of [
     await form.locator('button[type="submit"]').click();
     await expect(form.locator("[data-form-status]")).not.toBeEmpty();
     await form.locator("[data-form-status]").scrollIntoViewIfNeeded();
+    if (!mobile) await clearTitleOfHeader(page);
     const state = `contact form, success, ${viewport.width}×${viewport.height}`;
     const result = await analyze(page, state);
     await page.context().close();
