@@ -56,11 +56,8 @@
         s.setProperty("--rs", (parseFloat(b.width) / 2) * ks + "px");
         s.setProperty("--ks", String(ks));
         s.setProperty("--o", b.opacity);
-        // The rays (on the cover layer i) hold their turn through the open.
-        s.setProperty(
-          "--a0",
-          getComputedStyle(loader.querySelector("i")).rotate.replace("none", "0deg"),
-        );
+        // The rays hold their turn through the open (the iris layer i takes them over).
+        s.setProperty("--a0", getComputedStyle(loader, "::after").rotate.replace("none", "0deg"));
         // Reduced motion: no iris, the cover only fades (the plain fallback).
         if (matchMedia("(prefers-reduced-motion: reduce)").matches) early = true;
       }
@@ -134,11 +131,11 @@
 <style is:global>
   /* Iris centre over the hero still's tray; --r0 wait radius, --r1 reaches the farthest corner
      (without hypot() it is invalid: the open is a plain cut). Compositor-only (PF-75 rulings):
-     a solid cover; the amber rim (::before) pulses (scale) and fades; the iris layer (i) is one
-     square, 2 r1 wide, in the cover colour with the six faint rays baked in and a hole of r0
-     (static mask), rastered once. While waiting it only fades in and turns (rotate); the open
-     scales it from the rim's radius up to r1 / r0 (transform only), so the rays leave with it,
-     and it fades over its last 120 ms. */
+     a solid cover; the amber rim (::before) pulses (scale) and fades; the rays (::after) fade in
+     and turn (rotate). The iris layer (i) is one square, 2 r1 wide, in the cover colour with the
+     same rays baked in and a hole of r0 (static mask), rastered once. The open swaps ::after for
+     it and scales it from the rim's radius up to r1 / r0 (transform only), so the rays leave
+     with it, and it fades over its last 120 ms. */
   .loader {
     --cx: 68vw;
     --cy: 52vh;
@@ -157,6 +154,7 @@
   }
 
   .loader::before,
+  .loader::after,
   .loader i {
     content: "";
     position: absolute;
@@ -167,9 +165,9 @@
 
   /* Rim: core amber line inside r0, outer accent ring, soft falloff. Pulses .55-1, r0-1.06 r0. */
   .loader::before {
-    z-index: 2;
+    z-index: 1;
     width: calc(2 * var(--r0));
-    height: calc(2 * var(--r0));
+    aspect-ratio: 1;
     border-radius: 50%;
     box-shadow:
       inset 0 0 0 1.5px var(--accent-2),
@@ -181,18 +179,34 @@
       ld-pulse 1.2s ease-in-out 0.3s infinite alternate;
   }
 
-  /* Cover colour, six blades (30 deg on / 30 deg off) clear of the ring, hole r0 (1 px edge). */
+  /* Waiting rays (::after): six blades (30 deg on / 30 deg off), a cover-colour disc over the
+     ring (no mask: on WebKit's CPU raster a masked layer repaints as it turns); they turn 30 deg
+     over 8 s (rotate, compositor). */
+  .loader::after,
   .loader i {
-    z-index: 1;
     width: calc(2 * var(--r1));
-    height: calc(2 * var(--r1));
+    aspect-ratio: 1;
     background:
-      radial-gradient(var(--bg) calc(var(--r0) * 1.06 + 8px), #0000 calc(var(--r0) * 1.06 + 9px)),
-      repeating-conic-gradient(from 12deg, #ffc24b17 0 30deg, #0000 0 60deg) var(--bg);
-    mask: radial-gradient(#0000 calc(var(--r0) - 0.5px), #000 calc(var(--r0) + 0.5px));
+      radial-gradient(var(--bg) calc(var(--r0) * 1.06 + 8px), #0000 0),
+      repeating-conic-gradient(from 12deg, #ffc24b17 0 30deg, #0000 0 60deg);
+  }
+
+  .loader::after {
     animation:
       ld-in 0.32s ease-out 0.3s both,
       ld-turn 8s linear 0.3s forwards;
+  }
+
+  /* The iris layer (i): the same rays on the cover colour, hole r0 (static mask, 1 px edge).
+     Static, its own layer (will-change) and all but invisible (1 %: cover colour on the cover,
+     rays at .0009 alpha) until the open takes over from ::after: so it is rastered once, up front
+     (shown or promoted only at the open, Chromium stalled 0.7-1.3 s rastering it), and it never
+     turns (WebKit's CPU raster repaints a turning mask). */
+  .loader i {
+    background-color: var(--bg);
+    mask: radial-gradient(#0000 calc(var(--r0) - 0.5px), #000 calc(var(--r0) + 0.5px));
+    opacity: 0.01;
+    will-change: transform;
   }
 
   /* Without JS it never shows (and runs no animations a settled page would still report). */
@@ -213,7 +227,8 @@
   }
 
   .is-early .loader::before,
-  .is-early .loader i {
+  .is-early .loader::after,
+  .is-open .loader::after {
     animation: none;
     opacity: 0;
   }
@@ -229,11 +244,11 @@
   }
 
   .is-open .loader i {
+    opacity: 1;
     rotate: var(--a0);
-    will-change: transform;
     animation:
       ld-open 0.6s cubic-bezier(0.7, 0, 0.2, 1) forwards,
-      ld-end 0.12s linear 0.48s forwards;
+      ld-cap 0.12s linear 0.48s forwards;
   }
 
   .is-open .loader::before {
@@ -298,12 +313,6 @@
 
     to {
       scale: var(--s1);
-    }
-  }
-
-  @keyframes ld-end {
-    to {
-      opacity: 0;
     }
   }
 
