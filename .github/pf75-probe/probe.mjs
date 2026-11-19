@@ -10,8 +10,7 @@ const orig = readFileSync(join(dist, "index.html"), "utf8");
 const variants = {
   base: [],
   noRays: [[".loader:after{width:", ".loader:after{display:none;width:"]],
-  openRaysNoMask: [[".is-open .loader:after{mask:", ".is-open .loader:after{-x:"]],
-  raysPaused: [["8s linear .3s forwards ld-turn", "8s linear .3s paused ld-turn"]],
+  raysNoTurn: [["8s linear .3s forwards ld-turn", "8s linear .3s paused ld-turn"]],
 };
 let html = orig;
 const types = {
