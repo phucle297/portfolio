@@ -81,6 +81,15 @@ interface LoaderLog {
 declare global {
   interface Window {
     pf67?: LoaderLog;
+    /** PF-75 a4: the rim's state when its fade-in (ld-in on ::before) finished. */
+    pf75RingIn?: {
+      t?: number;
+      ring?: number;
+      open?: boolean;
+      cover?: number;
+      bg?: string;
+      error?: string;
+    };
   }
 }
 
@@ -572,6 +581,45 @@ test("PF-75 AC2: the wait state shows a closed, pulsing iris over the tray from 
   page,
 }) => {
   await recordLoader(page);
+  // The ring-in state itself (Architect a4 ruling): await the rim's fade-in animation (ld-in on
+  // ::before) in the page and read the ring there, when it has finished, instead of sampling the
+  // ~100 ms window where its opacity is >= .99 before the glow pulse starts.
+  await page.addInitScript(() => {
+    const find = (): void => {
+      const loader = document.querySelector(".loader");
+      const anim = loader
+        ?.getAnimations({ subtree: true })
+        .find(
+          (x): x is CSSAnimation =>
+            x instanceof CSSAnimation &&
+            x.animationName === "ld-in" &&
+            x.effect instanceof KeyframeEffect &&
+            x.effect.pseudoElement === "::before",
+        );
+      if (!loader || !anim) {
+        if (performance.now() < 5000) requestAnimationFrame(find);
+        return;
+      }
+      anim.finished.then(
+        () => {
+          const cs = getComputedStyle(loader);
+          window.pf75RingIn = {
+            t: performance.now(),
+            ring: Number(getComputedStyle(loader, "::before").opacity),
+            open: document.documentElement.classList.contains("is-open"),
+            cover: Number(cs.opacity),
+            bg: cs.backgroundColor,
+          };
+          return null;
+        },
+        () => {
+          window.pf75RingIn = { error: "ring-in animation cancelled" };
+          return null;
+        },
+      );
+    };
+    find();
+  });
   const still = await hold(page, INTRO_STILL);
   await page.goto("/", { waitUntil: "commit" });
   await page.waitForFunction(
@@ -612,8 +660,20 @@ test("PF-75 AC2: the wait state shows a closed, pulsing iris over the tray from 
   const inStart = log.inStart ?? Number.NaN;
   const { r0 } = geometry(log.viewport.w, log.viewport.h);
   const wait = log.frames.filter((f) => !f.ready);
-  // Tolerance 2: the ring is in (opacity >= .99) by 300 + 320 ms ± 50, not before 300 ms.
-  const firstIn = wait.find((f) => f.ring >= 0.99)?.t ?? Number.NaN;
+  // Tolerance 2: the ring is in (opacity >= .99) by 300 + 320 ms ± 50, not before 300 ms: read
+  // when its fade-in animation finished, while the cover was still opaque and not opening.
+  const ringIn = await page.evaluate(() => window.pf75RingIn ?? null);
+  expect(ringIn, "the ring-in animation finished").not.toBeNull();
+  expect(ringIn?.error, "the ring-in animation finished").toBeUndefined();
+  expect(
+    ringIn?.ring ?? Number.NaN,
+    "ring fully in (opacity at ring-in end)",
+  ).toBeGreaterThanOrEqual(0.99);
+  expect(ringIn?.open, "ring in before the open starts").toBe(false);
+  expect(ringIn?.cover, "cover opaque at ring-in").toBe(1);
+  expect(ringIn?.bg, "cover solid at ring-in").toBe(BG);
+  expect(ringIn?.t ?? Number.NaN, "ring in before ready").toBeLessThan(log.readyAt ?? Number.NaN);
+  const firstIn = ringIn?.t ?? Number.NaN;
   const gap = frameGap(log, inStart + IRIS_DELAY_MS, firstIn);
   expect(firstIn - inStart, "ring fully in").toBeGreaterThanOrEqual(
     IRIS_DELAY_MS + IRIS_IN_MS - 50 - gap,
