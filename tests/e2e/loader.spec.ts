@@ -53,7 +53,7 @@ interface LoaderFrame {
   visible: boolean;
   /** No hole yet: the cover is solid, in the cover colour (true until the open starts). */
   holeOpaque: boolean;
-  /** Rim ring (::before) and rays (::after while waiting, the iris layer i in the open) opacity. */
+  /** Rim ring (::before) and rays (the iris layer i) opacity. */
   ring: number;
   rays: number;
   /** Iris radius (px: half the rim circle's width) and the rays' turn (deg). */
@@ -162,7 +162,6 @@ async function recordLoader(page: Page): Promise<void> {
         log.openStart = open.startTime;
       const root = document.documentElement.classList;
       const iris = loader.querySelector("i") ?? loader;
-      const rays = getComputedStyle(loader, "::after");
       log.frames.push({
         t: now,
         raf,
@@ -173,8 +172,8 @@ async function recordLoader(page: Page): Promise<void> {
         visible,
         holeOpaque: cs.backgroundColor === "rgb(14, 10, 8)" && !root.contains("is-open"),
         ring: Number(getComputedStyle(loader, "::before").opacity),
-        // The rays: ::after while waiting; in the open they are baked into the iris layer (i).
-        rays: Number(root.contains("is-open") ? getComputedStyle(iris).opacity : rays.opacity),
+        // The rays are baked into the iris layer (i), so its opacity is theirs.
+        rays: Number(getComputedStyle(iris).opacity),
         // Waiting: the rim's radius (r0 × the pulse scale). Opening: the hole's (r0, the rim's
         // half width, × the iris layer's scale).
         r:
@@ -184,10 +183,7 @@ async function recordLoader(page: Page): Promise<void> {
               ? getComputedStyle(iris).scale
               : getComputedStyle(loader, "::before").scale,
           ) || 1),
-        a:
-          Number.parseFloat(
-            root.contains("is-open") ? getComputedStyle(iris).rotate : rays.rotate,
-          ) || 0,
+        a: Number.parseFloat(getComputedStyle(iris).rotate) || 0,
         openT: open && typeof open.currentTime === "number" ? open.currentTime : null,
       });
     };
