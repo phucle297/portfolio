@@ -121,7 +121,7 @@ const HOLD_LOADER = `(() => {
       ? 0
       : timeout(fn, ms, ...rest);
   const freeze = new CSSStyleSheet();
-  freeze.replaceSync("html:not(.is-ready) .loader, html:not(.is-ready) .loader::before, html:not(.is-ready) .loader::after { animation-play-state: paused !important; }");
+  freeze.replaceSync("html:not(.is-ready) .loader, html:not(.is-ready) .loader::before, html:not(.is-ready) .loader::after, html:not(.is-ready) .loader i { animation-play-state: paused !important; }");
   timeout(() => {
     document.adoptedStyleSheets = [...document.adoptedStyleSheets, freeze];
     window.pf75Frozen = performance.timeOrigin + performance.now() + 100;

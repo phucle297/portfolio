@@ -35,8 +35,10 @@ const EARLY_EXIT_MS = 240;
 const EARLY_REMOVE_MS = 400;
 const OPEN_MS = 600;
 const OPEN_REMOVE_MS = 700;
-/** Rim and rays fade out over the first 240 ms of the open (Designer ruling, final-C). */
+/** The rim fades out over the first 240 ms of the open (Designer ruling, final-C). */
 const RIM_FADE_MS = 240;
+/** The iris layer (cover + rays) fades out over the last 120 ms of the open (Architect a3). */
+const COVER_FADE_FROM_MS = 480;
 /** One frame of sampling slack (a 30 fps runner) on top of the design times. */
 const FRAME_MS = 34;
 const BG = "rgb(14, 10, 8)";
@@ -51,7 +53,7 @@ interface LoaderFrame {
   visible: boolean;
   /** No hole yet: the cover is solid, in the cover colour (true until the open starts). */
   holeOpaque: boolean;
-  /** Rim ring (::before) and rays (::after) opacity. */
+  /** Rim ring (::before) and rays (the iris layer i) opacity. */
   ring: number;
   rays: number;
   /** Iris radius (px: half the rim circle's width) and the rays' turn (deg). */
@@ -159,6 +161,7 @@ async function recordLoader(page: Page): Promise<void> {
       if (open && log.openStart === null && typeof open.startTime === "number")
         log.openStart = open.startTime;
       const root = document.documentElement.classList;
+      const iris = loader.querySelector("i") ?? loader;
       log.frames.push({
         t: now,
         raf,
@@ -169,15 +172,18 @@ async function recordLoader(page: Page): Promise<void> {
         visible,
         holeOpaque: cs.backgroundColor === "rgb(14, 10, 8)" && !root.contains("is-open"),
         ring: Number(getComputedStyle(loader, "::before").opacity),
-        rays: Number(getComputedStyle(loader, "::after").opacity),
-        // Waiting: the rim's radius (r0 × the pulse scale). Opening: the hole's (the open
-        // circle's half width × its scale).
-        r: root.contains("is-open")
-          ? (Number.parseFloat(getComputedStyle(loader.querySelector("i") ?? loader).width) / 2) *
-            (Number.parseFloat(getComputedStyle(loader.querySelector("i") ?? loader).scale) || 1)
-          : (Number.parseFloat(getComputedStyle(loader, "::before").width) / 2) *
-            (Number.parseFloat(getComputedStyle(loader, "::before").scale) || 1),
-        a: Number.parseFloat(getComputedStyle(loader, "::after").rotate) || 0,
+        // The rays are baked into the iris layer (i), so its opacity is theirs.
+        rays: Number(getComputedStyle(iris).opacity),
+        // Waiting: the rim's radius (r0 × the pulse scale). Opening: the hole's (r0, the rim's
+        // half width, × the iris layer's scale).
+        r:
+          (Number.parseFloat(getComputedStyle(loader, "::before").width) / 2) *
+          (Number.parseFloat(
+            root.contains("is-open")
+              ? getComputedStyle(iris).scale
+              : getComputedStyle(loader, "::before").scale,
+          ) || 1),
+        a: Number.parseFloat(getComputedStyle(iris).rotate) || 0,
         openT: open && typeof open.currentTime === "number" ? open.currentTime : null,
       });
     };
@@ -511,6 +517,7 @@ test("PF-75 AC2: ready after the iris is in opens it in 600 ms from where it is 
   // shrinks (the page never dips back, PF-74), and the rim holds until 480 ms, then only fades.
   let lastR = 0;
   let lastRing = 1;
+  let lastRays = 1;
   // A sample reads the style of the last painted frame, so it may lag its currentTime by one
   // measured frame (`gap`): the radius is checked ± 5 % against the eased curve over
   // [t - gap, t] (SHIP FIRST near-miss on CPU-raster runners; the bounds are exact at 60 fps).
@@ -531,12 +538,16 @@ test("PF-75 AC2: ready after the iris is in opens it in 600 ms from where it is 
       `radius ${f.r.toFixed(1)} vs eased ${want.toFixed(1)} at ${t.toFixed(0)} ms`,
     ).toBeLessThanOrEqual(want + Math.max(1, want * 0.05));
     expect(f.r, `radius never shrinks at ${t.toFixed(0)} ms`).toBeGreaterThanOrEqual(lastR - 0.01);
-    // Designer ruling: rim and rays fade 1 → 0 over the first 240 ms (linear): 0 ± .05 from
+    // Designer ruling: the rim fades 1 → 0 over the first 240 ms (linear): 0 ± .05 from
     // open + 240 ms (one painted frame of slack), and the rim only fades.
-    if (t >= RIM_FADE_MS + Math.max(0, gap - FRAME_MS)) {
+    if (t >= RIM_FADE_MS + Math.max(0, gap - FRAME_MS))
       expect(f.ring, `rim gone at ${t.toFixed(0)} ms`).toBeLessThanOrEqual(0.05);
-      expect(f.rays, `rays gone at ${t.toFixed(0)} ms`).toBeLessThanOrEqual(0.05);
-    }
+    // Owner t85u keeps the rays: they are baked into the iris layer and leave with it (it scales
+    // out, then fades 1 → 0 over 480-600 ms). Full until 480 ms, then only fading.
+    if (t <= COVER_FADE_FROM_MS - Math.max(FRAME_MS, gap))
+      expect(f.rays, `rays ride the cover at ${t.toFixed(0)} ms`).toBeGreaterThanOrEqual(0.99);
+    expect(f.rays, `rays only fade at ${t.toFixed(0)} ms`).toBeLessThanOrEqual(lastRays + 0.01);
+    lastRays = f.rays;
     if (t <= 20)
       expect(
         Math.abs(f.ring - oStart),
@@ -842,7 +853,7 @@ test(
       type: "luma",
       description: JSON.stringify({ settled, exit: stats, openFrames, scans }),
     });
-    expect(exit.length, "frames painted across the exit").toBeGreaterThan(2);
+    // Owner decision t85u 2026-11-19: no minimum painted-frame count across the exit (no-GPU CI).
     // 2 levels of slack for screencast vs screenshot encoding.
     for (const [i, s] of stats.entries()) {
       expect(s.mean, `frame ${i} mean vs settled ${settled.mean.toFixed(1)}`).toBeLessThanOrEqual(
@@ -867,10 +878,8 @@ test(
       expect(s.green, `loader frame ${i} green px`).toBe(0);
       expect(s.maxLuma, `loader frame ${i} brightest`).toBeLessThanOrEqual(RIM_LUMA + 2);
     }
-    // Tolerance 3 asks for at least 20 painted frames during the open. SHIP FIRST near-miss: the
-    // CPU-raster (SwiftShader) runners paint the growing mask at ~10-20 fps, so the bar here is
-    // 6 (follow-up in evidence/PF-75/README.md); the steady-uncover check above still holds.
-    expect(openFrames, "painted frames during the open").toBeGreaterThanOrEqual(6);
+    // Owner decision t85u 2026-11-19: no painted-frame-count assertion on the no-GPU CI (the
+    // spec's >= 20 frames in the open is not checked here); openFrames stays in the annotation.
   },
 );
 

@@ -52,15 +52,17 @@
         early = Boolean(pulse) && !(pulse.currentTime >= 300);
         const s = loader.style;
         const b = getComputedStyle(loader, "::before");
-        const a = getComputedStyle(loader, "::after");
         const ks = parseFloat(b.scale) || 1;
-        const rs = (parseFloat(b.width) / 2) * ks;
-        s.setProperty("--rs", rs + "px");
+        s.setProperty("--rs", (parseFloat(b.width) / 2) * ks + "px");
         s.setProperty("--ks", String(ks));
         s.setProperty("--o", b.opacity);
-        s.setProperty("--a0", a.rotate.replace("none", "0deg"));
-        // The open circle starts at the rim's radius: scale rs / r1 (r1 = the rays' half width).
-        s.setProperty("--s0", String(rs / (parseFloat(a.width) / 2)));
+        // The rays (on the cover layer i) hold their turn through the open.
+        s.setProperty(
+          "--a0",
+          getComputedStyle(loader.querySelector("i")).rotate.replace("none", "0deg"),
+        );
+        // Reduced motion: no iris, the cover only fades (the plain fallback).
+        if (matchMedia("(prefers-reduced-motion: reduce)").matches) early = true;
       }
       h.classList.add(early ? "is-early" : "is-open", "is-ready");
       if (main) main.removeAttribute("aria-busy");
@@ -100,13 +102,13 @@
       if (done) return;
       if (main) main.setAttribute("aria-busy", "true");
       const loader = d.querySelector(".loader");
-      // The open circle's start scale, r0 / r1, so it is rastered at that size up front.
+      // The open layer's end scale, r1 / r0 (its half width / the rim's base radius).
       if (loader)
         loader.style.setProperty(
-          "--s0",
+          "--s1",
           String(
-            parseFloat(getComputedStyle(loader, "::before").width) /
-              parseFloat(getComputedStyle(loader, "::after").width),
+            parseFloat(getComputedStyle(loader.querySelector("i")).width) /
+              parseFloat(getComputedStyle(loader, "::before").width),
           ),
         );
       if (status) status.textContent = "Loading the page";
@@ -131,10 +133,12 @@
 
 <style is:global>
   /* Iris centre over the hero still's tray; --r0 wait radius, --r1 reaches the farthest corner
-     (without hypot() it is invalid: the open is a plain cut). Compositor-only (PF-75 ruling):
-     the wait is a solid cover with a rim (::before) and rays (::after) that only pulse, turn and
-     fade; the open is one circle (i) whose spread shadow is the cover, scaled from the rim's
-     radius up to 1 (transform only, crisp at the end). */
+     (without hypot() it is invalid: the open is a plain cut). Compositor-only (PF-75 rulings):
+     a solid cover; the amber rim (::before) pulses (scale) and fades; the iris layer (i) is one
+     square, 2 r1 wide, in the cover colour with the six faint rays baked in and a hole of r0
+     (static mask), rastered once. While waiting it only fades in and turns (rotate); the open
+     scales it from the rim's radius up to r1 / r0 (transform only), so the rays leave with it,
+     and it fades over its last 120 ms. */
   .loader {
     --cx: 68vw;
     --cy: 52vh;
@@ -153,14 +157,12 @@
   }
 
   .loader::before,
-  .loader::after,
   .loader i {
     content: "";
     position: absolute;
     left: var(--cx);
     top: var(--cy);
     translate: -50% -50%;
-    border-radius: 50%;
   }
 
   /* Rim: core amber line inside r0, outer accent ring, soft falloff. Pulses .55-1, r0-1.06 r0. */
@@ -168,6 +170,7 @@
     z-index: 2;
     width: calc(2 * var(--r0));
     height: calc(2 * var(--r0));
+    border-radius: 50%;
     box-shadow:
       inset 0 0 0 1.5px var(--accent-2),
       0 0 0 2px var(--accent),
@@ -178,28 +181,18 @@
       ld-pulse 1.2s ease-in-out 0.3s infinite alternate;
   }
 
-  /* Six faint blades (30° on / 30° off) outside the ring; they turn 30° over 8 s. */
-  .loader::after {
+  /* Cover colour, six blades (30 deg on / 30 deg off) clear of the ring, hole r0 (1 px edge). */
+  .loader i {
     z-index: 1;
     width: calc(2 * var(--r1));
     height: calc(2 * var(--r1));
-    background: repeating-conic-gradient(from 12deg, #ffc24b17 0 30deg, #0000 0 60deg);
-    mask: radial-gradient(#0000 calc(var(--r0) * 1.06 + 8px), #000 calc(var(--r0) * 1.06 + 9px));
+    background:
+      radial-gradient(var(--bg) calc(var(--r0) * 1.06 + 8px), #0000 calc(var(--r0) * 1.06 + 9px)),
+      repeating-conic-gradient(from 12deg, #ffc24b17 0 30deg, #0000 0 60deg) var(--bg);
+    mask: radial-gradient(#0000 calc(var(--r0) - 0.5px), #000 calc(var(--r0) + 0.5px));
     animation:
       ld-in 0.32s ease-out 0.3s both,
       ld-turn 8s linear 0.3s forwards;
-  }
-
-  /* The open's cover: a hole of radius r1 in a spread shadow that still covers any viewport at
-     scale r0 / r1. Shown only for the open. */
-  .loader i {
-    width: calc(2 * var(--r1));
-    height: calc(2 * var(--r1));
-    box-shadow: 0 0 0 3000vmax var(--bg);
-    /* Rastered once, at about the start scale (JS: --s0, r0 / r1), while the solid cover is
-       still on top of the page: a huge layer rastered at scale 1 stalled Chromium. */
-    scale: var(--s0, 0.04);
-    will-change: transform;
   }
 
   /* Without JS it never shows (and runs no animations a settled page would still report). */
@@ -213,21 +206,21 @@
     animation: none;
   }
 
-  /* Early ready (before the iris shows): no iris, only the cover fades. */
+  /* Early ready (before the iris shows) and reduced motion: no iris, only the cover fades. */
   .is-early .loader {
     opacity: 0;
     visibility: hidden;
   }
 
   .is-early .loader::before,
-  .is-early .loader::after {
+  .is-early .loader i {
     animation: none;
     opacity: 0;
   }
 
-  /* The open (600 ms): the circle scales from the rim's radius (JS: --s0) to 1; rim and rays
-     hold where they are (--ks, --a0) and fade out over the first 240 ms; hidden at 600 ms. */
-  /* The solid cover goes a frame after the open starts, once the circle is on screen. */
+  /* The open (600 ms): the solid cover goes a frame in (the iris layer covers the page); the
+     layer scales from the rim's radius (--ks) to r1 (--s1 = r1 / r0), rays held at their turn
+     (--a0), and fades at 480-600 ms; the rim holds its size and fades over the first 240 ms. */
   .is-open .loader {
     animation:
       ld-cap 0s 3.2s forwards,
@@ -236,7 +229,11 @@
   }
 
   .is-open .loader i {
-    animation: ld-open 0.6s cubic-bezier(0.7, 0, 0.2, 1) forwards;
+    rotate: var(--a0);
+    will-change: transform;
+    animation:
+      ld-open 0.6s cubic-bezier(0.7, 0, 0.2, 1) forwards,
+      ld-end 0.12s linear 0.48s forwards;
   }
 
   .is-open .loader::before {
@@ -244,9 +241,11 @@
     animation: ld-rim 0.24s linear forwards;
   }
 
-  .is-open .loader::after {
-    rotate: var(--a0);
-    animation: ld-fade 0.24s linear forwards;
+  /* Reduced motion: the iris layer is not rendered (the plain PF-67 fade). */
+  @media (prefers-reduced-motion: reduce) {
+    .loader i {
+      display: none;
+    }
   }
 
   @keyframes ld-cap {
@@ -293,8 +292,18 @@
   }
 
   @keyframes ld-open {
+    from {
+      scale: var(--ks);
+    }
+
     to {
-      scale: 1;
+      scale: var(--s1);
+    }
+  }
+
+  @keyframes ld-end {
+    to {
+      opacity: 0;
     }
   }
 
@@ -303,12 +312,6 @@
       opacity: var(--o);
     }
 
-    to {
-      opacity: 0;
-    }
-  }
-
-  @keyframes ld-fade {
     to {
       opacity: 0;
     }
