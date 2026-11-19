@@ -9,8 +9,13 @@ const dist = "dist";
 const orig = readFileSync(join(dist, "index.html"), "utf8");
 const variants = {
   base: [],
+  warm: [],
+  willChange: [[".loader:after{width:", ".loader:after{will-change:transform;width:"]],
+  willChangeBoth: [
+    [".loader:after{width:", ".loader:after{will-change:transform;width:"],
+    [".loader:before{z-index:1;", ".loader:before{z-index:1;will-change:transform;"],
+  ],
   noRays: [[".loader:after{width:", ".loader:after{display:none;width:"]],
-  raysNoTurn: [["8s linear .3s forwards ld-turn", "8s linear .3s paused ld-turn"]],
 };
 let html = orig;
 const types = {
