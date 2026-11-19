@@ -53,8 +53,9 @@ interface LoaderFrame {
   visible: boolean;
   /** No hole yet: the cover is solid, in the cover colour (true until the open starts). */
   holeOpaque: boolean;
-  /** Rim ring (::before) and rays (the iris layer i) opacity. */
+  /** Rim ring (::before), its halo (::after, PF-75 a5) and rays (the iris layer i) opacity. */
   ring: number;
+  glow: number;
   rays: number;
   /** Iris radius (px: half the rim circle's width) and the rays' turn (deg). */
   r: number;
@@ -181,6 +182,7 @@ async function recordLoader(page: Page): Promise<void> {
         visible,
         holeOpaque: cs.backgroundColor === "rgb(14, 10, 8)" && !root.contains("is-open"),
         ring: Number(getComputedStyle(loader, "::before").opacity),
+        glow: Number(getComputedStyle(loader, "::after").opacity),
         // The rays are baked into the iris layer (i), so its opacity is theirs.
         rays: Number(getComputedStyle(iris).opacity),
         // Waiting: the rim's radius (r0 × the pulse scale). Opening: the hole's (r0, the rim's
@@ -549,8 +551,10 @@ test("PF-75 AC2: ready after the iris is in opens it in 600 ms from where it is 
     expect(f.r, `radius never shrinks at ${t.toFixed(0)} ms`).toBeGreaterThanOrEqual(lastR - 0.01);
     // Designer ruling: the rim fades 1 → 0 over the first 240 ms (linear): 0 ± .05 from
     // open + 240 ms (one painted frame of slack), and the rim only fades.
-    if (t >= RIM_FADE_MS + Math.max(0, gap - FRAME_MS))
+    if (t >= RIM_FADE_MS + Math.max(0, gap - FRAME_MS)) {
       expect(f.ring, `rim gone at ${t.toFixed(0)} ms`).toBeLessThanOrEqual(0.05);
+      expect(f.glow, `halo gone at ${t.toFixed(0)} ms`).toBeLessThanOrEqual(0.05);
+    }
     // Owner t85u keeps the rays: they are baked into the iris layer and leave with it (it scales
     // out, then fades 1 → 0 over 480-600 ms). Full until 480 ms, then only fading.
     if (t <= COVER_FADE_FROM_MS - Math.max(FRAME_MS, gap))
@@ -704,10 +708,15 @@ test("PF-75 AC2: the wait state shows a closed, pulsing iris over the tray from 
     direction: "alternate",
     iterations: "infinite",
   });
-  // The rim pulses .55 ↔ 1 after its fade-in; the rays turn slowly (30° over 8 s).
+  // Designer ruling 16:4x (PF-75 a5, split ring): after its fade-in the rim holds opacity 1
+  // (± .05) in every frame and only scale-pulses; the halo (::after) breathes .55 ↔ 1. The rays
+  // turn slowly (30° over 8 s).
   const later = wait.filter((f) => f.t > inStart + IRIS_DELAY_MS + IRIS_IN_MS + 50);
-  expect(Math.min(...later.map((f) => f.ring)), "rim pulse low").toBeLessThan(0.95);
-  expect(Math.min(...later.map((f) => f.ring)), "rim pulse low bound").toBeGreaterThanOrEqual(0.54);
+  expect(Math.min(...later.map((f) => f.ring)), "rim held at 1 (low)").toBeGreaterThanOrEqual(0.95);
+  expect(Math.max(...later.map((f) => f.ring)), "rim held at 1 (high)").toBeLessThanOrEqual(1);
+  expect(Math.min(...later.map((f) => f.glow)), "rim pulse low").toBeLessThan(0.95);
+  expect(Math.min(...later.map((f) => f.glow)), "rim pulse low bound").toBeGreaterThanOrEqual(0.54);
+  expect(Math.max(...later.map((f) => f.glow)), "halo pulse high").toBeLessThanOrEqual(1);
   const last = wait.at(-1);
   if (last) {
     const turned = (30 * (last.t - inStart - IRIS_DELAY_MS)) / 8000;

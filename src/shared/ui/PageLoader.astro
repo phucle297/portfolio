@@ -5,9 +5,9 @@
  *
  * A fixed cover in the page background colour, opaque from first paint (this component's CSS is
  * inlined in <head> with the rest; render it as the first child of <body>). After 300 ms a small
- * closed iris fades in over the hero still: an amber rim ring (::before) that pulses, with faint
- * blade rays (::after) outside it. There is no hole yet (the cover is solid), so the wait never
- * shows the page. Once the page is ready (web fonts in, and the first section's visual shown: the intro
+ * closed iris fades in over the hero still: an amber rim ring (::before) that scale-pulses, its
+ * soft halo (::after) that breathes, and faint blade rays (the iris layer i) outside it. There is
+ * no hole yet (the cover is solid), so the wait never shows the page. Once the page is ready (web fonts in, and the first section's visual shown: the intro
  * still decoded, or the scene loader settled), or at the 2.6 s cap, the hole turns transparent
  * and opens to the whole viewport in 600 ms; then the cover is hidden and removed. Ready in under
  * 300 ms (before the iris shows): no iris at all, the cover just fades over 240 ms (is-early). A
@@ -56,6 +56,7 @@
         s.setProperty("--rs", (parseFloat(b.width) / 2) * ks + "px");
         s.setProperty("--ks", String(ks));
         s.setProperty("--o", b.opacity);
+        s.setProperty("--g", getComputedStyle(loader, "::after").opacity);
         // The rays (on the cover layer i) hold their turn through the open.
         s.setProperty(
           "--a0",
@@ -134,8 +135,8 @@
 <style is:global>
   /* Iris centre over the hero still's tray; --r0 wait radius, --r1 reaches the farthest corner
      (without hypot() it is invalid: the open is a plain cut). Compositor-only (PF-75 rulings):
-     a solid cover; the amber rim (::before) pulses (scale) and fades; the iris layer (i) is one
-     square, 2 r1 wide, in the cover colour with the six faint rays baked in, rastered once; the
+     a solid cover; the amber rim (::before) pulses (scale), its halo (::after) breathes (under
+     it); the iris layer (i) is one square, 2 r1 wide, in the cover colour with the six faint rays baked in, rastered once; the
      open cuts its hole of r0 (static mask). While waiting it only fades in and turns (rotate); the open
      scales it from the rim's radius up to r1 / r0 (transform only), so the rays leave with it,
      and it fades over its last 120 ms. */
@@ -157,6 +158,7 @@
   }
 
   .loader::before,
+  .loader::after,
   .loader i {
     content: "";
     position: absolute;
@@ -165,16 +167,25 @@
     translate: -50% -50%;
   }
 
-  /* Rim: core amber line inside r0, outer accent ring, soft falloff. Pulses .55-1, r0-1.06 r0. */
-  .loader::before {
-    z-index: 2;
+  /* PF-75 a5 split ring: the rim (::before, core amber line inside r0 + outer accent ring) stays
+     at opacity 1 and only pulses r0-1.06 r0; the soft halo (::after) also breathes 1-.55. */
+  .loader::before,
+  .loader::after {
+    z-index: 3;
     width: calc(2 * var(--r0));
     aspect-ratio: 1;
     border-radius: 50%;
     box-shadow:
       inset 0 0 0 1.5px var(--accent-2),
-      0 0 0 2px var(--accent),
-      0 0 4px 2px #ff7a3d59;
+      0 0 0 2px var(--accent);
+    animation:
+      ld-in 0.32s ease-out 0.3s both,
+      ld-pulse 1.2s ease-in-out 0.3s infinite alternate;
+  }
+
+  .loader::after {
+    z-index: 2;
+    box-shadow: 0 0 4px 2px #ff7a3d59;
     animation:
       ld-in 0.32s ease-out 0.3s both,
       ld-glow 1.2s ease-in-out 0.62s infinite alternate,
@@ -214,6 +225,7 @@
   }
 
   .is-early .loader::before,
+  .is-early .loader::after,
   .is-early .loader i {
     animation: none;
     opacity: 0;
@@ -238,9 +250,15 @@
       ld-cap 0.12s linear 0.48s forwards;
   }
 
-  .is-open .loader::before {
+  .is-open .loader::before,
+  .is-open .loader::after {
     scale: var(--ks);
     animation: ld-rim 0.24s linear forwards;
+  }
+
+  /* The halo fades from where its breathing was. */
+  .is-open .loader::after {
+    --o: var(--g);
   }
 
   /* Reduced motion: the iris layer is not rendered (the plain PF-67 fade). */
