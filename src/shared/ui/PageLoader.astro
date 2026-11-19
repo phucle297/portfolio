@@ -49,16 +49,9 @@
         });
         early = Boolean(pulse) && !(pulse.currentTime >= 300);
         const s = loader.style;
-        const b = getComputedStyle(loader, "::before");
-        const a = getComputedStyle(loader, "::after");
-        const rs = parseFloat(b.width) / 2;
-        // The rays' mask hole (r0 × 1.06 + 8 px), with r0 = rs / the pulse factor now.
-        const m = (rs / parseFloat(getComputedStyle(loader).getPropertyValue("--k"))) * 1.06 + 8;
-        s.setProperty("--rs", rs + "px");
-        s.setProperty("--o", b.opacity);
-        s.setProperty("--a0", a.rotate.replace("none", "0deg"));
-        s.setProperty("--s0", String((rs + 8) / m));
-        s.setProperty("--s1", String((parseFloat(a.width) / 2 - rs) / m));
+        s.setProperty("--rs", parseFloat(getComputedStyle(loader, "::before").width) / 2 + "px");
+        s.setProperty("--o", getComputedStyle(loader, "::before").opacity);
+        s.setProperty("--a0", getComputedStyle(loader, "::after").rotate.replace("none", "0deg"));
       }
       h.classList.add(early ? "is-early" : "is-open", "is-ready");
       if (main) main.removeAttribute("aria-busy");
@@ -171,7 +164,6 @@
 
   /* Rim: core amber line inside r, outer accent ring, soft falloff into the cover. Pulses .55-1. */
   .loader::before {
-    z-index: 1;
     width: calc(2 * var(--r));
     height: calc(2 * var(--r));
     box-shadow:
@@ -187,11 +179,8 @@
   .loader::after {
     width: calc(2 * var(--r1));
     height: calc(2 * var(--r1));
-    --m: calc(var(--r0) * 1.06 + 8px);
-    /* While waiting the middle is a disc in the cover colour (cheaper to turn than a mask). */
-    background:
-      radial-gradient(var(--bg) var(--m), #0000 calc(var(--m) + 1px)),
-      repeating-conic-gradient(from 12deg, #ffc24b17 0 30deg, #0000 0 60deg);
+    background: repeating-conic-gradient(from 12deg, #ffc24b17 0 30deg, #0000 0 60deg);
+    mask: radial-gradient(#0000 calc(var(--r0) * 1.06 + 8px), #000 calc(var(--r0) * 1.06 + 9px));
     animation:
       ld-in 0.32s ease-out 0.3s both,
       ld-turn 8s linear 0.3s forwards;
@@ -235,13 +224,8 @@
     animation: ld-rim 0.6s linear forwards;
   }
 
-  /* The rays' hole keeps up with the iris by scaling the layer (its mask stays as painted; the
-     blades are scale-invariant): scale = (r + 8px) / (r0 × 1.06 + 8px), linear in --p, with the
-     two factors from JS. A mask that changes every frame was too slow to raster. */
   .is-open .loader::after {
-    background: repeating-conic-gradient(from 12deg, #ffc24b17 0 30deg, #0000 0 60deg);
-    mask: radial-gradient(#0000 var(--m), #000 calc(var(--m) + 1px));
-    scale: max(1, var(--s0) + var(--s1) * var(--p));
+    mask: radial-gradient(#0000 calc(var(--r) + 8px), #000 calc(var(--r) + 9px));
     animation: ld-spin 0.6s cubic-bezier(0.7, 0, 0.2, 1) forwards;
   }
 
