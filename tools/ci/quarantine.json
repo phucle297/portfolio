@@ -1,5 +1,5 @@
 {
-  "$comment": "PF-70 flaky-test quarantine. Tests listed here still run on every PR in the quarantine (*) jobs, which show on the PR but are not inputs to ci-ok (the blocking gate). Removing an entry and its ci.yml exclude puts the test back in the blocking jobs. Do not skip, delete, or weaken the test. Follow-up cards: PF-76 (M1-AC16), PF-77 (LH mobile TBT/perf), PF-78 (WebKit phone LCP), PF-79 (B-4 idle), PF-80 (Chromium visible-jump), PF-82 (a11y 150 ms stepped-backdrop). PF-81 (WebKit loader exit frames) left the list in PF-75: the rewritten loader.spec exit checks passed 10 runs in a row on WebKit (loader-repeat workflow) and block again.",
+  "$comment": "PF-70 flaky-test quarantine. Tests listed here still run on every PR in the quarantine (*) jobs, which show on the PR but are not inputs to ci-ok (the blocking gate). Removing an entry and its ci.yml exclude puts the test back in the blocking jobs. Do not skip, delete, or weaken the test. Follow-up cards: PF-76 (M1-AC16), PF-77 (LH mobile TBT/perf), PF-78 (WebKit phone LCP), PF-79 (B-4 idle), PF-80 (Chromium visible-jump), PF-81 (WebKit loader exit frames; PF-75 rewrote the checks, still 47/50 on WebKit x10), PF-82 (a11y 150 ms stepped-backdrop).",
   "items": [
     {
       "id": "tiers-m1-ac16",
@@ -35,7 +35,7 @@
     {
       "id": "m2-qa-b-b4-idle",
       "file": "tests/e2e/m2-qa-b.spec.ts",
-      "title": "last rAF callback \u2264 1.5 s after the last scroll event (wheel and a long jump)",
+      "title": "last rAF callback ≤ 1.5 s after the last scroll event (wheel and a long jump)",
       "project": "chromium",
       "date": "2026-11-18",
       "reason": "Flaky again after PF-61: the render-loop idle gap exceeded the 1.5 s budget on a slow runner. Bound and assertions are unchanged.",
@@ -45,14 +45,47 @@
     {
       "id": "visible-jump-chromium",
       "file": "tests/e2e/visible-jump.spec.ts",
-      "title": "PF-50 reload at 1440\u00d7900: header, H1 and Hello copy stay within 8px after first paint @chromium-only",
+      "title": "PF-50 reload at 1440×900: header, H1 and Hello copy stay within 8px after first paint @chromium-only",
       "project": "chromium",
       "date": "2026-11-18",
-      "reason": "Chromium visible-jump stall cap at 1440\u00d7900: not enough frames in 3 s (need >= 30, cap 1000 ms). The whole spec is quarantined (it is one CI job). Cap is unchanged. Known runs also include 1024 when the sampler starved. Also PF-67 CI 44284652784 @4d0edc6: 26 frames of 30 at 1440\u00d7900 (gap 812 ms); passed on the one rerun. Cap unchanged.",
+      "reason": "Chromium visible-jump stall cap at 1440×900: not enough frames in 3 s (need >= 30, cap 1000 ms). The whole spec is quarantined (it is one CI job). Cap is unchanged. Known runs also include 1024 when the sampler starved. Also PF-67 CI 44284652784 @4d0edc6: 26 frames of 30 at 1440×900 (gap 812 ms); passed on the one rerun. Cap unchanged.",
       "follow_up": "PF-80",
       "known_run": "44271947023",
-      "source_title": "PF-50 reload at ${vp.width}\u00d7${vp.height}: header, H1 and Hello copy stay within ${MAX_MOVE_PX}px after first paint @chromium-only",
+      "source_title": "PF-50 reload at ${vp.width}×${vp.height}: header, H1 and Hello copy stay within ${MAX_MOVE_PX}px after first paint @chromium-only",
       "known_runs": ["44271947023", "44284652784"]
+    },
+    {
+      "id": "loader-webkit-early-ready",
+      "file": "tests/e2e/loader.spec.ts",
+      "title": "PF-75 AC1: ready before 300 ms (early) never shows the iris, on any frame, and the cover fades over 240 ms",
+      "project": "webkit",
+      "date": "2026-11-19",
+      "reason": "WebKit CI frame starvation on the early exit: 'cover fades over its 240 ms exit' saw 1.00 to 0 with no mid-fade frame (2-4 rAF per exit on the CPU-raster runner). 1 of 10 in loader-repeat x10. Assertions unchanged.",
+      "follow_up": "PF-81",
+      "known_run": "44481705568",
+      "known_runs": ["44481705568"]
+    },
+    {
+      "id": "loader-webkit-open",
+      "file": "tests/e2e/loader.spec.ts",
+      "title": "PF-75 AC2: ready after the iris is in opens it in 600 ms from where it is (hole grows, rim holds then fades)",
+      "project": "webkit",
+      "date": "2026-11-19",
+      "reason": "WebKit CI frame starvation in the 600 ms open: no frame painted the hidden state before removal ('hidden NaN - open start'). 1 of 10 in loader-repeat x10 at 3ec2c93 (9 of 10 before the PF-75 paint fixes). Assertions unchanged.",
+      "follow_up": "PF-81",
+      "known_run": "44481705568",
+      "known_runs": ["44481705568"]
+    },
+    {
+      "id": "loader-webkit-cap",
+      "file": "tests/e2e/loader.spec.ts",
+      "title": "PF-67 AC1: a page that never gets ready starts its open at the 2.6 s cap and is gone by 3.2 s",
+      "project": "webkit",
+      "date": "2026-11-19",
+      "reason": "WebKit CI frame starvation in the capped open: last visible frame 3.2 s + one 345 ms frame. 1 of 10 in loader-repeat x10. Assertions unchanged.",
+      "follow_up": "PF-81",
+      "known_run": "44481705568",
+      "known_runs": ["44481705568"]
     },
     {
       "id": "a11y-stepped-backdrop-150ms",
