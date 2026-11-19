@@ -104,6 +104,9 @@ const INIT = `(() => {
  * its callback sets `done = true`), and from 900 ms the cover's animations (pulse, failsafe) are
  * paused, so the cover is static and opaque while the scene mounts under it.
  */
+/** The lazily imported scene module (DarkroomScene → stage.ts). */
+const STAGE_CHUNK = /\/_astro\/stage\.[\w-]+\.js/;
+
 const HOLD_LOADER = `(() => {
   const ready = Object.getOwnPropertyDescriptor(FontFaceSet.prototype, "ready");
   let release = () => {};
@@ -501,8 +504,19 @@ test.describe("PF-84 hero still-to-live handover", () => {
       await page.addInitScript(INIT);
       await page.addInitScript(HOLD_LOADER);
       const cdp = await page.context().newCDPSession(page);
+      // The scene module waits until the cover is frozen, so the swap always lands under a static
+      // cover (a fast scene must not swap during the 300-620 ms fade-in of the iris).
+      const { promise: frozen, resolve: unfreeze } = Promise.withResolvers<null>();
+      await page.route(STAGE_CHUNK, async (route) => {
+        await frozen;
+        await route.continue();
+      });
       const frames = await startScreencast(cdp, 1440, HEIGHT);
-      await page.goto("/");
+      await page.goto("/", { waitUntil: "commit" });
+      await page.waitForFunction(() => typeof window.pf75Frozen === "number", undefined, {
+        timeout: 10_000,
+      });
+      unfreeze(null);
       const html = page.locator("html");
       await expect(html).toHaveAttribute("data-scene-load", "ready", { timeout: 90_000 });
       await expect(html).toHaveAttribute("data-scene-shown", "", { timeout: 30_000 });

@@ -9,16 +9,9 @@ const dist = "dist";
 const orig = readFileSync(join(dist, "index.html"), "utf8");
 const variants = {
   base: [],
-  raysPaused: [["8s linear .3s forwards ld-turn", "8s linear .3s paused ld-turn"]],
   noRays: [[".loader:after{width:", ".loader:after{display:none;width:"]],
-  noPulse: [[",1.2s ease-in-out .3s infinite alternate ld-pulse", ""]],
-  noGlow: [[",1.2s ease-in-out .62s infinite alternate ld-glow", ""]],
-  noMask: [["mask:radial-gradient(circle at var(--cx) var(--cy), #0000 var(--h), #000 0);", ""]],
-  noRaysNoPulse: [
-    [".loader:after{width:", ".loader:after{display:none;width:"],
-    [",1.2s ease-in-out .3s infinite alternate ld-pulse", ""],
-  ],
-  noLoader: [[".loader{--cx", ".loader{display:none;--cx"]],
+  openRaysNoMask: [[".is-open .loader:after{mask:", ".is-open .loader:after{-x:"]],
+  raysPaused: [["8s linear .3s forwards ld-turn", "8s linear .3s paused ld-turn"]],
 };
 let html = orig;
 const types = {

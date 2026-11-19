@@ -12,7 +12,7 @@
  * and opens to the whole viewport in 600 ms; then the cover is hidden and removed. Ready in under
  * 300 ms (before the iris shows): no iris at all, the cover just fades over 240 ms (is-early). A
  * CSS failsafe hides it at 3.2 s even if this script dies, and without JS it never shows. The page
- * lays out and paints normally beneath it: the cover is position: fixed and only its mask, its
+ * lays out and paints normally beneath it: the cover is position: fixed and only its background, its
  * pseudo-elements and its opacity change, so nothing on the page moves. No text, no image, no web font.
  *
  * Screen readers: #main is aria-busy and a polite status says "Loading the page", then
@@ -128,8 +128,9 @@
 
   /* Iris centre over the hero still's tray; --r0 wait radius, --r1 reaches the farthest corner
      (without hypot() it is invalid: no open, the cover just cuts at 600 ms). Kept cheap to
-     paint: the hole is a mask on a solid cover (no hole until the open), the rim is one small
-     circle and the rays a static layer that turns on the compositor. */
+     paint (WebKit CI rasters on the CPU): the cover is solid until the open, then a gradient
+     with a hole (no mask on the cover: masking it re-rendered the turning rays every frame), the
+     rim is one small circle and the rays a static layer that turns on the compositor. */
   .loader {
     --cx: 68vw;
     --cy: 52vh;
@@ -142,7 +143,6 @@
     z-index: 90;
     pointer-events: none;
     background: var(--bg);
-    mask: radial-gradient(circle at var(--cx) var(--cy), #0000 var(--h), #000 0);
     transition:
       opacity 0.24s cubic-bezier(0.2, 0.7, 0.2, 1),
       visibility 0s 0.24s;
@@ -214,6 +214,7 @@
   .is-open .loader {
     --r: calc(var(--rs) + (var(--r1) - var(--rs)) * var(--p));
     --h: calc(var(--r) - 1.5px);
+    background: radial-gradient(circle at var(--cx) var(--cy), #0000 var(--h), var(--bg) 0);
     animation:
       ld-cap 0s 3.2s forwards,
       ld-open 0.6s cubic-bezier(0.7, 0, 0.2, 1) forwards;
@@ -224,6 +225,7 @@
   }
 
   .is-open .loader::after {
+    mask: radial-gradient(#0000 calc(var(--r) + 8px), #000 calc(var(--r) + 9px));
     animation: ld-spin 0.6s cubic-bezier(0.7, 0, 0.2, 1) forwards;
   }
 

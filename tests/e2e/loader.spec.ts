@@ -863,11 +863,15 @@ for (const vp of [
       const still = await hold(page, INTRO_STILL);
       await page.goto("/", { waitUntil: "domcontentloaded" });
       await page.waitForTimeout(800);
-      const png = await page.screenshot({ type: "png" });
-      const r = await page.evaluate(() => {
+      // Pause the pulse where it is, so the radius read and the screenshot show the same frame.
+      const r = await page.evaluate(async () => {
         const l = document.querySelector(".loader");
-        return l ? Number.parseFloat(getComputedStyle(l, "::before").width) / 2 : Number.NaN;
+        if (!l) return Number.NaN;
+        for (const a of l.getAnimations({ subtree: true })) a.pause();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        return Number.parseFloat(getComputedStyle(l, "::before").width) / 2;
       });
+      const png = await page.screenshot({ type: "png" });
       await still.release();
       const { cx, cy } = geometry(vp.width, vp.height);
       const { data, info } = await sharp(png)
