@@ -80,7 +80,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
-      fail-fast: true
+      # PF-75: every e2e group reports (one red group must not cancel the rest); ci-ok still needs all.
+      fail-fast: false
       matrix:
         # Explicit groups instead of --shard: every job stays well under 20 min (the 300 s sweeps
         # get their own jobs) and the render-loop test runs alone in a fresh browser, so a previous
