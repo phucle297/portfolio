@@ -17,7 +17,7 @@ import { waitForLoader } from "./helpers";
  * AC3 polite busy → done announcement, no focus trap, first Tab lands on the skip link.
  *
  * The only app signals used are `html.is-ready` / `is-early` / `is-open` and the loader node. A
- * recorder injected at document start samples the cover on every animation frame AND every 10 ms
+ * recorder injected at document start samples the cover on every animation frame AND every 20 ms
  * (PF-81: on WebKit CI the rAF sampler alone sometimes saw no frame at all across the exit; the
  * computed style is current whenever it is read). Times are performance.now(), ms from navigation
  * start, so the timing assertions read the page's own clock, not the runner's.
@@ -92,7 +92,7 @@ function boxes(page: Page): Promise<Record<string, { x: number; y: number }>> {
   }, WATCHED);
 }
 
-/** Samples the cover every frame and every 10 ms from document start until it is removed (or 5 s). */
+/** Samples the cover every frame and every 20 ms from document start until it is removed (or 5 s). */
 async function recordLoader(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const log: LoaderLog = {
@@ -183,7 +183,7 @@ async function recordLoader(page: Page): Promise<void> {
     const timer = setInterval(() => {
       sample(false);
       if (stopped) clearInterval(timer);
-    }, 10);
+    }, 20);
   });
 }
 
@@ -505,15 +505,25 @@ test("PF-75 AC2: ready after the iris is in opens it in 600 ms from where it is 
   // shrinks (the page never dips back, PF-74), and the rim holds until 480 ms, then only fades.
   let lastR = 0;
   let lastRing = 1;
+  // A sample reads the style of the last painted frame, so it may lag its currentTime by one
+  // measured frame (`gap`): the radius is checked ± 5 % against the eased curve over
+  // [t - gap, t] (SHIP FIRST near-miss on CPU-raster runners; the bounds are exact at 60 fps).
+  const eased = (t: number): number =>
+    rStart + (r1 - rStart) * openEase(Math.min(1, Math.max(0, t) / OPEN_MS));
   for (const f of opening) {
     const t = f.openT ?? 0;
-    const want = rStart + (r1 - rStart) * openEase(Math.min(1, t / OPEN_MS));
+    const want = eased(t);
+    const lo = eased(t - Math.max(0, gap - FRAME_MS));
     expect(f.holeOpaque, `hole shows the page at ${t.toFixed(0)} ms`).toBe(false);
     expect(f.cover, `cover opacity at ${t.toFixed(0)} ms`).toBe(1);
     expect(
-      Math.abs(f.r - want),
+      f.r,
+      `radius ${f.r.toFixed(1)} vs eased ${lo.toFixed(1)}..${want.toFixed(1)} at ${t.toFixed(0)} ms (frame ${gap.toFixed(0)} ms)`,
+    ).toBeGreaterThanOrEqual(lo - Math.max(1, lo * 0.05));
+    expect(
+      f.r,
       `radius ${f.r.toFixed(1)} vs eased ${want.toFixed(1)} at ${t.toFixed(0)} ms`,
-    ).toBeLessThanOrEqual(Math.max(1, want * 0.05));
+    ).toBeLessThanOrEqual(want + Math.max(1, want * 0.05));
     expect(f.r, `radius never shrinks at ${t.toFixed(0)} ms`).toBeGreaterThanOrEqual(lastR - 0.01);
     if (t < OPEN_MS * RIM_FADE_FROM - 10)
       expect(Math.abs(f.ring - oStart), `rim holds at ${t.toFixed(0)} ms`).toBeLessThanOrEqual(

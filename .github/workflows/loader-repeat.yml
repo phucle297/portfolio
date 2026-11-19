@@ -67,10 +67,6 @@ jobs:
         timeout-minutes: 5
         with:
           browser: webkit
-      # PF-75 TEMP diagnostic (removed before merge): WebKit frame rate per loader variant.
-      - name: TEMP WebKit loader frame-rate probe
-        continue-on-error: true
-        run: node .github/pf75-probe/probe.mjs
       # Every run counts: no retries, all 10 repeats of each exit check must pass.
       - name: Loader exit checks, 10 runs in a row
         run: >-
