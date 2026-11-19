@@ -31,14 +31,18 @@ const FADE_IN_MS = 560;
 /** PF-84: the still → live crossfade once the scene is ready (design/hero-handover). */
 export const HANDOVER_MS = 240;
 
-/** True while the first-open loader cover still hides the page (read only, never animated). */
-function coverIsOpaque(): boolean {
+/**
+ * Where the first-open loader cover is (read only, never animated): "opaque" while it still hides
+ * the whole page (PF-75 states 0-1, the iris hole included), "opening" while its iris opens
+ * (html.is-open, the cover still shown: no swap then), else "gone" (also its early fade).
+ */
+function coverState(): "opaque" | "opening" | "gone" {
   const cover = document.querySelector<HTMLElement>(".loader");
-  if (!cover) return false;
+  if (!cover) return "gone";
   const style = getComputedStyle(cover);
-  return (
-    style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) >= 0.999
-  );
+  if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) < 0.999)
+    return "gone";
+  return document.documentElement.classList.contains("is-open") ? "opening" : "opaque";
 }
 
 /** The poster stills on screen now (desktop: viewport-fixed pictures). */
@@ -215,7 +219,7 @@ export async function mountStage(
   // PF-84: hand over from the still on screen without a jump (design/hero-handover). The canvas
   // stays transparent behind the still until two frames have been drawn at the rest state (the
   // textures were uploaded in createDarkroom). Then exactly one swap: instant while the loader
-  // cover is still opaque, else a HANDOVER_MS crossfade with the canvas fully shown underneath and
+  // cover is still opaque, never during the loader's iris open (PF-75), else a HANDOVER_MS crossfade with the canvas fully shown underneath and
   // the still fading out on top (the same pixels as the canvas fading in over an opaque still:
   // never darker than the darker of the two). The still is hidden only once the fade's `finished`
   // resolves, never on a wall-clock timer, so a slow frame cannot uncover a half-shown canvas.
@@ -227,8 +231,14 @@ export async function mountStage(
   };
   const swap = (): void => {
     if (disposed) return;
+    const cover = coverState();
+    // PF-75: never during the iris open; wait for it to end, then crossfade.
+    if (cover === "opening") {
+      requestAnimationFrame(swap);
+      return;
+    }
     const stills = visibleStills();
-    if (coverIsOpaque() || stills.length === 0) {
+    if (cover === "opaque" || stills.length === 0) {
       reveal();
       return;
     }

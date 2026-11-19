@@ -50,8 +50,6 @@ const requiredIds = [
   "static-stills-webkit-phone-lcp",
   "m2-qa-b-b4-idle",
   "visible-jump-chromium",
-  "loader-webkit-early-ready",
-  "loader-webkit-late-exit-frames",
   "a11y-stepped-backdrop-150ms",
 ] as const;
 
@@ -79,7 +77,6 @@ describe("PF-70 quarantine list", () => {
   it("keeps quarantine jobs out of the ci-ok blocking gate", () => {
     expect(ciYml).toContain("name: quarantine (e2e)");
     expect(ciYml).toContain("name: quarantine (webkit phone LCP)");
-    expect(ciYml).toContain("name: quarantine (webkit loader)");
     expect(ciYml).toContain("name: quarantine (lh mobile TBT)");
     const needs = /  ci-ok:[\s\S]*?needs:\s*\[([^\]]+)\]/.exec(ciYml);
     expect(needs, "ci-ok needs").not.toBeNull();
@@ -99,7 +96,6 @@ describe("PF-70 quarantine list", () => {
     expect(ciYml).toContain(
       "phone: the first still is the eager, high-priority, first-fetched LCP candidate",
     );
-    expect(ciYml).toContain("ready at 200-300 ms|ready after the content is fully in");
     expect(ciYml).toContain('tests/e2e/a11y.spec.ts --grep-invert "150 ms step-end CSS blink"');
     expect(ciYml).toContain("PF-50 reload at|150 ms step-end CSS blink");
     const a11y150 = list.items.find((i) => i.id === "a11y-stepped-backdrop-150ms");
@@ -113,22 +109,15 @@ describe("PF-70 quarantine list", () => {
     );
   });
 
-  it("keeps PF-67 loader.spec blocking on Chromium and Firefox; only the two WebKit titles are quarantined", () => {
-    const webkitLoader = list.items.filter((i) => i.file === "tests/e2e/loader.spec.ts");
-    expect(webkitLoader.map((i) => i.id)).toEqual([
-      "loader-webkit-early-ready",
-      "loader-webkit-late-exit-frames",
-    ]);
-    expect(webkitLoader.every((i) => i.project === "webkit" && i.follow_up === "PF-81")).toBe(true);
+  it("keeps loader.spec blocking on every engine: PF-81 left the list in PF-75", () => {
+    expect(list.items.filter((i) => i.file === "tests/e2e/loader.spec.ts")).toEqual([]);
+    expect(list.items.some((i) => i.follow_up === "PF-81")).toBe(false);
     // Chromium app-features and the e2e-xb file list still include the spec.
     expect(ciYml).toContain("tests/e2e/progress-top.spec.ts tests/e2e/loader.spec.ts");
     expect(ciYml).toContain("tests/e2e/a11y.spec.ts tests/e2e/loader.spec.ts");
-    // The invert that drops the two titles is only in the WebKit branch.
-    const webkitIf = ciYml.indexOf("= webkit ]; then");
-    expect(webkitIf, "webkit invert block").toBeGreaterThan(0);
-    const before = ciYml.slice(0, webkitIf);
-    const after = ciYml.slice(webkitIf, webkitIf + 800);
-    expect(before).not.toContain("ready at 200-300 ms|ready after the content is fully in");
-    expect(after).toContain("ready at 200-300 ms|ready after the content is fully in");
+    // No WebKit invert drops a loader title, and the quarantine job is gone.
+    expect(ciYml).not.toContain("ready at 200-300 ms");
+    expect(ciYml).not.toContain("ready after the content is fully in");
+    expect(ciYml).not.toContain("quarantine (webkit loader)");
   });
 });

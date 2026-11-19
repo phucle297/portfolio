@@ -20,7 +20,8 @@ import { hideLoader, spoofHardwareGpu } from "./helpers";
  * Phones (390) never mount the scene: the in-flow still stays and nothing swaps.
  *
  * The loader cover is hidden (helpers.hideLoader) so the swap is always visible: the check holds
- * for any loader (PF-75) and is the strict case, the canvas fading in over the still. Chromium
+ * for any loader and is the strict case, the canvas fading in over the still. PF-75 AC4 adds the
+ * other branch: the instant swap under the opaque iris cover (0 changed pixels). Chromium
  * only: it needs the SwiftShader-backed scene, CDP screencast and CPU throttling.
  */
 
@@ -62,6 +63,9 @@ interface Metrics {
 declare global {
   interface Window {
     pf84Log?: Sample[];
+    /** PF-75 AC4: when the held loader cover froze (epoch ms), and its release. */
+    pf75Frozen?: number;
+    pf75Release?: () => void;
   }
 }
 
@@ -92,6 +96,37 @@ const INIT = `(() => {
     if (log.length < 20000) requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
+})();`;
+
+/**
+ * PF-75 AC4: hold the loader cover in its wait state until window.pf75Release(): the fonts gate
+ * (document.fonts.ready) stays pending, the loader's 2.6 s ready cap is dropped (only that timer:
+ * its callback sets `done = true`), and from 900 ms the cover's animations (pulse, failsafe) are
+ * paused, so the cover is static and opaque while the scene mounts under it.
+ */
+const HOLD_LOADER = `(() => {
+  const ready = Object.getOwnPropertyDescriptor(FontFaceSet.prototype, "ready");
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  Object.defineProperty(FontFaceSet.prototype, "ready", {
+    configurable: true,
+    get() { return gate.then(() => ready.get.call(this)); },
+  });
+  const timeout = window.setTimeout.bind(window);
+  window.setTimeout = (fn, ms, ...rest) =>
+    typeof ms === "number" && ms > 2000 && ms <= 2600 && String(fn).includes("done = true")
+      ? 0
+      : timeout(fn, ms, ...rest);
+  const freeze = new CSSStyleSheet();
+  freeze.replaceSync("html:not(.is-ready) .loader, html:not(.is-ready) .loader::before, html:not(.is-ready) .loader::after { animation-play-state: paused !important; }");
+  timeout(() => {
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, freeze];
+    window.pf75Frozen = performance.timeOrigin + performance.now() + 100;
+  }, 900);
+  window.pf75Release = () => {
+    document.adoptedStyleSheets = document.adoptedStyleSheets.filter((x) => x !== freeze);
+    release();
+  };
 })();`;
 
 async function startScreencast(cdp: CDPSession, width: number, height: number): Promise<Frame[]> {
@@ -449,6 +484,117 @@ test.describe("PF-84 hero still-to-live handover", () => {
       );
     }
   }
+
+  // PF-75 AC4: the other branch of the swap. While the loader cover is opaque (iris states 0-1)
+  // the still → live swap is instant and changes 0 pixels on screen; the open then reveals the
+  // live tray with one swap and no dip. The cover is held in its wait state (fonts gate + the
+  // 2.6 s cap and the CSS failsafe held, its animations frozen once the iris is in) so the scene
+  // can mount under it on SwiftShader, then released.
+  test(
+    "1440: under the opaque loader cover the swap is instant, 0 changed pixels @chromium-only",
+    {
+      tag: "@chromium-only",
+    },
+    async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: HEIGHT });
+      await spoofHardwareGpu(page);
+      await page.addInitScript(INIT);
+      await page.addInitScript(HOLD_LOADER);
+      const cdp = await page.context().newCDPSession(page);
+      const frames = await startScreencast(cdp, 1440, HEIGHT);
+      await page.goto("/");
+      const html = page.locator("html");
+      await expect(html).toHaveAttribute("data-scene-load", "ready", { timeout: 90_000 });
+      await expect(html).toHaveAttribute("data-scene-shown", "", { timeout: 30_000 });
+      const atSwap = await page.evaluate(() => ({
+        ready: document.documentElement.classList.contains("is-ready"),
+        cover: Boolean(document.querySelector(".loader")),
+        frozen: window.pf75Frozen ?? null,
+      }));
+      expect(atSwap.ready, "the swap happened before the loader was ready").toBe(false);
+      expect(atSwap.cover, "the cover was up at the swap").toBe(true);
+      await page.waitForTimeout(500);
+      const log1 = await page.evaluate(() => window.pf84Log ?? []);
+      const swapAt = log1.find((x) => x.still < 0.999 && x.canvas > 0.001)?.t ?? Number.NaN;
+      expect(
+        log1.some((x) => x.canvas > 0.001 && x.still > 0.001 && x.still < 0.999),
+        "instant swap: no crossfade sample (canvas shown, still part-faded) under the cover",
+      ).toBe(false);
+      // 0 changed pixels: every frame from the swap to swap + 500 ms (and a screenshot after it) vs
+      // the last frame before the swap, once the cover is frozen (static and opaque).
+      const frozenAt = atSwap.frozen ?? Number.POSITIVE_INFINITY;
+      expect(frozenAt, "frozen before the swap").toBeLessThan(swapAt);
+      const beforeSwap = frames.filter((f) => f.t >= frozenAt && f.t < swapAt);
+      const under = frames.filter((f) => f.t >= swapAt);
+      const refFrame = beforeSwap.at(-1) ?? frames.findLast((f) => f.t < swapAt);
+      expect(refFrame, "a frame under the cover before the swap").toBeDefined();
+      const ref = await raw(refFrame?.png ?? Buffer.alloc(0));
+      let changed = 0;
+      const tail = await Promise.all(
+        [...under, { t: 0, png: await page.screenshot({ type: "png" }) }].map((f) => raw(f.png)),
+      );
+      const perFrame: number[] = [];
+      for (const img of tail) {
+        const before = changed;
+        for (let i = 0; i < img.data.length; i += 3) {
+          const d = Math.max(
+            Math.abs((img.data[i] ?? 0) - (ref.data[i] ?? 0)),
+            Math.abs((img.data[i + 1] ?? 0) - (ref.data[i + 1] ?? 0)),
+            Math.abs((img.data[i + 2] ?? 0) - (ref.data[i + 2] ?? 0)),
+          );
+          if (d > 2) changed += 1;
+        }
+        perFrame.push(changed - before);
+      }
+      if (OUT) {
+        fs.mkdirSync(path.join(OUT, "ac4"), { recursive: true });
+        fs.writeFileSync(path.join(OUT, "ac4", "before.png"), refFrame?.png ?? Buffer.alloc(0));
+        fs.writeFileSync(path.join(OUT, "ac4", "last.png"), under.at(-1)?.png ?? Buffer.alloc(0));
+      }
+      // Then the open reveals the live tray: one still → live, never back, no luminance dip.
+      await page.evaluate(() => {
+        window.pf75Release?.();
+      });
+      await page.waitForFunction(() => !document.querySelector(".loader"), undefined, {
+        timeout: 10_000,
+      });
+      await page.waitForTimeout(WINDOW_MS);
+      await cdp.send("Page.stopScreencast");
+      const log = await page.evaluate(() => window.pf84Log ?? []);
+      const states = log.map(shows).filter((x) => x === "still" || x === "live");
+      const flips = { stillToLive: 0, liveToStill: 0 };
+      for (let i = 1; i < states.length; i += 1) {
+        if (states[i - 1] === "still" && states[i] === "live") flips.stillToLive += 1;
+        if (states[i - 1] === "live" && states[i] === "still") flips.liveToStill += 1;
+      }
+      const after = await Promise.all(
+        frames.filter((f) => f.t > swapAt + 500).map(async (f) => meanLuma(await raw(f.png))),
+      );
+      let worstDrop = 0;
+      for (let i = 1; i < after.length; i += 1)
+        worstDrop = Math.max(worstDrop, 1 - (after[i] ?? 0) / Math.max(1, after[i - 1] ?? 0));
+      test.info().annotations.push({
+        type: "pf75-ac4",
+        description: JSON.stringify({
+          before: beforeSwap.length,
+          under: under.length,
+          changed,
+          perFrame,
+          flips,
+          afterFrames: after.length,
+          worstDrop,
+        }),
+      });
+      expect(changed, "pixels changed by the swap under the cover").toBe(0);
+      expect(flips, "exactly one still->live, no live->still").toEqual({
+        stillToLive: 1,
+        liveToStill: 0,
+      });
+      expect(worstDrop, "frame-to-frame luminance drop across the open").toBeLessThanOrEqual(
+        MAX_LUMA_DELTA,
+      );
+    },
+  );
 
   test("390: phones keep the in-flow still, nothing swaps", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });

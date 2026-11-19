@@ -1,0 +1,109 @@
+# PF-75 (PF-81 folded): prove the loader exit checks stable on WebKit, 10 runs in a row on one
+# fresh runner (same container, browser setup and shared-dist preview as CI's e2e-xb), and prove
+# they still catch a real regression: two planted loader bugs patched into the built page must
+# each make its check fail (the job passes only if they fail).
+# Runs on PRs that touch the loader or its spec, and by hand
+# (`gh workflow run loader-repeat.yml --ref <branch>`). Not an input to ci-ok. Separate from
+# ci.yml so the repeat costs one runner only when the loader changes. Rollback: delete this file.
+name: Loader repeat (WebKit)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/loader-repeat.yml"
+      - "src/shared/ui/PageLoader.astro"
+      - "tests/e2e/loader.spec.ts"
+
+concurrency:
+  group: loader-repeat-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  LEFTHOOK: "0"
+  ASTRO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: bun run build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-loader-repeat
+          path: dist
+          retention-days: 3
+          if-no-files-found: error
+
+  repeat:
+    name: loader exit checks x10 (webkit)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      options: --ipc=host
+    env:
+      HOME: /root
+      TMPDIR: ${{ github.workspace }}/.tmp
+      E2E_PREBUILT: "1"
+      PLAYWRIGHT_HTML_OPEN: never
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Workspace temp dir
+        run: mkdir -p "$TMPDIR"
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-loader-repeat
+          path: dist
+      - uses: ./.github/actions/playwright-browser
+        timeout-minutes: 5
+        with:
+          browser: webkit
+      # Every run counts: no retries, all 10 repeats of each exit check must pass.
+      - name: Loader exit checks, 10 runs in a row
+        run: >-
+          bunx playwright test tests/e2e/loader.spec.ts --project=webkit
+          --grep "under 300 ms|early|opens it in 600 ms|wait state|2.6 s cap"
+          --repeat-each=10 --retries=0 --workers=1 --reporter=list
+      # Planted regressions on the built page: each must make its check fail.
+      - name: Planted failures are caught
+        shell: bash
+        run: |
+          set -uo pipefail
+          cp dist/index.html /tmp/index.orig.html
+          plant() {
+            local name="$1" from="$2" to="$3" grep="$4"
+            cp /tmp/index.orig.html dist/index.html
+            FROM="$from" TO="$to" node -e '
+              const fs = require("fs");
+              const html = fs.readFileSync("dist/index.html", "utf8");
+              if (!html.includes(process.env.FROM)) { console.error("pattern not found"); process.exit(1); }
+              fs.writeFileSync("dist/index.html", html.replace(process.env.FROM, process.env.TO));
+            ' || { echo "::error::plant $name: pattern not found"; exit 1; }
+            if bunx playwright test tests/e2e/loader.spec.ts --project=webkit --grep "$grep" --retries=0 --reporter=list; then
+              echo "::error::plant $name was NOT caught"; exit 1
+            fi
+            echo "plant $name caught (the check failed, as it must)"
+          }
+          # 1. The early exit snaps instead of fading over 240 ms.
+          plant early-snap "transition:opacity .24s" "transition:opacity 0s" "early"
+          # 2. The iris opens in 200 ms instead of 600 ms.
+          plant fast-open ".6s cubic-bezier(.7,0,.2,1) forwards ld-open" ".2s cubic-bezier(.7,0,.2,1) forwards ld-open" "opens it in 600 ms"
+          cp /tmp/index.orig.html dist/index.html
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: loader-repeat-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+          if-no-files-found: ignore

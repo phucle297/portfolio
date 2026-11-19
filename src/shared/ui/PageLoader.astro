@@ -1,32 +1,30 @@
 ---
 /**
- * PF-67 first-open loader, "the print develops" (design/loading/design.md).
+ * PF-75 first-open loader, "Aperture iris" (design/loading-v2/final-C.md; base rules from PF-67
+ * design/loading/design.md).
  *
  * A fixed cover in the page background colour, opaque from first paint (this component's CSS is
- * inlined in <head> with the rest; render it as the first child of <body>). Its content fades in
- * only after 300 ms, so a fast load never shows a loader. It leaves once the page is ready: web
- * fonts in, and the first section's visual shown (the intro still decoded, or the scene loader
- * settled), or after the 3 s hard cap. A CSS failsafe hides it at 3.2 s even if this script dies,
- * and without JS it never shows. The page lays out and paints normally beneath it: the cover is
- * position: fixed and the exit is opacity only, so nothing on the page moves.
+ * inlined in <head> with the rest; render it as the first child of <body>). After 300 ms a small
+ * closed iris fades in over the hero still: an amber rim ring (::before) that pulses, with faint
+ * blade rays (::after) outside it. There is no hole yet (the cover is solid), so the wait never
+ * shows the page. Once the page is ready (web fonts in, and the first section's visual shown: the intro
+ * still decoded, or the scene loader settled), or at the 2.6 s cap, the hole turns transparent
+ * and opens to the whole viewport in 600 ms; then the cover is hidden and removed. Ready in under
+ * 300 ms (before the iris shows): no iris at all, the cover just fades over 240 ms (is-early). A
+ * CSS failsafe hides it at 3.2 s even if this script dies, and without JS it never shows. The page
+ * lays out and paints normally beneath it: the cover is position: fixed and only its mask, its
+ * pseudo-elements and its opacity change, so nothing on the page moves. No text, no image, no web font.
  *
  * Screen readers: #main is aria-busy and a polite status says "Loading the page", then
  * "Page loaded". The cover is aria-hidden and has nothing focusable; the skip link (z-index 100)
  * stays above it.
+ *
+ * PF-84: lib/stage.ts swaps the intro still for the live tray at once while the cover is opaque
+ * (states 0-1), never during the open (html.is-ready, cover still shown), and crossfades after.
  */
 ---
 
-<div class="loader" aria-hidden="true">
-  <div class="loader__glow"></div>
-  <div class="loader__in">
-    <div class="loader__print">
-      <i class="loader__burst"></i>
-      <i class="loader__plate"></i>
-    </div>
-    <p class="loader__cap">DEVELOPING</p>
-    <div class="loader__timer"></div>
-  </div>
-</div>
+<div class="loader" aria-hidden="true"></div>
 <p class="visually-hidden" role="status" aria-live="polite" data-load-status></p>
 <script is:inline>
   (function () {
@@ -40,23 +38,36 @@
     const ready = function () {
       if (done) return;
       done = true;
-      // Ready before the content (glow, print, caption, timer) has fully faded in: drop it at
-      // once and fade only the cover, so a fast load never shows the content mid-reveal.
-      const inner = d.querySelector(".loader__in");
-      const reveal = inner && inner.getAnimations ? inner.getAnimations() : [];
-      if (
-        reveal.some(function (a) {
-          return a.playState !== "finished";
-        })
-      )
-        h.classList.add("is-early");
-      h.classList.add("is-ready");
+      const loader = d.querySelector(".loader");
+      let early = true;
+      if (loader) {
+        // Early = still before the iris's 300 ms delay (its pulse not yet running): no iris, the
+        // cover only fades. Later: freeze the pulse and the rays where they are, so the open
+        // starts from what is on screen.
+        const pulse = loader.getAnimations().find(function (a) {
+          return a.animationName === "ld-pulse";
+        });
+        early = Boolean(pulse) && !(pulse.currentTime >= 300);
+        const s = loader.style;
+        s.setProperty("--rs", parseFloat(getComputedStyle(loader, "::before").width) / 2 + "px");
+        s.setProperty("--o", getComputedStyle(loader, "::before").opacity);
+        s.setProperty("--a0", getComputedStyle(loader, "::after").rotate.replace("none", "0deg"));
+      }
+      h.classList.add(early ? "is-early" : "is-open", "is-ready");
       if (main) main.removeAttribute("aria-busy");
       if (status) status.textContent = "Page loaded";
-      setTimeout(function () {
-        const loader = d.querySelector(".loader");
-        if (loader) loader.remove();
-      }, 400);
+      // Gone 100 ms after the open ends (or after the 240 ms early fade); a timer backs it up.
+      if (loader) {
+        const gone = function () {
+          setTimeout(function () {
+            loader.remove();
+          }, 100);
+        };
+        loader.addEventListener("animationend", function (e) {
+          if (e.animationName === "ld-open") gone();
+        });
+        setTimeout(gone, early ? 300 : 1000);
+      }
     };
     // Ready = fonts in AND the first section's visual is shown: the intro still decoded
     // (html.still0-loaded) or the scene loader settled (data-scene-load). Pages without an intro
@@ -70,8 +81,9 @@
       )
         ready();
     };
-    // Hard cap (AC1): the page shows at 3 s whatever happens.
-    setTimeout(ready, 3000);
+    // Hard cap: ready at 2.6 s from navigation start whatever happens, so the 600 ms open ends by
+    // the 3.2 s failsafe (which the open keeps running).
+    setTimeout(ready, 2600 - performance.now());
     // After parsing, so the font loads have started and document.fonts.ready means "fonts in".
     d.addEventListener("DOMContentLoaded", function () {
       main = d.getElementById("main");
@@ -99,18 +111,79 @@
 </script>
 
 <style is:global>
+  /* The pulse (--k, radius factor) and the open (--p, 0 → 1), animatable. Numbers with literal
+     keyframes: Gecko animates a registered property whose keyframes use var() discretely. Without
+     @property the open is a plain cut. */
+  @property --k {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 1;
+  }
+
+  @property --p {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 0;
+  }
+
+  /* Iris centre over the hero still's tray; --r0 wait radius, --r1 reaches the farthest corner
+     (without hypot() it is invalid: no open, the cover just cuts at 600 ms). Kept cheap to
+     paint: the hole is a mask on a solid cover (no hole until the open), the rim is one small
+     circle and the rays a static layer that turns on the compositor. */
   .loader {
+    --cx: 68vw;
+    --cy: 52vh;
+    --r0: clamp(28px, 2.8vmax, 44px);
+    --r1: calc(hypot(max(var(--cx), 100vw - var(--cx)), max(var(--cy), 100vh - var(--cy))) + 8px);
+    --r: calc(var(--r0) * var(--k));
+    --h: 0px;
     position: fixed;
     inset: 0;
     z-index: 90;
-    display: grid;
-    place-items: center;
+    pointer-events: none;
     background: var(--bg);
+    mask: radial-gradient(circle at var(--cx) var(--cy), #0000 var(--h), #000 0);
     transition:
       opacity 0.24s cubic-bezier(0.2, 0.7, 0.2, 1),
       visibility 0s 0.24s;
     /* Failsafe: even if JS never calls ready, the cover is gone at 3.2 s. */
-    animation: ld-cap 0s 3.2s forwards;
+    animation:
+      ld-cap 0s 3.2s forwards,
+      ld-pulse 1.2s ease-in-out 0.3s infinite alternate;
+  }
+
+  .loader::before,
+  .loader::after {
+    content: "";
+    position: absolute;
+    left: var(--cx);
+    top: var(--cy);
+    translate: -50% -50%;
+    border-radius: 50%;
+  }
+
+  /* Rim: core amber line inside r, outer accent ring, soft falloff into the cover. Pulses .55-1. */
+  .loader::before {
+    width: calc(2 * var(--r));
+    height: calc(2 * var(--r));
+    box-shadow:
+      inset 0 0 0 1.5px var(--accent-2),
+      0 0 0 2px var(--accent),
+      0 0 4px 2px #ff7a3d59;
+    animation:
+      ld-in 0.32s ease-out 0.3s both,
+      ld-glow 1.2s ease-in-out 0.62s infinite alternate;
+  }
+
+  /* Six faint blades (30° on / 30° off) outside the ring; they turn 30° over 8 s. */
+  .loader::after {
+    width: calc(2 * var(--r1));
+    height: calc(2 * var(--r1));
+    background: repeating-conic-gradient(from 12deg, #ffc24b17 0 30deg, #0000 0 60deg);
+    mask: radial-gradient(#0000 calc(var(--r0) * 1.06 + 8px), #000 calc(var(--r0) * 1.06 + 9px));
+    animation:
+      ld-in 0.32s ease-out 0.3s both,
+      ld-turn 8s linear 0.3s forwards;
   }
 
   /* Without JS it never shows (and runs no animations a settled page would still report). */
@@ -118,193 +191,113 @@
     display: none;
   }
 
-  html.is-ready .loader {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    /* Drop the failsafe once JS has taken over: Gecko lets a pending opacity animation (ld-cap,
-       still in its delay) block the exit transition, so the cover snapped away on removal. */
+  /* Drop the failsafe once JS has taken over: Gecko lets a pending opacity animation (ld-cap,
+     still in its delay) block the exit transition, so the cover snapped away on removal. */
+  .is-ready .loader {
     animation: none;
   }
 
-  /* Early ready (before the content's reveal ended): the content goes at once, only the cover fades. */
-  html.is-early .loader__glow,
-  html.is-early .loader__in {
+  /* Early ready (before the iris shows): no iris, only the cover fades. */
+  .is-early .loader {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .is-early .loader::before,
+  .is-early .loader::after {
     animation: none;
     opacity: 0;
+  }
+
+  /* The open: the hole shows the page and grows past the corners; the rim fades at 480-600 ms;
+     the rays turn 12° more. It starts from the values JS froze (--rs, --o, --a0). */
+  .is-open .loader {
+    --r: calc(var(--rs) + (var(--r1) - var(--rs)) * var(--p));
+    --h: calc(var(--r) - 1.5px);
+    animation:
+      ld-cap 0s 3.2s forwards,
+      ld-open 0.6s cubic-bezier(0.7, 0, 0.2, 1) forwards;
+  }
+
+  .is-open .loader::before {
+    animation: ld-rim 0.6s linear forwards;
+  }
+
+  .is-open .loader::after {
+    animation: ld-spin 0.6s cubic-bezier(0.7, 0, 0.2, 1) forwards;
   }
 
   @keyframes ld-cap {
     to {
       opacity: 0;
       visibility: hidden;
-      pointer-events: none;
     }
-  }
-
-  .loader__glow {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: radial-gradient(
-      60vmax 45vmax at 82% 8%,
-      color-mix(in srgb, var(--accent) 16%, transparent),
-      transparent 70%
-    );
-    animation:
-      ld-in 0.32s ease-out 0.3s both,
-      ld-glow 2.4s ease-in-out 0.62s infinite alternate;
-  }
-
-  .loader__in {
-    display: grid;
-    justify-items: center;
-    gap: 20px;
-    animation: ld-in 0.32s ease-out 0.3s both;
-  }
-
-  /* The print's own paper and ink tones (from the intro still); no design token exists for them. */
-  .loader__print {
-    position: relative;
-    width: clamp(128px, 14vw, 184px);
-    aspect-ratio: 2048 / 1462;
-    border: 3px solid #020100;
-    background: #3b1f10;
-    overflow: hidden;
-    box-shadow: 0 18px 40px rgb(0 0 0 / 0.55);
-  }
-
-  .loader__burst,
-  .loader__plate {
-    position: absolute;
-    opacity: 0;
-    animation: ld-dev 2.2s cubic-bezier(0.3, 0, 0.2, 1) 0.4s both;
-  }
-
-  .loader__burst {
-    inset: 0;
-    background: repeating-conic-gradient(
-      from 0deg at 74% 40%,
-      #120a06 0 3.75deg,
-      transparent 3.75deg 7.5deg
-    );
-  }
-
-  .loader__plate {
-    left: 5%;
-    bottom: 6%;
-    width: 68%;
-    height: 40%;
-    background: #3b1f10;
-    animation-delay: 0.9s;
-  }
-
-  .loader__plate::before,
-  .loader__plate::after {
-    content: "";
-    position: absolute;
-    left: 8%;
-    background: #120a06;
-  }
-
-  .loader__plate::before {
-    top: 20%;
-    width: 84%;
-    height: 42%;
-  }
-
-  .loader__plate::after {
-    top: 74%;
-    width: 60%;
-    height: 10%;
-  }
-
-  /* System mono on purpose: the cover never waits on, or shifts with, web fonts. */
-  .loader__cap {
-    margin: 0;
-    font:
-      500 11px/1 ui-monospace,
-      SFMono-Regular,
-      Menlo,
-      monospace;
-    letter-spacing: 0.24em;
-    color: var(--muted);
-  }
-
-  .loader__timer {
-    width: 96px;
-    height: 2px;
-    background: var(--line);
-    overflow: hidden;
-  }
-
-  .loader__timer::before {
-    content: "";
-    display: block;
-    height: 100%;
-    background: var(--accent-2);
-    transform-origin: left;
-    transform: scaleX(0);
-    animation: ld-timer 3s linear both;
   }
 
   @keyframes ld-in {
     from {
       opacity: 0;
     }
-    to {
-      opacity: 1;
-    }
   }
 
   @keyframes ld-glow {
-    from {
+    to {
       opacity: 0.55;
     }
+  }
+
+  @keyframes ld-pulse {
     to {
-      opacity: 1;
+      --k: 1.06;
     }
   }
 
-  @keyframes ld-dev {
-    0% {
+  @keyframes ld-turn {
+    to {
+      rotate: 30deg;
+    }
+  }
+
+  @keyframes ld-open {
+    to {
+      --p: 1;
+      visibility: hidden;
+    }
+  }
+
+  @keyframes ld-rim {
+    0%,
+    80% {
+      opacity: var(--o);
+    }
+
+    to {
       opacity: 0;
-      filter: blur(3px);
-    }
-    100% {
-      opacity: 1;
-      filter: blur(0);
     }
   }
 
-  @keyframes ld-timer {
+  @keyframes ld-spin {
+    from {
+      rotate: var(--a0);
+    }
+
     to {
-      transform: scaleX(1);
+      rotate: calc(var(--a0) + 12deg);
     }
   }
 
-  @media (prefers-reduced-motion: reduce) {
+  @media (max-width: 1023px) {
     .loader {
-      transition: none;
+      --cx: 66vw;
+      --cy: 58vh;
     }
+  }
 
-    .loader__glow,
-    .loader__in,
-    .loader__burst,
-    .loader__plate,
-    .loader__timer::before {
-      animation: none;
-    }
-
-    .loader__glow,
-    .loader__in,
-    .loader__burst,
-    .loader__plate {
-      opacity: 1;
-    }
-
-    .loader__timer {
-      display: none;
+  @media (max-width: 767px) {
+    .loader {
+      --cx: 50vw;
+      --cy: 44vh;
+      --r0: 28px;
     }
   }
 </style>
