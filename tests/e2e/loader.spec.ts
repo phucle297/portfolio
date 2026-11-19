@@ -35,7 +35,8 @@ const EARLY_EXIT_MS = 240;
 const EARLY_REMOVE_MS = 400;
 const OPEN_MS = 600;
 const OPEN_REMOVE_MS = 700;
-const RIM_FADE_FROM = 0.8;
+/** Rim and rays fade out over the first 240 ms of the open (Designer ruling, final-C). */
+const RIM_FADE_MS = 240;
 /** One frame of sampling slack (a 30 fps runner) on top of the design times. */
 const FRAME_MS = 34;
 const BG = "rgb(14, 10, 8)";
@@ -111,7 +112,7 @@ async function recordLoader(page: Page): Promise<void> {
     // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page (serialized init script)
     const anim = (el: Element, name: string): CSSAnimation | undefined =>
       el
-        .getAnimations()
+        .getAnimations({ subtree: true })
         .find((a): a is CSSAnimation => a instanceof CSSAnimation && a.animationName === name);
     // The exact moment the exit starts: the class change, not the next frame.
     new MutationObserver(() => {
@@ -166,11 +167,16 @@ async function recordLoader(page: Page): Promise<void> {
         open: root.contains("is-open"),
         cover: Number(cs.opacity),
         visible,
-        holeOpaque:
-          cs.backgroundColor === "rgb(14, 10, 8)" && cs.getPropertyValue("--h").trim() === "0px",
+        holeOpaque: cs.backgroundColor === "rgb(14, 10, 8)" && !root.contains("is-open"),
         ring: Number(getComputedStyle(loader, "::before").opacity),
         rays: Number(getComputedStyle(loader, "::after").opacity),
-        r: Number.parseFloat(getComputedStyle(loader, "::before").width) / 2,
+        // Waiting: the rim's radius (r0 × the pulse scale). Opening: the hole's (the open
+        // circle's half width × its scale).
+        r: root.contains("is-open")
+          ? (Number.parseFloat(getComputedStyle(loader.querySelector("i") ?? loader).width) / 2) *
+            (Number.parseFloat(getComputedStyle(loader.querySelector("i") ?? loader).scale) || 1)
+          : (Number.parseFloat(getComputedStyle(loader, "::before").width) / 2) *
+            (Number.parseFloat(getComputedStyle(loader, "::before").scale) || 1),
         a: Number.parseFloat(getComputedStyle(loader, "::after").rotate) || 0,
         openT: open && typeof open.currentTime === "number" ? open.currentTime : null,
       });
@@ -525,10 +531,17 @@ test("PF-75 AC2: ready after the iris is in opens it in 600 ms from where it is 
       `radius ${f.r.toFixed(1)} vs eased ${want.toFixed(1)} at ${t.toFixed(0)} ms`,
     ).toBeLessThanOrEqual(want + Math.max(1, want * 0.05));
     expect(f.r, `radius never shrinks at ${t.toFixed(0)} ms`).toBeGreaterThanOrEqual(lastR - 0.01);
-    if (t < OPEN_MS * RIM_FADE_FROM - 10)
-      expect(Math.abs(f.ring - oStart), `rim holds at ${t.toFixed(0)} ms`).toBeLessThanOrEqual(
-        0.02,
-      );
+    // Designer ruling: rim and rays fade 1 → 0 over the first 240 ms (linear): 0 ± .05 from
+    // open + 240 ms (one painted frame of slack), and the rim only fades.
+    if (t >= RIM_FADE_MS + Math.max(0, gap - FRAME_MS)) {
+      expect(f.ring, `rim gone at ${t.toFixed(0)} ms`).toBeLessThanOrEqual(0.05);
+      expect(f.rays, `rays gone at ${t.toFixed(0)} ms`).toBeLessThanOrEqual(0.05);
+    }
+    if (t <= 20)
+      expect(
+        Math.abs(f.ring - oStart),
+        `rim starts where it was at ${t.toFixed(0)} ms`,
+      ).toBeLessThanOrEqual(0.1);
     expect(f.ring, `rim only fades at ${t.toFixed(0)} ms`).toBeLessThanOrEqual(lastRing + 0.01);
     lastR = f.r;
     lastRing = f.ring;
@@ -561,7 +574,7 @@ test("PF-75 AC2: the wait state shows a closed, pulsing iris over the tray from 
   const pulse = await page.evaluate(() => {
     const a = document
       .querySelector(".loader")
-      ?.getAnimations()
+      ?.getAnimations({ subtree: true })
       .find((x) => x instanceof CSSAnimation && x.animationName === "ld-pulse");
     const timing = a?.effect?.getComputedTiming();
     const fadeIn = document
@@ -879,7 +892,8 @@ for (const vp of [
         if (!l) return Number.NaN;
         for (const a of l.getAnimations({ subtree: true })) a.pause();
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        return Number.parseFloat(getComputedStyle(l, "::before").width) / 2;
+        const b = getComputedStyle(l, "::before");
+        return (Number.parseFloat(b.width) / 2) * (Number.parseFloat(b.scale) || 1);
       });
       const png = await page.screenshot({ type: "png" });
       await still.release();
