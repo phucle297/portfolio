@@ -1,5 +1,5 @@
 {
-  "$comment": "PF-70 flaky-test quarantine. Tests listed here still run on every PR in the quarantine (*) jobs, which show on the PR but are not inputs to ci-ok (the blocking gate). Removing an entry and its ci.yml exclude puts the test back in the blocking jobs. Do not skip, delete, or weaken the test. Follow-up cards: PF-76 (M1-AC16), PF-77 (LH mobile TBT/perf), PF-78 (WebKit phone LCP), PF-79 (B-4 idle), PF-80 (Chromium visible-jump), PF-81 (WebKit loader exit frames), PF-82 (a11y 150 ms stepped-backdrop).",
+  "$comment": "PF-70 flaky-test quarantine. Tests listed here still run on every PR in the quarantine (*) jobs, which show on the PR but are not inputs to ci-ok (the blocking gate); the PF-81 loader graphics entries run only from the manual workflow loader-gfx.yml (PF-75 a6, Owner 2026-11-20). Removing an entry and its ci.yml exclude puts the test back in the blocking jobs. Do not skip, delete, or weaken the test. Follow-up cards: PF-76 (M1-AC16), PF-77 (LH mobile TBT/perf), PF-78 (WebKit phone LCP), PF-79 (B-4 idle), PF-80 (Chromium visible-jump), PF-81 (loader graphics checks: no-GPU CI cannot judge luma/pixel/frame timing; restore them to the blocking jobs on a GPU runner), PF-82 (a11y 150 ms stepped-backdrop).",
   "items": [
     {
       "id": "tiers-m1-ac16",
@@ -35,7 +35,7 @@
     {
       "id": "m2-qa-b-b4-idle",
       "file": "tests/e2e/m2-qa-b.spec.ts",
-      "title": "last rAF callback \u2264 1.5 s after the last scroll event (wheel and a long jump)",
+      "title": "last rAF callback ≤ 1.5 s after the last scroll event (wheel and a long jump)",
       "project": "chromium",
       "date": "2026-11-18",
       "reason": "Flaky again after PF-61: the render-loop idle gap exceeded the 1.5 s budget on a slow runner. Bound and assertions are unchanged.",
@@ -45,36 +45,93 @@
     {
       "id": "visible-jump-chromium",
       "file": "tests/e2e/visible-jump.spec.ts",
-      "title": "PF-50 reload at 1440\u00d7900: header, H1 and Hello copy stay within 8px after first paint @chromium-only",
+      "title": "PF-50 reload at 1440×900: header, H1 and Hello copy stay within 8px after first paint @chromium-only",
       "project": "chromium",
       "date": "2026-11-18",
-      "reason": "Chromium visible-jump stall cap at 1440\u00d7900: not enough frames in 3 s (need >= 30, cap 1000 ms). The whole spec is quarantined (it is one CI job). Cap is unchanged. Known runs also include 1024 when the sampler starved. Also PF-67 CI 44284652784 @4d0edc6: 26 frames of 30 at 1440\u00d7900 (gap 812 ms); passed on the one rerun. Cap unchanged.",
+      "reason": "Chromium visible-jump stall cap at 1440×900: not enough frames in 3 s (need >= 30, cap 1000 ms). The whole spec is quarantined (it is one CI job). Cap is unchanged. Known runs also include 1024 when the sampler starved. Also PF-67 CI 44284652784 @4d0edc6: 26 frames of 30 at 1440×900 (gap 812 ms); passed on the one rerun. Cap unchanged.",
       "follow_up": "PF-80",
       "known_run": "44271947023",
-      "source_title": "PF-50 reload at ${vp.width}\u00d7${vp.height}: header, H1 and Hello copy stay within ${MAX_MOVE_PX}px after first paint @chromium-only",
+      "source_title": "PF-50 reload at ${vp.width}×${vp.height}: header, H1 and Hello copy stay within ${MAX_MOVE_PX}px after first paint @chromium-only",
       "known_runs": ["44271947023", "44284652784"]
     },
     {
-      "id": "loader-webkit-early-ready",
+      "id": "loader-early-ready",
       "file": "tests/e2e/loader.spec.ts",
-      "title": "PF-67 AC1: ready at 200-300 ms (early) never shows the loader content, on any frame",
-      "project": "webkit",
-      "date": "2026-11-18",
-      "reason": "WebKit CI flake on the early-ready exit: 'cover fades over its 240 ms exit' saw only 1.00,0.00 (no mid-fade frame). Same product passed on other runs. Assertions unchanged. Known runs: 44291484533 (PF-70), 44296133703 (PF-73).",
+      "title": "PF-75 AC1: ready before 300 ms (early) never shows the iris, on any frame, and the cover fades over 240 ms",
+      "project": "all",
+      "date": "2026-11-19",
+      "reason": "WebKit CI frame starvation on the early exit: 'cover fades over its 240 ms exit' saw 1.00 to 0 with no mid-fade frame (2-4 rAF per exit on the CPU-raster runner). 1 of 10 in loader-repeat x10; also snapped on Chromium CI at cfa1f8b (10 rAF in the exit vs 23 locally). Moved on all browsers in PF-75 a6 (no-GPU CI); runs from loader-gfx.yml; restore on a GPU runner. Assertions unchanged.",
       "follow_up": "PF-81",
-      "known_run": "44296133703",
-      "known_runs": ["44291484533", "44296133703"]
+      "known_run": "44481705568",
+      "known_runs": ["44481705568"]
     },
     {
-      "id": "loader-webkit-late-exit-frames",
+      "id": "loader-webkit-open",
       "file": "tests/e2e/loader.spec.ts",
-      "title": "PF-67 AC1: ready after the content is fully in keeps the normal exit (content stays, cover fades)",
+      "title": "PF-75 AC2: ready after the iris is in opens it in 600 ms from where it is (hole grows, rim holds then fades)",
       "project": "webkit",
-      "date": "2026-11-18",
-      "reason": "WebKit CI flake on the late-ready exit: 'frames sampled across the exit' received 0. Same product passed on other runs. Assertions unchanged. Known runs: 44291484533 (PF-70), 44296133703 (PF-73).",
+      "date": "2026-11-19",
+      "reason": "WebKit CI frame starvation in the 600 ms open: no frame painted the hidden state before removal ('hidden NaN - open start'). 1 of 10 in loader-repeat x10 at 3ec2c93 (9 of 10 before the PF-75 paint fixes). Assertions unchanged.",
       "follow_up": "PF-81",
-      "known_run": "44296133703",
-      "known_runs": ["44291484533", "44296133703"]
+      "known_run": "44481705568",
+      "known_runs": ["44481705568"]
+    },
+    {
+      "id": "loader-webkit-cap",
+      "file": "tests/e2e/loader.spec.ts",
+      "title": "PF-67 AC1: a page that never gets ready starts its open at the 2.6 s cap and is gone by 3.2 s",
+      "project": "webkit",
+      "date": "2026-11-19",
+      "reason": "WebKit CI frame starvation in the capped open: last visible frame 3.2 s + one 345 ms frame. 1 of 10 in loader-repeat x10. Assertions unchanged.",
+      "follow_up": "PF-81",
+      "known_run": "44481705568",
+      "known_runs": ["44481705568"]
+    },
+    {
+      "id": "loader-wait-state-webkit",
+      "file": "tests/e2e/loader.spec.ts",
+      "title": "PF-75 AC2: the wait state shows a closed, pulsing iris over the tray from 300 ms, the page never through it",
+      "project": "webkit",
+      "date": "2026-11-20",
+      "reason": "WebKit CI timeline starvation in the wait state: ring-in 0.924 (>= .99) at 9ae0728, rim read 0.016 (>= .95) at cfa1f8b. No-GPU CI cannot judge it; moved on WebKit in PF-75 a6, runs from loader-gfx.yml; restore on a GPU runner. Chromium and Firefox stay blocking. Assertions unchanged.",
+      "follow_up": "PF-81",
+      "known_run": "44498950659",
+      "known_runs": ["44495436797", "44498950659"]
+    },
+    {
+      "id": "loader-exit-luma-chromium",
+      "file": "tests/e2e/loader.spec.ts",
+      "title": "PF-67 AC2: no frame across the exit is brighter than the settled page @chromium-only",
+      "project": "chromium",
+      "date": "2026-11-20",
+      "reason": "Luma across the open is judged on screencast frames that the no-GPU Chromium runner (SwiftShader) starves: 'frame 7 mean 12.37 after 18.98' at cfa1f8b, green locally x5. Moved in PF-75 a6, runs from loader-gfx.yml; restore on a GPU runner. Assertions unchanged.",
+      "follow_up": "PF-81",
+      "known_run": "44498950659",
+      "known_runs": ["44498950659"]
+    },
+    {
+      "id": "loader-iris-pixels-chromium",
+      "file": "tests/e2e/loader.spec.ts",
+      "title": "PF-75 AC1: at WxH the waiting iris is centred on the tray, the right size, and dark inside @chromium-only",
+      "source_title": "the waiting iris is centred on the tray, the right size, and dark inside @chromium-only",
+      "project": "chromium",
+      "date": "2026-11-20",
+      "reason": "Pixel scan of the paused iris on a screenshot; part of the loader graphics checks (Owner 2026-11-20: no graphics/pixel checks on the no-GPU CI). Moved in PF-75 a6 for 1440x900 and 390x844, runs from loader-gfx.yml; restore on a GPU runner. Assertions unchanged.",
+      "follow_up": "PF-81",
+      "known_run": "44498950659",
+      "known_runs": ["44498950659"]
+    },
+    {
+      "id": "handover-live-tray-chromium",
+      "file": "tests/e2e/hero-handover.spec.ts",
+      "title": "<label>: the live tray arrives looking like the still, one swap @chromium-only",
+      "source_title": "the live tray arrives looking like the still, one swap @chromium-only",
+      "project": "chromium",
+      "date": "2026-11-20",
+      "reason": "PF-84 luma / dE2000 / shift of the live tray against the still (every width, normal and throttled), measured on SwiftShader screencast frames. Moved in PF-75 a6, runs from loader-gfx.yml; restore on a GPU runner. The AC4 'under the opaque loader cover the swap is instant' and the 390 phone checks stay blocking. Assertions unchanged.",
+      "follow_up": "PF-81",
+      "known_run": "44498950659",
+      "known_runs": ["44498950659"]
     },
     {
       "id": "a11y-stepped-backdrop-150ms",

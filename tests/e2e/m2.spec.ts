@@ -184,6 +184,21 @@ test.describe("M2-AC10 render loop idles", () => {
     await openScene(page);
     await page.mouse.wheel(0, 1200);
     await settle(page);
+    // PF-75 a5: the idle window starts only once the page loader is out of the DOM and 2 rAFs
+    // have been delivered after that (its removal can wake one late frame on a loaded runner).
+    await page.waitForFunction(() => document.querySelector(".loader") === null, null, {
+      timeout: 5000,
+    });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              resolve();
+            });
+          });
+        }),
+    );
     await page.waitForTimeout(1500);
     const { rafs, events } = await page.evaluate(async () => {
       const seen: string[] = [];

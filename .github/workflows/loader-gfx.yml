@@ -1,0 +1,114 @@
+# PF-75 a6 / PF-81 (Owner 2026-11-20): the loader graphics checks (luma, pixel, frame timing, PF-84
+# live-tray luma/dE) cannot be judged on the no-GPU CI (SwiftShader / WebKit CPU raster starve for
+# frames). They are excluded from the blocking jobs in ci.yml (--grep-invert) and listed in
+# tools/ci/quarantine.json (follow_up PF-81). This workflow runs exactly those titles, by hand only:
+#   gh workflow run loader-gfx.yml --ref <branch>
+# Set A (all browsers) runs on Chromium (hero-handover and loader.spec) and WebKit (loader.spec);
+# set B (WebKit-only exclusions) runs on WebKit. Not an input to ci-ok. Restore the checks to the
+# blocking jobs on a GPU runner. Assertions are unchanged. Rollback: delete this file.
+name: Loader graphics checks (manual)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: loader-gfx-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  LEFTHOOK: "0"
+  ASTRO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: bun run build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-loader-gfx
+          path: dist
+          retention-days: 3
+          if-no-files-found: error
+
+  chromium:
+    name: loader graphics (chromium)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-loader-gfx
+          path: dist
+      - run: /usr/bin/google-chrome --version
+      - name: Loader graphics checks (set A)
+        run: >-
+          bunx playwright test tests/e2e/loader.spec.ts tests/e2e/hero-handover.spec.ts
+          --project=chromium --retries=0
+          --grep "no frame across the exit is brighter than the settled page|the waiting iris is centred on the tray, the right size|ready before 300 ms|the live tray arrives looking like the still, one swap"
+          --reporter=list,html
+        env:
+          E2E_PREBUILT: "1"
+          CHROME_PATH: /usr/bin/google-chrome
+          PLAYWRIGHT_HTML_OPEN: never
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: loader-gfx-report-chromium
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore
+
+  webkit:
+    name: loader graphics (webkit)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      options: --ipc=host
+    env:
+      HOME: /root
+      TMPDIR: ${{ github.workspace }}/.tmp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Workspace temp dir
+        run: mkdir -p "$TMPDIR"
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-loader-gfx
+          path: dist
+      - uses: ./.github/actions/playwright-browser
+        timeout-minutes: 5
+        with:
+          browser: webkit
+      - name: Loader graphics checks (sets A and B)
+        run: >-
+          bunx playwright test tests/e2e/loader.spec.ts
+          --project=webkit --retries=0
+          --grep "no frame across the exit is brighter than the settled page|the waiting iris is centred on the tray, the right size|ready before 300 ms|the live tray arrives looking like the still, one swap|opens it in 600 ms|the wait state shows a closed, pulsing iris|starts its open at the 2.6 s cap"
+          --reporter=list,html
+        env:
+          E2E_PREBUILT: "1"
+          PLAYWRIGHT_HTML_OPEN: never
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: loader-gfx-report-webkit
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore

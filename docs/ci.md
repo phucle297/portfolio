@@ -34,7 +34,9 @@ preview build output is on `/tmp`).
 
 ## Flaky-test quarantine (PF-70)
 
-Known-flaky checks are listed in `tools/ci/quarantine.json` (id, file, title, date, reason, follow-up card, known run). They still run on every PR, in jobs named `quarantine (e2e)`, `quarantine (webkit phone LCP)`, `quarantine (webkit loader)`, and `quarantine (lh mobile TBT)`. Those jobs show on the PR. They are **not** inputs to `ci-ok`, which is the blocking gate.
+Known-flaky checks are listed in `tools/ci/quarantine.json` (id, file, title, date, reason, follow-up card, known run). They still run on every PR, in jobs named `quarantine (e2e)`, `quarantine (webkit phone LCP)`, and `quarantine (lh mobile TBT)`. Those jobs show on the PR. They are **not** inputs to `ci-ok`, which is the blocking gate.
+
+The PF-81 loader graphics checks (luma, pixel, early-exit frame timing, PF-84 live-tray luma/dE; plus the WebKit-only 600 ms open, wait-state iris and 2.6 s cap) cannot be judged on the no-GPU CI. They are excluded from the blocking jobs with `--grep-invert` and run only from the manual workflow `.github/workflows/loader-gfx.yml` (`gh workflow run loader-gfx.yml --ref <branch>`); `loader-repeat.yml` is manual too. Restore them to the blocking jobs on a GPU runner.
 
 The blocking jobs exclude only the listed items (Playwright `--grep-invert` or, for Lighthouse mobile, moving `total-blocking-time` and `categories:performance` into `tools/ci/lighthouserc.mobile-tbt.json`). Thresholds and test assertions are unchanged. Other Lighthouse mobile budgets (LCP, CLS, a11y, best-practices, SEO, sizes) stay in the blocking `lighthouse (mobile)` job.
 
