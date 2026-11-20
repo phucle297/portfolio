@@ -2,18 +2,12 @@
 # fresh runner (same container, browser setup and shared-dist preview as CI's e2e-xb), and prove
 # they still catch a real regression: two planted loader bugs patched into the built page must
 # each make its check fail (the job passes only if they fail).
-# Runs on PRs that touch the loader or its spec, and by hand
-# (`gh workflow run loader-repeat.yml --ref <branch>`). Not an input to ci-ok. Separate from
+# By hand only (`gh workflow run loader-repeat.yml --ref <branch>`; PF-75 a6: it no longer runs on PRs). Not an input to ci-ok. Separate from
 # ci.yml so the repeat costs one runner only when the loader changes. Rollback: delete this file.
 name: Loader repeat (WebKit)
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - ".github/workflows/loader-repeat.yml"
-      - "src/shared/ui/PageLoader.astro"
-      - "tests/e2e/loader.spec.ts"
 
 concurrency:
   group: loader-repeat-${{ github.head_ref || github.ref }}

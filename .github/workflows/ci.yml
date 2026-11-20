@@ -107,8 +107,11 @@ jobs:
           # PF-73: tests/e2e/reduced-motion-live.spec.ts is an explicit coverage-guard
           # exclusion (Owner decision 2026-11-18: reduced motion not needed). Do not
           # add it to a job unless that decision changes.
+          # PF-81 (a6, Owner 2026-11-20): the loader graphics checks (luma, pixel, early-exit frames,
+          # PF-84 live-tray luma/dE) need a GPU runner; they are excluded here and run from the manual
+          # loader-gfx.yml (tools/ci/quarantine.json). Assertions unchanged.
           - group: app-features
-            args: tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts tests/e2e/progress-top.spec.ts tests/e2e/loader.spec.ts tests/e2e/hero-cls.spec.ts tests/e2e/hero-handover.spec.ts
+            args: tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts tests/e2e/progress-top.spec.ts tests/e2e/loader.spec.ts tests/e2e/hero-cls.spec.ts tests/e2e/hero-handover.spec.ts --grep-invert "no frame across the exit is brighter than the settled page|the waiting iris is centred on the tray, the right size|ready before 300 ms|the live tray arrives looking like the still, one swap"
           - group: probe-cost
             args: tests/e2e/probe-cost.spec.ts tests/e2e/probe-cost-webgl-disabled.spec.ts
           # PF-03: axe-core scan across tiers and states (report in test-results/a11y, uploaded below).
@@ -197,15 +200,17 @@ jobs:
       # No CHROME_PATH: specs with their own launchOptions would start Chrome with it.
       # PF-70: WebKit phone LCP is quarantined; Firefox still runs it in this job.
       # PF-67: loader.spec.ts runs in this blocking job (and in Chromium app-features).
-      # PF-81 (still open after PF-75): three WebKit loader exit checks are quarantined; Firefox still runs them here.
+      # PF-81 (a6): the loader graphics checks (set A) are excluded on both browsers; the WebKit-only
+      # set B (600 ms open, wait-state iris, 2.6 s cap) too. They run from the manual loader-gfx.yml.
       - name: Playwright Firefox / WebKit tests
         shell: bash
         run: |
           set -euo pipefail
           invert='full tier|desktop, hardware GPU|M1-AC15 CLS .* at D$'
+          invert="$invert|no frame across the exit is brighter than the settled page|the waiting iris is centred on the tray, the right size|ready before 300 ms|the live tray arrives looking like the still, one swap"
           if [ "${{ matrix.browser }}" = webkit ]; then
             invert="$invert|phone: the first still is the eager, high-priority, first-fetched LCP candidate"
-            invert="$invert|ready before 300 ms|opens it in 600 ms|starts its open at the 2.6 s cap"
+            invert="$invert|opens it in 600 ms|the wait state shows a closed, pulsing iris|starts its open at the 2.6 s cap"
           fi
           bunx playwright test --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/2 \
             tests/e2e/static.spec.ts tests/e2e/structure.spec.ts tests/e2e/owner-content.spec.ts \
@@ -414,51 +419,6 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report-quarantine-webkit-lcp
-          path: |
-            playwright-report
-            test-results
-          retention-days: 14
-          if-no-files-found: ignore
-
-  # PF-81: WebKit loader.spec exit checks (early fade, 600 ms open, 2.6 s cap) starve for frames on
-  # the CPU-raster WebKit runner. Firefox and Chromium still run these titles in the blocking jobs.
-  quarantine-webkit-loader:
-    name: quarantine (webkit loader)
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    container:
-      image: mcr.microsoft.com/playwright:v1.65.0-noble
-      options: --ipc=host
-    env:
-      HOME: /root
-      TMPDIR: ${{ github.workspace }}/.tmp
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Workspace temp dir
-        run: mkdir -p "$TMPDIR"
-      - uses: ./.github/actions/setup
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: dist
-          path: dist
-      - uses: ./.github/actions/playwright-browser
-        timeout-minutes: 5
-        with:
-          browser: webkit
-      - name: Run quarantined WebKit loader exit tests
-        run: >-
-          bunx playwright test tests/e2e/loader.spec.ts
-          --project=webkit
-          --grep "ready before 300 ms|opens it in 600 ms|starts its open at the 2.6 s cap"
-          --reporter=list,html
-        env:
-          E2E_PREBUILT: "1"
-          PLAYWRIGHT_HTML_OPEN: never
-      - if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: playwright-report-quarantine-webkit-loader
           path: |
             playwright-report
             test-results

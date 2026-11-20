@@ -50,9 +50,13 @@ const requiredIds = [
   "static-stills-webkit-phone-lcp",
   "m2-qa-b-b4-idle",
   "visible-jump-chromium",
-  "loader-webkit-early-ready",
+  "loader-early-ready",
   "loader-webkit-open",
   "loader-webkit-cap",
+  "loader-wait-state-webkit",
+  "loader-exit-luma-chromium",
+  "loader-iris-pixels-chromium",
+  "handover-live-tray-chromium",
   "a11y-stepped-backdrop-150ms",
 ] as const;
 
@@ -80,7 +84,8 @@ describe("PF-70 quarantine list", () => {
   it("keeps quarantine jobs out of the ci-ok blocking gate", () => {
     expect(ciYml).toContain("name: quarantine (e2e)");
     expect(ciYml).toContain("name: quarantine (webkit phone LCP)");
-    expect(ciYml).toContain("name: quarantine (webkit loader)");
+    // PF-75 a6: the loader graphics checks moved to the manual loader-gfx.yml; no such job here.
+    expect(ciYml).not.toContain("quarantine (webkit loader)");
     expect(ciYml).toContain("name: quarantine (lh mobile TBT)");
     const needs = /  ci-ok:[\s\S]*?needs:\s*\[([^\]]+)\]/.exec(ciYml);
     expect(needs, "ci-ok needs").not.toBeNull();
@@ -113,27 +118,51 @@ describe("PF-70 quarantine list", () => {
     );
   });
 
-  it("keeps loader.spec blocking on Chromium and Firefox; only three WebKit exit titles are quarantined (PF-81)", () => {
-    const webkitLoader = list.items.filter((i) => i.file === "tests/e2e/loader.spec.ts");
-    expect(webkitLoader.map((i) => i.id)).toEqual([
-      "loader-webkit-early-ready",
+  it("moves the loader graphics checks (PF-81) out of the blocking jobs and into loader-gfx.yml", () => {
+    const loader = list.items.filter((i) => i.follow_up === "PF-81");
+    expect(loader.map((i) => i.id)).toEqual([
+      "loader-early-ready",
       "loader-webkit-open",
       "loader-webkit-cap",
+      "loader-wait-state-webkit",
+      "loader-exit-luma-chromium",
+      "loader-iris-pixels-chromium",
+      "handover-live-tray-chromium",
     ]);
-    expect(webkitLoader.every((i) => i.project === "webkit" && i.follow_up === "PF-81")).toBe(true);
-    // Chromium app-features and the e2e-xb file list still include the spec.
-    expect(ciYml).toContain("tests/e2e/progress-top.spec.ts tests/e2e/loader.spec.ts");
-    expect(ciYml).toContain("tests/e2e/a11y.spec.ts tests/e2e/loader.spec.ts");
-    // The invert that drops the three titles is only in the WebKit branch.
+    // Set A (all browsers) and set B (WebKit only), as in ci.yml and loader-gfx.yml.
+    const setA = [
+      "no frame across the exit is brighter than the settled page",
+      "the waiting iris is centred on the tray, the right size",
+      "ready before 300 ms",
+      "the live tray arrives looking like the still, one swap",
+    ].join("|");
+    const setB = [
+      "opens it in 600 ms",
+      "the wait state shows a closed, pulsing iris",
+      "starts its open at the 2.6 s cap",
+    ].join("|");
+    // Chromium app-features: set A only (B stays blocking on Chromium and Firefox).
+    expect(ciYml).toContain(`tests/e2e/hero-handover.spec.ts --grep-invert "${setA}"`);
+    // e2e-xb: A on Firefox and WebKit, B only inside the WebKit branch.
     const webkitIf = ciYml.indexOf("= webkit ]; then");
     expect(webkitIf, "webkit invert block").toBeGreaterThan(0);
     const before = ciYml.slice(0, webkitIf);
     const after = ciYml.slice(webkitIf, webkitIf + 800);
-    expect(before).not.toContain(
-      "ready before 300 ms|opens it in 600 ms|starts its open at the 2.6 s cap",
-    );
-    expect(after).toContain(
-      "ready before 300 ms|opens it in 600 ms|starts its open at the 2.6 s cap",
-    );
+    expect(before).toContain(`invert="$invert|${setA}"`);
+    expect(before).not.toContain(setB);
+    expect(after).toContain(setB);
+    // The specs stay in the blocking jobs.
+    expect(ciYml).toContain("tests/e2e/progress-top.spec.ts tests/e2e/loader.spec.ts");
+    expect(ciYml).toContain("tests/e2e/a11y.spec.ts tests/e2e/loader.spec.ts");
+    // The manual workflow runs the moved titles and nothing else triggers it.
+    const gfx = readFileSync(join(root, ".github/workflows/loader-gfx.yml"), "utf8");
+    expect(gfx).toContain(setA);
+    expect(gfx).toContain(setB);
+    expect(gfx).toMatch(/^on:\n {2}workflow_dispatch:\n\nconcurrency:/m);
+    const repeat = readFileSync(join(root, ".github/workflows/loader-repeat.yml"), "utf8");
+    expect(repeat).toMatch(/^on:\n {2}workflow_dispatch:\n\nconcurrency:/m);
+    // The AC4 swap and the 390 phone checks are not excluded anywhere.
+    expect(`${setA}|${setB}`).not.toContain("under the opaque loader cover");
+    expect(`${setA}|${setB}`).not.toContain("phones keep the in-flow still");
   });
 });
