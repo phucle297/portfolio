@@ -6,6 +6,8 @@
 # Set A (all browsers) runs on Chromium (hero-handover and loader.spec) and WebKit (loader.spec);
 # set B (WebKit-only exclusions) runs on WebKit. Not an input to ci-ok. Restore the checks to the
 # blocking jobs on a GPU runner. Assertions are unchanged. Rollback: delete this file.
+# PF-87: job `firefox` runs the hero-settle pose check (live tray vs still, 1024x540, to 60 s) on
+# Firefox, whose no-GPU CI job skips "full tier" titles. Chromium runs it blocking in ci.yml.
 name: Loader graphics checks (manual)
 
 on:
@@ -107,6 +109,49 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: loader-gfx-report-webkit
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore
+
+  firefox:
+    name: hero pose (firefox, PF-87)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      options: --ipc=host
+    env:
+      HOME: /root
+      TMPDIR: ${{ github.workspace }}/.tmp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Workspace temp dir
+        run: mkdir -p "$TMPDIR"
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-loader-gfx
+          path: dist
+      - uses: ./.github/actions/playwright-browser
+        timeout-minutes: 5
+        with:
+          browser: firefox
+      - name: PF-87 hero pose check
+        run: >-
+          bunx playwright test tests/e2e/hero-settle.spec.ts
+          --project=firefox --retries=0
+          --grep "PF-87 AC3 pose"
+          --reporter=list,html
+        env:
+          E2E_PREBUILT: "1"
+          PLAYWRIGHT_HTML_OPEN: never
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: loader-gfx-report-firefox
           path: |
             playwright-report
             test-results

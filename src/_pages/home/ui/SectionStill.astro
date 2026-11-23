@@ -9,7 +9,12 @@
  * still of the section under the scroll position; see `lib/still-crossfade.ts`. Without JS each
  * still stays sticky inside its own section.
  */
-import { MOBILE_STILL_MEDIA, introStillPlaceholder, sectionStillImages } from "../lib/still-images";
+import {
+  MOBILE_STILL_MEDIA,
+  desktopSizes,
+  introStillPlaceholder,
+  sectionStillImages,
+} from "../lib/still-images";
 
 interface Props {
   index: number;
@@ -44,7 +49,7 @@ const placeholderStyle = placeholder
     <img
       src={desktop.src}
       srcset={desktop.srcSet.attribute}
-      sizes="100vw"
+      sizes={desktopSizes(index)}
       width={desktopSrc.width}
       height={desktopSrc.height}
       alt=""
