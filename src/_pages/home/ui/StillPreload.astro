@@ -9,6 +9,7 @@
  */
 import {
   DESKTOP_STILL_MEDIA,
+  INTRO_DESKTOP_SIZES,
   MOBILE_STILL_MEDIA,
   introStillPlaceholder,
   sectionStillImages,
@@ -45,7 +46,7 @@ const bodyPlaceholder =
   type="image/avif"
   media={DESKTOP_STILL_MEDIA}
   imagesrcset={desktop.srcSet.attribute}
-  imagesizes="100vw"
+  imagesizes={INTRO_DESKTOP_SIZES}
   fetchpriority="high"
 />
 <style is:inline set:html={bodyPlaceholder} />
