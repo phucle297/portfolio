@@ -113,7 +113,7 @@ jobs:
           # PF-84 live-tray luma/dE) need a GPU runner; they are excluded here and run from the manual
           # loader-gfx.yml (tools/ci/quarantine.json). Assertions unchanged.
           - group: app-features
-            args: tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts tests/e2e/progress-top.spec.ts tests/e2e/loader.spec.ts tests/e2e/hero-cls.spec.ts tests/e2e/hero-settle.spec.ts tests/e2e/hero-handover.spec.ts --grep-invert "no frame across the exit is brighter than the settled page|the waiting iris is centred on the tray, the right size|ready before 300 ms|the live tray arrives looking like the still, one swap"
+            args: tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/static-stills.spec.ts tests/e2e/ui-preview.spec.ts tests/e2e/progress-top.spec.ts tests/e2e/loader.spec.ts tests/e2e/hero-cls.spec.ts tests/e2e/hero-settle.spec.ts tests/e2e/services-readability.spec.ts tests/e2e/hero-handover.spec.ts --grep-invert "no frame across the exit is brighter than the settled page|the waiting iris is centred on the tray, the right size|ready before 300 ms|the live tray arrives looking like the still, one swap"
           - group: probe-cost
             args: tests/e2e/probe-cost.spec.ts tests/e2e/probe-cost-webgl-disabled.spec.ts
           # PF-03: axe-core scan across tiers and states (report in test-results/a11y, uploaded below).
@@ -204,6 +204,8 @@ jobs:
       # PF-67: loader.spec.ts runs in this blocking job (and in Chromium app-features).
       # PF-87: hero-settle's text check is blocking here; its pose check ("full tier") needs a GPU on
       # Firefox and runs from the manual loader-gfx.yml (PF-81 GPU set).
+      # PF-92: services-readability static/unpinned checks are blocking here; the full-tier accent
+      # plant is titled "full tier" and is Chromium-only (app-features, SwiftShader).
       # PF-81 (a6): the loader graphics checks (set A) are excluded on both browsers; the WebKit-only
       # set B (600 ms open, wait-state iris, 2.6 s cap) too. They run from the manual loader-gfx.yml.
       - name: Playwright Firefox / WebKit tests
@@ -225,7 +227,7 @@ jobs:
             tests/e2e/static-stills.spec.ts tests/e2e/contact-form.spec.ts tests/e2e/mobile-menu.spec.ts \
             tests/e2e/seo.spec.ts tests/e2e/serif-once.spec.ts tests/e2e/ui-preview.spec.ts \
             tests/e2e/cross-browser.spec.ts tests/e2e/a11y.spec.ts tests/e2e/loader.spec.ts \
-            tests/e2e/hero-settle.spec.ts \
+            tests/e2e/hero-settle.spec.ts tests/e2e/services-readability.spec.ts \
             --grep-invert "$invert" \
             --reporter=list,html
         env:

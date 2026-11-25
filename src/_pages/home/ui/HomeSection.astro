@@ -108,6 +108,25 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
     }
   }
 
+  /* PF-92: Services copy that reaches the sticky header is clipped, not drawn through
+     the header's edge. A viewport-fixed overlay (z-index just under the header) covers
+     the header band; it does not change in-flow boxes. Pin mode uses the body mask. */
+  .home-section--services::after {
+    content: "";
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 19;
+    height: var(--header-bottom, var(--header-h));
+    pointer-events: none;
+    background: var(--bg);
+  }
+
+  :global(html[data-pin="on"]) .home-section--services::after {
+    content: none;
+  }
+
   /* ---------- Pinned copy (full tier on large viewports, see lib/copy-layer.ts) ----------
      Each section's copy is pinned over the scene and scrubbed by the shared timeline: the
      copy layer writes --copy-o / --copy-y. Copy is never display:none / visibility:hidden, and
@@ -195,12 +214,24 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
     );
   }
 
+  /* PF-92: the Services heading plate (ServicesSection .services__head::before) is the
+     copy backing. Drop the top-only radial so the heading is not double-scrimmed and the
+     scene stays undimmed. Clip pinned copy at the sticky header's bottom edge. */
   :global(html[data-pin="on"]) .home-section--services .home-section__body {
-    --pin-scrim: radial-gradient(
-      34.4vw 28vh at 50% 14%,
-      var(--scrim-a),
-      var(--scrim-b) 60%,
-      rgb(14 10 8 / 0)
+    --pin-scrim: none;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent var(--header-bottom, var(--header-h)),
+      #000 calc(var(--header-bottom, var(--header-h)) + 12px),
+      #000
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent var(--header-bottom, var(--header-h)),
+      #000 calc(var(--header-bottom, var(--header-h)) + 12px),
+      #000
     );
   }
 
