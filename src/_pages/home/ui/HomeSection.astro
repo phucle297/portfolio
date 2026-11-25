@@ -219,9 +219,6 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
      scene stays undimmed. Clip pinned copy at the sticky header's bottom edge. */
   :global(html[data-pin="on"]) .home-section--services .home-section__body {
     --pin-scrim: none;
-    /* Body opacity would fade the heading plate too; keep the body solid and fade
-       the copy children so the plate stays at ≥ 0.92 while text is visible. */
-    opacity: 1;
     -webkit-mask-image: linear-gradient(
       to bottom,
       transparent 0,
@@ -236,24 +233,6 @@ const { id, index, labelledBy, align = "center" } = Astro.props;
       #000 calc(var(--header-bottom, var(--header-h)) + 12px),
       #000
     );
-  }
-
-  :global(html[data-pin="on"]) .home-section--services :global(.services__head > *) {
-    opacity: var(--copy-o, 0);
-  }
-
-  :global(html[data-pin="on"])
-    .home-section--services
-    .home-section__body
-    :global(.services__list) {
-    opacity: var(--copy-o, 0);
-  }
-
-  :global(html[data-pin="on"])
-    .home-section--services
-    .home-section__body
-    :global(.services__price[data-beat]) {
-    opacity: calc(var(--copy-o, 0) * var(--beat-o, 0));
   }
 
   :global(html[data-pin="on"]) .home-section--process .home-section__body {
