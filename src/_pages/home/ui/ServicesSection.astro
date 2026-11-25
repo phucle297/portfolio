@@ -4,7 +4,7 @@ import HomeSection from "./HomeSection.astro";
 ---
 
 <HomeSection id="services" index={3} labelledBy="services-title">
-  <div class="services__head">
+  <div class="services__head" data-services-plate>
     <p class="eyebrow">{services.eyebrow}</p>
     <h2 id="services-title" class="display section-title">
       {services.title} <em>{services.titleAccent}</em>
@@ -42,10 +42,34 @@ import HomeSection from "./HomeSection.astro";
 
 <style>
   .services__head {
+    /* isolation + relative: the plate is a z-index -1 ::before that must sit above the
+       section still / canvas and behind the glyphs, without moving the type (PF-92). */
+    position: relative;
+    z-index: 0;
+    isolation: isolate;
     display: grid;
     gap: 1rem;
     justify-items: center;
     text-align: center;
+    --services-plate-opacity: 0.94;
+  }
+
+  /* Solid #0E0A08 (--ink / --bg) plate at ≥ 0.92 (prefer 0.94) in every layout. Absolute so
+     heading / card / price boxes do not jump. Soft edge ≤ 24 px; glyphs sit on the opaque
+     inset, not on the fade. */
+  .services__head::before {
+    content: "";
+    position: absolute;
+    inset: -12px -20px;
+    z-index: -1;
+    pointer-events: none;
+    background: color-mix(
+      in srgb,
+      var(--ink) calc(var(--services-plate-opacity) * 100%),
+      transparent
+    );
+    box-shadow: 0 0 16px 8px
+      color-mix(in srgb, var(--ink) calc(var(--services-plate-opacity) * 100%), transparent);
   }
 
   .services__subline {
